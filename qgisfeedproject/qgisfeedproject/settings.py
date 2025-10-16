@@ -221,3 +221,31 @@ BLUESKY_PASSWORD = os.environ.get("BLUESKY_PASSWORD", "")
 # Telegram
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
+
+# Local settings overrides
+# Must be the last!
+DJANGO_LOCAL_SETTINGS = os.environ.get(
+    "DJANGO_LOCAL_SETTINGS", "settings_local_override.py"
+)
+
+try:
+    from pathlib import Path
+
+    local_settings_path = Path(__file__).parent / DJANGO_LOCAL_SETTINGS
+    if local_settings_path.exists():
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "settings_local_override", local_settings_path
+        )
+        settings_local_override = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(settings_local_override)
+        for setting in dir(settings_local_override):
+            if setting.isupper():
+                globals()[setting] = getattr(settings_local_override, setting)
+    else:
+        raise ImportError(
+            f"Local settings file {DJANGO_LOCAL_SETTINGS} does not exist."
+        )
+except ImportError:
+    pass

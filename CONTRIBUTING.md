@@ -71,6 +71,7 @@ TODO: Install all dependecies when running nix-shell.
 $ make dev-build
 ```
 
+#### Environment setup
 - Create `settings_local.py` int the `qgisfeedproject` directory, configure the media folder as in the example below:
 
 ```python
@@ -104,6 +105,21 @@ See https://docs.djangoproject.com/en/2.2/topics/email/#module-django.core.mail 
 ```python
 QGISFEED_MAX_RECORDS=40  # default value is 20
 ```
+
+**IMPORTANT NOTE**: For new Django variables, please use the `settings_local_override.py` as the `.env` file is not supported by the new production infrastructure.
+
+#### Django Local Settings Override (`settings_local_override.py`)
+
+- Create settings_local_override.py file
+```bash
+$ cp settings_local_override.py.templ settings_local_override.py
+```
+
+- Edit settings_local_override.py file and set your environment variables
+
+**IMPORTANT NOTE**: As we are migrating to a declarative based infrastructure, it is preferable to use the `settings_local_override.py` file for all new Django variables. This file is ignored when commiting so please make sure you define your new variables with an example value (**NOT THE REAL ONE FOR SECRETS AND PASSWORDS**) inside the `settings_local_override.py.templ` file.
+
+#### Spin up the development environment
 
 - Start the docker the container
 ```bash
