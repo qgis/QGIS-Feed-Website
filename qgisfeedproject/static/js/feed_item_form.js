@@ -50,18 +50,65 @@ titleField.addEventListener("input", function () {
 // Update image in preview when input change
 imageField.addEventListener("change", function () {
   let selectedImage = imageField.files[0];
-  imagePreview.forEach((item) => {
-    if (selectedImage) {
-      let imageURL = URL.createObjectURL(selectedImage);
-      item.innerHTML =
-        '<img src="' + imageURL + '" style="border-radius:20px;">';
-      imageFileName.innerHTML = selectedImage.name;
-    } else {
+  if (selectedImage) {
+    let imageURL = URL.createObjectURL(selectedImage);
+    let img = new Image();
+    img.onload = function () {
+      // Target dimensions
+      const targetWidth = 500;
+      const targetHeight = 354;
+      const targetAspect = targetWidth / targetHeight;
+      
+      // Source dimensions
+      const sourceAspect = img.width / img.height;
+      
+      // Calculate crop dimensions
+      let cropWidth, cropHeight, cropX, cropY;
+      
+      if (sourceAspect > targetAspect) {
+        // Image is wider, crop width
+        cropHeight = img.height;
+        cropWidth = img.height * targetAspect;
+        cropX = (img.width - cropWidth) / 2;
+        cropY = 0;
+      } else {
+        // Image is taller, crop height
+        cropWidth = img.width;
+        cropHeight = img.width / targetAspect;
+        cropX = 0;
+        cropY = (img.height - cropHeight) / 2;
+      }
+      
+      // Create canvas and crop/scale image
+      const canvas = document.createElement('canvas');
+      canvas.width = targetWidth;
+      canvas.height = targetHeight;
+      const ctx = canvas.getContext('2d');
+      
+      ctx.drawImage(
+        img,
+        cropX, cropY, cropWidth, cropHeight,
+        0, 0, targetWidth, targetHeight
+      );
+      
+      // Convert to data URL and display
+      const croppedImageURL = canvas.toDataURL('image/jpeg', 0.9);
+      imagePreview.forEach((item) => {
+        item.innerHTML =
+          '<img src="' + croppedImageURL + '" style="max-width:100%;height:auto;border-radius:20px;">';
+      });
+      
+      URL.revokeObjectURL(imageURL);
+    };
+    img.src = imageURL;
+    imageFileName.innerHTML = selectedImage.name;
+  } else {
+    imagePreview.forEach((item) => {
       item.innerHTML = "";
-      imageFileName.innerHTML =
-        "<i>No image chosen. Click here to add an image.</i>";
-    }
-  });
+    });
+    imageFileName.innerHTML =
+      "<i>No image chosen. Click here to add an image.</i>";
+  }
   checkFormValid();
 });
 
