@@ -14,6 +14,7 @@
 {% endblock stylesheets %}
 {% block content %}
 
+<div class="container">
 <h1 class="title">
     QGIS Feed Management
 </h1>
@@ -99,16 +100,6 @@
                 </span>
               </div>
             </div>
-
-
-          <div class="field">
-            <label class="label">
-              Need review:
-            </label>
-            <div class="select is-fullwidth">
-              {{form.need_review}}
-            </div>
-          </div>
         </div>
     </div>
   </form>
@@ -181,8 +172,18 @@
               </a>
           </th>
           <th>Spatial Filter</th>
-          <th>Need review</th>
-          <th>Published</th>
+          <th>
+              <a href="?page={{ feeds_entry.number }}&sort_by=status&order={{ order|lower|default:"asc" }}">
+                  {% if sort_by == "status" and order == "desc" %}
+                  &uarr;
+                  {% elif sort_by == "status" and order == "asc"%}
+                  &darr;
+                  {% else %}
+
+                  {% endif %}
+                  Status
+              </a>
+          </th>
           <th>
               <a href="?page={{ feeds_entry.number }}&sort_by=publish_from&order={{ order|lower|default:"asc" }}">
                   {% if sort_by == "publish_from" and order == "desc" %}
@@ -231,25 +232,14 @@
                       -
                     {% endif %}
                   </td>
-                  <td class="has-text-centered">
-                      {% if not feed.published %}
-                          <span class="icon has-text-danger">
-                              <i class="fa-solid fa-circle-exclamation"></i>
-                          </span>
-                      {% else %}
-                          -
-                      {% endif %}
-                  </td>
-                  <td class="has-text-centered">
-                      {% if feed.published %}
-                          <span class="icon has-text-success">
-                              <i class="fa-solid fa-circle-check"></i>
-                          </span>
-                      {% else %}
-                          <span class="icon has-text-danger">
-                              <i class="fa-solid fa-circle-xmark"></i>
-                          </span>
-                      {% endif %}
+                  <td>
+                    <span class="tag {% if feed.status == 'published' %}is-success
+                                      {% elif feed.status == 'approved' %}is-primary
+                                      {% elif feed.status == 'pending_review' %}is-warning
+                                      {% elif feed.status == 'changes_requested' %}is-danger
+                                      {% else %}is-light{% endif %}">
+                        {{ feed.get_status_display }}
+                    </span>
                   </td>
 
                   <td>{{ feed.publish_from|date:"Y-m-d, H:i"|default:"-" }}</td>
@@ -358,4 +348,5 @@
     }).trigger('change');
   });
 </script>
+</div> <!-- End of container -->
 {% endblock javascripts %}
