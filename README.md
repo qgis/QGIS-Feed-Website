@@ -188,42 +188,174 @@ A home page that displays feeds as they are rendered in QGIS is now available at
 </details>
 
 <details>
-    <summary><strong>Control panel and permissions</strong></summary>
+    <summary><strong>User Roles and Permissions</strong></summary>
     </br>
 
-Users with `staff` flag can enter the control panel at `/admin` and add feed entries, by default entries are not published.
+The system has three main user roles with different capabilities:
 
-Users with `superadmin` flag will be notified by email when an entry is added to the feed and will be able to publish the entry.
+### 📝 Authors (Staff Users)
+Users with the `staff` flag can:
+- Create new feed entries
+- Edit their own entries (including during review)
+- Submit entries for review
+- Add comments to their entries and respond to reviewer feedback
+- View all entries and their statuses
 
-Appart from `superadmin`, only users with the permission `qgisfeed | Can publish QGIS feed` can publish the entry. Like the group `qgisfeedentry_authors`, the group `qgisfeedentry_approver` with the permission `qgisfeed | Can publish QGIS feed` are created when a `Save` signal from the `User` model is detected.
+### ✅ Reviewers (Approvers)
+Users with the `qgisfeed.publish_qgisfeedentry` permission can:
+- Review any entry (including their own if they're also the author)
+- Approve entries (moves status to "Approved")
+- Request changes from authors
+- Add comments to any entry
+- Publish approved entries
 
-For content field, a hard limit on the number of characters allowed is configurable in administration page (Character limit configurations). If not set, max characters value for this field is 500. If you want to add a custom max characters for this field, the field name value should be `content`.
+### 👑 Superusers
+Superusers have all permissions and can:
+- Do everything authors and reviewers can do
+- Self-approve and publish their own entries
+- Manage all system settings
+
+**Note:** The groups `qgisfeedentry_authors` and `qgisfeedentry_approvers` are automatically created when needed.
+
+</details>
+
+<details>
+    <summary><strong>Review Workflow</strong></summary>
+    </br>
+
+The review system works similarly to GitHub Pull Requests, enabling collaborative review and discussion:
+
+### 📋 Workflow Steps
+
+1. **Create Entry (Draft)**
+   - Author creates a new feed entry
+   - Entry starts in "Draft" status
+   - Author can assign multiple reviewers
+
+2. **Submit for Review**
+   - Author clicks "Submit for Review"
+   - Entry moves to "Pending Review" status
+   - Assigned reviewers are notified by email
+   - **Author can still edit the entry while under review**
+
+3. **Review Process**
+   - Reviewers can:
+     - ✅ **Approve** - Entry moves to "Approved" status (ready to publish)
+     - ⚠️ **Request Changes** - Entry moves to "Changes Requested" status
+     - 💬 **Add Comment** - Provide feedback without changing status
+   - **Multiple reviewers can be assigned**
+   - Each reviewer's status is tracked independently
+   - Authors can respond with comments at any time
+
+4. **Addressing Feedback**
+   - Author makes requested changes
+   - Entry stays in review state (doesn't reset)
+   - Reviewers are notified of updates
+   - Review conversation continues
+
+5. **Approval**
+   - **Any one reviewer approval** moves entry to "Approved" status
+   - No need to wait for all reviewers
+   - Multiple approvals are visible but not required
+
+6. **Publishing**
+   - Only users with publish permission can publish
+   - Authors **without** publish permission cannot publish (even their own entries)
+   - Authors **with** publish permission can self-approve and publish
+   - Entry moves to "Published" status and goes live
+
+### 🔄 Status Flow
+
+```
+Draft → Pending Review → Approved → Published
+           ↓
+    Changes Requested → (back to Pending Review)
+```
+
+### 💬 Communication During Review
+
+- **Review History**: All actions are visible in chronological order (oldest first)
+- **Comments**: Both authors and reviewers can add comments at any time
+- **Status Badges**: Visual indicators show each reviewer's current state:
+  - ✅ Green: Approved
+  - ⚠️ Yellow: Changes Requested
+  - 💬 Blue: Comment Only
+  - ⏰ Gray: Pending (not reviewed yet)
+
+### 👥 Multi-Reviewer Support
+
+- Multiple reviewers can be assigned to one entry
+- Reviewers are visible throughout the entire workflow
+- Each reviewer's status is tracked and displayed separately
+- Authors can see who has approved and who is still pending
+
 </details>
 
 <details>
     <summary><strong>Manage feeds page</strong></summary>
     </br>
 
-***Note: The permissions for this page are the same as described in the Control Panel and permissions.***
+After logging in at `/accounts/login/` (accessible from the **Login** button on the **Homepage**), users can manage feed items:
 
-After logging in with the login screen at `/accounts/login/` (can be also accessed from the **Login** button on the **Homepage**), users are provided with tools to manage feed items:
-- A list of feed items, sortable and filterable by title, date published, author, language, need review
-- A button to create a new feed item - clicking will take you to a blank feed item form (See **Feed item form** below)
-- Clicking on an item on the list will take you to a feed item form (See **Feed item form** below)
+- View a list of all feed items
+- Sort and filter by: title, date published, author, language, review status
+- Create new feed items (click "New entry" button)
+- Edit existing entries (click on any item in the list)
+- See entry status badges (Draft, Pending Review, Changes Requested, Approved, Published)
 
 </details>
-
 
 <details>
     <summary><strong>Feed item form</strong></summary>
     </br>
 
-The feed item form page is displayed when clicking the **New entry** item button or an item on the list:
-- The feed item form is displayed on the left with all the widgets needed to edit the entry. On the right, a preview of the entry as it will be rendered in QGIS. Any edits made in the form shall immediately update the preview.
-- In the content widget only the following html tags are allowed: p, strong, italics. A hard limit on the number of characters allowed is configurable in administration page in the model `Character limit configurations` (default is 500).
-- Once a feed item is created or modified, there will be a review step where the user is asked to confirm that they have checked everything carefully.
-- The form is placed in the column **Need review** in the list before final submission.
-- The form must be approved by someone the permission `qgisfeed | Can publish QGIS feed` before it is published.
+### Form Layout
+- **Left side**: Edit form with all entry fields
+- **Right side**: Live preview showing how it will appear in QGIS
+- Changes update the preview in real-time
+
+### Key Features
+
+#### Reviewers Selection
+- Available on both create and edit forms
+- Select multiple reviewers using the dropdown
+- Reviewers are notified by email when assigned
+
+#### Reviewer Status Panel
+Shows the current state of each assigned reviewer:
+- Name and review status (Pending, Approved, Changes Requested)
+- Timestamp of their last action
+- Color-coded visual indicators
+
+#### Content Editor
+- Rich text editor with limited HTML tags: `<p>`, `<strong>`, `<em>`
+- Character limit is configurable (default: 500 characters)
+- Live character counter
+
+#### Actions Available
+
+**For Authors:**
+- Save as draft
+- Submit for review
+- Edit during review (stays in review state)
+- Add comments for reviewers
+
+**For Reviewers:**
+- Approve entry
+- Request changes
+- Add comments
+- Publish (if approved)
+
+**For Authors with Publish Permission:**
+- All author actions
+- All reviewer actions (can self-approve and publish)
+
+### Review & Comment Section
+- Visible when entry is under review, has changes requested, or is approved
+- Shows all review history in chronological order
+- Authors can add comments at any time
+- Reviewers can approve, request changes, or comment
+- Comment field is always available for both parties
 
 </details>
 

@@ -155,14 +155,24 @@ class QgisFeedEntry(models.Model):
         help_text=_("Current workflow status of the entry"),
     )
 
+    # Changed to ManyToMany to support multiple reviewers
+    reviewers = models.ManyToManyField(
+        get_user_model(),
+        blank=True,
+        related_name="reviewing_entries",
+        verbose_name=_("Assigned Reviewers"),
+        help_text=_("Reviewers assigned to this entry"),
+    )
+
+    # Keep for backward compatibility but deprecate in favor of reviewers ManyToMany
     assigned_reviewer = models.ForeignKey(
         get_user_model(),
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name="reviewing_entries",
-        verbose_name=_("Assigned Reviewer"),
-        help_text=_("Primary reviewer assigned to this entry"),
+        related_name="legacy_reviewing_entries",
+        verbose_name=_("Legacy Assigned Reviewer"),
+        help_text=_("Deprecated: Use reviewers field instead"),
     )
 
     # Options
@@ -244,6 +254,71 @@ class QgisFeedEntry(models.Model):
             return choices_dict.get(self.language_filter, "English")
         return None
 
+    def get_reviewer_status(self, reviewer):
+        """Get the latest review status from a specific reviewer"""
+        latest_review = (
+            self.reviews.filter(reviewer=reviewer).order_by("-created_at").first()
+        )
+        if latest_review:
+            return {
+                "action": latest_review.action,
+                "comment": latest_review.comment,
+                "created_at": latest_review.created_at,
+            }
+        return None
+
+    def get_all_reviewer_statuses(self):
+        """Get the latest review status from each assigned reviewer"""
+        from django.db.models import Max
+
+        statuses = {}
+        for reviewer in self.reviewers.all():
+            latest_review = (
+                self.reviews.filter(reviewer=reviewer).order_by("-created_at").first()
+            )
+            if latest_review:
+                statuses[reviewer.id] = {
+                    "reviewer": reviewer,
+                    "action": latest_review.action,
+                    "comment": latest_review.comment,
+                    "created_at": latest_review.created_at,
+                    "display": latest_review.get_action_display(),
+                }
+            else:
+                # Reviewer assigned but hasn't reviewed yet
+                statuses[reviewer.id] = {
+                    "reviewer": reviewer,
+                    "action": None,
+                    "comment": None,
+                    "created_at": None,
+                    "display": "Pending",
+                }
+        return statuses
+
+    def has_reviewer_approved(self, reviewer):
+        """Check if a specific reviewer has approved this entry"""
+        latest_review = (
+            self.reviews.filter(reviewer=reviewer).order_by("-created_at").first()
+        )
+        return latest_review and latest_review.action == FeedEntryReview.ACTION_APPROVE
+
+    def all_reviewers_approved(self):
+        """Check if all assigned reviewers have approved"""
+        if not self.reviewers.exists():
+            return False
+
+        for reviewer in self.reviewers.all():
+            if not self.has_reviewer_approved(reviewer):
+                return False
+        return True
+
+    def any_reviewer_approved(self):
+        """Check if at least one reviewer has approved"""
+        for reviewer in self.reviewers.all():
+            if self.has_reviewer_approved(reviewer):
+                return True
+        return False
+
     class Meta:
         db_table = ""
         managed = True
@@ -315,12 +390,23 @@ class FeedEntryReview(models.Model):
     created_at = models.DateTimeField(_("Created at"), auto_now_add=True)
 
     class Meta:
-        ordering = ["-created_at"]
+        ordering = ["created_at"]  # Oldest first for conversation flow
         verbose_name = _("Feed Entry Review")
         verbose_name_plural = _("Feed Entry Reviews")
+        # Allow multiple reviews per reviewer (for tracking status changes)
 
     def __str__(self):
         return f"{self.reviewer.username} - {self.get_action_display()} - {self.entry.title}"
+
+    @property
+    def is_latest_for_reviewer(self):
+        """Check if this is the latest review from this reviewer for this entry"""
+        latest = (
+            FeedEntryReview.objects.filter(entry=self.entry, reviewer=self.reviewer)
+            .order_by("-created_at")
+            .first()
+        )
+        return latest and latest.pk == self.pk
 
 
 class FeedEntryRevision(models.Model):

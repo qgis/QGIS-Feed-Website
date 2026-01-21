@@ -379,6 +379,13 @@ class FeedEntryAddView(View):
                 # Set initial status
                 new_object.status = QgisFeedEntry.DRAFT
                 new_object.save()
+
+                # Handle reviewers assignment
+                if form.cleaned_data.get("reviewers"):
+                    reviewer_ids = form.cleaned_data.get("reviewers")
+                    reviewers_to_add = User.objects.filter(pk__in=reviewer_ids)
+                    new_object.reviewers.set(reviewers_to_add)
+
                 success = True
 
                 # Check if submitting for review
@@ -387,40 +394,26 @@ class FeedEntryAddView(View):
                     new_object.status = QgisFeedEntry.PENDING_REVIEW
                     new_object.save()
 
-                    # If at least one reviewer is specified,
-                    # set the specified reviewers as recipients
-                    # and cc the other reviewers.
-                    # Otherwise, send the email to all reviewers.
-                    reviewers = User.objects.filter(
-                        is_active=True, email__isnull=False
-                    ).exclude(email="")
-
-                    recipients = [
-                        u.email
-                        for u in reviewers
-                        if u.has_perm("qgisfeed.publish_qgisfeedentry")
-                    ]
-                    cc_list = []
-                    if (
-                        form.cleaned_data.get("approvers")
-                        and len(form.cleaned_data.get("approvers")) > 0
-                    ):
-                        approver_ids = form.cleaned_data.get("approvers")
+                    # Notify assigned reviewers or all reviewers
+                    if new_object.reviewers.exists():
+                        recipients = [
+                            r.email
+                            for r in new_object.reviewers.all()
+                            if r.email and r.has_perm("qgisfeed.publish_qgisfeedentry")
+                        ]
+                    else:
+                        # No specific reviewers, notify all possible reviewers
+                        reviewers = User.objects.filter(
+                            is_active=True, email__isnull=False
+                        ).exclude(email="")
                         recipients = [
                             u.email
-                            for u in reviewers.filter(pk__in=approver_ids)
-                            if u.has_perm("qgisfeed.publish_qgisfeedentry")
-                        ]
-                        cc_list = [
-                            u.email
-                            for u in reviewers.exclude(pk__in=approver_ids)
+                            for u in reviewers
                             if u.has_perm("qgisfeed.publish_qgisfeedentry")
                         ]
 
                     if recipients and len(recipients) > 0:
-                        notify_reviewers(
-                            request.user, request, recipients, cc_list, new_object
-                        )
+                        notify_reviewers(request.user, request, recipients, new_object)
 
                     messages.success(request, "Feed entry submitted for review!")
                 else:
@@ -476,6 +469,9 @@ class FeedEntryUpdateView(View):
         # Get review history
         reviews = feed_entry.reviews.all()
 
+        # Get reviewer statuses
+        reviewer_statuses = feed_entry.get_all_reviewer_statuses()
+
         # Get revision history
         revisions = feed_entry.revisions.all()[:5]  # Show last 5 revisions
 
@@ -498,6 +494,7 @@ class FeedEntryUpdateView(View):
             "user_can_submit": user_can_submit,
             "user_can_publish": user_can_publish,
             "reviews": reviews,
+            "reviewer_statuses": reviewer_statuses,
             "revisions": revisions,
             "content_max_length": get_field_max_length(
                 CharacterLimitConfiguration, field_name="content"
@@ -542,6 +539,15 @@ class FeedEntryUpdateView(View):
                     change_summary = request.POST.get("change_summary", "Entry updated")
                     create_revision_snapshot(feed_entry, user, change_summary)
 
+                # Save the instance first
+                instance.save()
+
+                # Handle reviewers assignment (update ManyToMany relationship)
+                if form.cleaned_data.get("reviewers"):
+                    reviewer_ids = form.cleaned_data.get("reviewers")
+                    reviewers_to_add = User.objects.filter(pk__in=reviewer_ids)
+                    instance.reviewers.set(reviewers_to_add)
+
                 # Handle different actions
                 action = request.POST.get("action", "save")
 
@@ -555,36 +561,34 @@ class FeedEntryUpdateView(View):
                         if original_status == QgisFeedEntry.CHANGES_REQUESTED:
                             notify_reviewers_resubmitted(instance, request)
                         else:
-                            # First time submission - send to selected reviewers
-                            reviewers = User.objects.filter(
-                                is_active=True, email__isnull=False
-                            ).exclude(email="")
-
-                            recipients = [
-                                u.email
-                                for u in reviewers
-                                if u.has_perm("qgisfeed.publish_qgisfeedentry")
-                            ]
-
-                            if form.cleaned_data.get("approvers"):
-                                approver_ids = form.cleaned_data.get("approvers")
+                            # Submission - send to assigned reviewers
+                            if instance.reviewers.exists():
+                                recipients = [
+                                    r.email
+                                    for r in instance.reviewers.all()
+                                    if r.email
+                                    and r.has_perm("qgisfeed.publish_qgisfeedentry")
+                                ]
+                            else:
+                                # No specific reviewers, notify all
+                                reviewers = User.objects.filter(
+                                    is_active=True, email__isnull=False
+                                ).exclude(email="")
                                 recipients = [
                                     u.email
-                                    for u in reviewers.filter(pk__in=approver_ids)
+                                    for u in reviewers
                                     if u.has_perm("qgisfeed.publish_qgisfeedentry")
                                 ]
 
                             if recipients:
-                                notify_reviewers(
-                                    user, request, recipients, [], instance
-                                )
+                                notify_reviewers(user, request, recipients, instance)
 
                         messages.success(request, "Entry submitted for review!")
                     else:
                         messages.error(request, "Cannot submit this entry for review.")
 
                 elif action == "publish":
-                    # Reviewer publishing approved entry
+                    # Author or reviewer publishing approved entry
                     if can_publish_entry(user, instance):
                         instance.status = QgisFeedEntry.PUBLISHED
                         instance.published = True
@@ -592,8 +596,9 @@ class FeedEntryUpdateView(View):
                             instance.publish_from = timezone.now()
                         instance.save()
 
-                        # Notify author
-                        notify_author_published(instance, request)
+                        # Notify author if published by reviewer
+                        if not user_is_author:
+                            notify_author_published(instance, request)
                         messages.success(request, "Entry published successfully!")
                     else:
                         messages.error(
@@ -625,6 +630,16 @@ class FeedEntryUpdateView(View):
                             request,
                             "Approved entry updated. It has been sent back for review.",
                         )
+                    # If author is editing entry under review, keep it under review
+                    elif (
+                        original_status == QgisFeedEntry.PENDING_REVIEW
+                        and user_is_author
+                    ):
+                        # Keep status as pending review
+                        instance.save()
+                        messages.success(
+                            request, "Changes saved! Entry remains under review."
+                        )
                     else:
                         instance.save()
                         messages.success(request, "Changes saved successfully!")
@@ -637,6 +652,7 @@ class FeedEntryUpdateView(View):
 
         # Re-render with errors
         reviews = feed_entry.reviews.all()
+        reviewer_statuses = feed_entry.get_all_reviewer_statuses()
         revisions = feed_entry.revisions.all()[:5]
 
         args = {
@@ -651,6 +667,7 @@ class FeedEntryUpdateView(View):
             "user_can_submit": can_submit_for_review(user, feed_entry),
             "user_can_publish": can_publish_entry(user, feed_entry),
             "reviews": reviews,
+            "reviewer_statuses": reviewer_statuses,
             "revisions": revisions,
             "content_max_length": get_field_max_length(
                 CharacterLimitConfiguration, field_name="content"
@@ -673,12 +690,10 @@ class FeedEntryDetailView(View):
 
 
 @method_decorator(staff_required, name="dispatch")
-@method_decorator(
-    permission_required("qgisfeed.publish_qgisfeedentry"), name="dispatch"
-)
 class FeedEntryReviewActionView(View):
     """
-    Handle reviewer actions: approve, request changes, comment
+    Handle reviewer actions and author comments
+    Authors can comment, reviewers can approve/request changes/comment
     """
 
     def post(self, request, pk):
@@ -686,16 +701,32 @@ class FeedEntryReviewActionView(View):
 
         entry = get_object_or_404(QgisFeedEntry, pk=pk)
 
-        # Check if user can review this entry
-        if not can_review_entry(request.user, entry):
-            messages.error(request, "You cannot review your own entries.")
+        # Authors can comment on their own entries
+        # Authors with publish permission or superusers can also approve/request changes
+        is_author = entry.author == request.user
+        can_review = can_review_entry(request.user, entry)
+
+        if not is_author and not can_review:
+            messages.error(
+                request, "You don't have permission to comment on this entry."
+            )
             return redirect("feed_entry_update", pk=pk)
 
         action = request.POST.get("action")
         comment = request.POST.get("comment", "")
 
-        if not comment and action != FeedEntryReview.ACTION_COMMENT:
-            messages.error(request, "Please provide a comment for your review.")
+        # Authors without publish permission can only add comments
+        # Authors with publish permission or superusers can approve/request changes
+        if is_author and action != FeedEntryReview.ACTION_COMMENT:
+            if not can_review:
+                messages.error(
+                    request,
+                    "Authors can only add comments, not approve or request changes.",
+                )
+                return redirect("feed_entry_update", pk=pk)
+
+        if not comment:
+            messages.error(request, "Please provide a comment.")
             return redirect("feed_entry_update", pk=pk)
 
         with transaction.atomic():
@@ -706,10 +737,11 @@ class FeedEntryReviewActionView(View):
 
             # Update entry status based on action
             if action == FeedEntryReview.ACTION_APPROVE:
+                # Set to APPROVED after any reviewer approves
+                # (not waiting for all reviewers)
                 entry.status = QgisFeedEntry.APPROVED
                 entry.save()
                 messages.success(request, "Entry approved! You can now publish it.")
-
                 # Notify author
                 notify_author_approved(entry, review, request)
 
@@ -722,7 +754,12 @@ class FeedEntryReviewActionView(View):
                 notify_author_changes_requested(entry, review, request)
 
             elif action == FeedEntryReview.ACTION_COMMENT:
-                messages.success(request, "Comment added to review.")
+                if is_author:
+                    messages.success(
+                        request, "Your comment has been added for reviewers to see."
+                    )
+                else:
+                    messages.success(request, "Comment added to review.")
 
         return redirect("feed_entry_update", pk=pk)
 
