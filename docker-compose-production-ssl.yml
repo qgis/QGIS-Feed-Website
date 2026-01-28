@@ -23,7 +23,7 @@ services:
       internal:
 
   metabase:
-    image: metabase/metabase:v0.49.10
+    image: ${METABASE_DOCKER_IMAGE}
     hostname: metabase-secrets
     volumes:
       - /dev/urandom:/dev/random:ro
