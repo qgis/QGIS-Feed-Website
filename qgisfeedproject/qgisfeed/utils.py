@@ -23,8 +23,8 @@ def simplify(text: str) -> str:
     return str(text)
 
 
-def notify_reviewers(author, request, recipients, cc, obj):
-    """Send notification emails"""
+def notify_reviewers(author, request, recipients, obj):
+    """Send notification emails to reviewers (no CC needed in new system)"""
     body = f"""
         Hi, \r\n
         {author.username} asked you to review the feed entry available at {request.build_absolute_uri(reverse('feed_entry_update', args=(obj.pk,)))}
@@ -36,7 +36,6 @@ def notify_reviewers(author, request, recipients, cc, obj):
         body,
         DEFAULT_FROM_EMAIL,
         recipients,
-        cc=cc,
     )
     msg.send(fail_silently=True)
 
@@ -72,3 +71,217 @@ def get_location(remote_addr: str) -> str:
         except Exception:
             return None
     return None
+
+
+# Permission helper functions for feed entry workflow
+def can_edit_entry(user, entry):
+    """
+    Check if user can edit this entry.
+
+    Rules:
+    - Author can edit if status is DRAFT, CHANGES_REQUESTED, PENDING_REVIEW, APPROVED, or PUBLISHED
+      (editing APPROVED/PUBLISHED entries will trigger re-review)
+    - Reviewers (users with publish permission) can always edit
+    - Superusers can always edit
+    """
+    from qgisfeed.models import QgisFeedEntry
+
+    if user.is_superuser:
+        return True
+
+    # Reviewers can always edit
+    if user.has_perm("qgisfeed.publish_qgisfeedentry"):
+        return True
+
+    # Author can edit in multiple statuses, including PENDING_REVIEW
+    if entry.author == user:
+        return entry.status in [
+            QgisFeedEntry.DRAFT,
+            QgisFeedEntry.CHANGES_REQUESTED,
+            QgisFeedEntry.PENDING_REVIEW,  # Authors can now edit while under review
+            QgisFeedEntry.APPROVED,
+            QgisFeedEntry.PUBLISHED,
+        ]
+
+    return False
+
+
+def can_submit_for_review(user, entry):
+    """
+    Check if user can submit entry for review.
+
+    Rules:
+    - Only the author can submit
+    - Entry must be in DRAFT or CHANGES_REQUESTED status
+    """
+    from qgisfeed.models import QgisFeedEntry
+
+    return entry.author == user and entry.status in [
+        QgisFeedEntry.DRAFT,
+        QgisFeedEntry.CHANGES_REQUESTED,
+    ]
+
+
+def can_review_entry(user, entry):
+    """
+    Check if user can review this entry.
+
+    Rules:
+    - User must have publish permission
+    - Authors WITH publish permission CAN review their own entries
+    """
+    return user.has_perm("qgisfeed.publish_qgisfeedentry")
+
+
+def can_publish_entry(user, entry):
+    """
+    Check if user can publish this entry.
+
+    Rules:
+    - User must have publish permission
+    - Entry must be in APPROVED status
+    - At least one reviewer must have approved (not all)
+    """
+    from qgisfeed.models import QgisFeedEntry
+
+    if entry.status != QgisFeedEntry.APPROVED:
+        return False
+
+    # Only reviewers with publish permission can publish
+    if user.has_perm("qgisfeed.publish_qgisfeedentry"):
+        return True
+
+    return False
+
+
+# Extended notification functions for review workflow
+def notify_author_changes_requested(entry, review, request):
+    """Notify author that changes were requested"""
+    if not entry.author.email:
+        return
+
+    body = f"""
+    Hi {entry.author.username},
+
+    Your feed entry "{entry.title}" needs some changes before it can be published.
+
+    Reviewer: {review.reviewer.username}
+    Comment: {review.comment}
+
+    Please review the feedback and make the necessary changes at:
+    {request.build_absolute_uri(reverse('feed_entry_update', args=(entry.pk,)))}
+
+    Your beloved QGIS Feed bot.
+    """
+
+    msg = EmailMultiAlternatives(
+        f"Changes requested for: {entry.title}",
+        body,
+        DEFAULT_FROM_EMAIL,
+        [entry.author.email],
+    )
+    msg.send(fail_silently=True)
+
+
+def notify_author_approved(entry, review, request):
+    """Notify author that entry was approved"""
+    if not entry.author.email:
+        return
+
+    body = f"""
+    Hi {entry.author.username},
+
+    Great news! Your feed entry "{entry.title}" has been approved and will be published soon.
+
+    Reviewer: {review.reviewer.username}
+    Comment: {review.comment}
+
+    View your entry at:
+    {request.build_absolute_uri(reverse('feed_entry_update', args=(entry.pk,)))}
+
+    Your beloved QGIS Feed bot.
+    """
+
+    msg = EmailMultiAlternatives(
+        f"Feed entry approved: {entry.title}",
+        body,
+        DEFAULT_FROM_EMAIL,
+        [entry.author.email],
+    )
+    msg.send(fail_silently=True)
+
+
+def notify_reviewers_resubmitted(entry, request):
+    """Notify reviewers when author resubmits after making changes"""
+    from django.contrib.auth.models import User
+
+    reviewers = User.objects.filter(is_active=True, email__isnull=False).exclude(
+        email=""
+    )
+
+    recipients = [
+        u.email for u in reviewers if u.has_perm("qgisfeed.publish_qgisfeedentry")
+    ]
+
+    if not recipients:
+        return
+
+    body = f"""
+    Hi,
+
+    {entry.author.username} has resubmitted the feed entry "{entry.title}" after making requested changes.
+
+    Please review the updated entry at:
+    {request.build_absolute_uri(reverse('feed_entry_update', args=(entry.pk,)))}
+
+    Your beloved QGIS Feed bot.
+    """
+
+    msg = EmailMultiAlternatives(
+        f"Feed entry resubmitted for review: {entry.title}",
+        body,
+        DEFAULT_FROM_EMAIL,
+        recipients,
+    )
+    msg.send(fail_silently=True)
+
+
+def notify_author_published(entry, request):
+    """Notify author that entry was published"""
+    if not entry.author.email:
+        return
+
+    body = f"""
+    Hi {entry.author.username},
+
+    Your feed entry "{entry.title}" has been published and is now live!
+
+    Users will start seeing it in their QGIS welcome page.
+
+    View your entry at:
+    {request.build_absolute_uri(reverse('feed_entry_update', args=(entry.pk,)))}
+
+    Your beloved QGIS Feed bot.
+    """
+
+    msg = EmailMultiAlternatives(
+        f"Feed entry published: {entry.title}",
+        body,
+        DEFAULT_FROM_EMAIL,
+        [entry.author.email],
+    )
+    msg.send(fail_silently=True)
+
+
+def create_revision_snapshot(entry, user, change_summary=""):
+    """Create a revision snapshot of the entry"""
+    from qgisfeed.models import FeedEntryRevision
+
+    FeedEntryRevision.objects.create(
+        entry=entry,
+        user=user,
+        title=entry.title,
+        content=entry.content,
+        url=entry.url,
+        change_summary=change_summary,
+    )

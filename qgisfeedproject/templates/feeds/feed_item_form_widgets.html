@@ -1,6 +1,6 @@
 <form method="POST" enctype="multipart/form-data" id="feedItemForm">
   {% csrf_token %}
-  <div class="box has-background-light p-3 box-container">
+  <div class="box has-background-light box-container">
     <div class="field">
       <label class="label">
         {% if form.title.field.required %}
@@ -58,7 +58,7 @@
         {{ form.content.label_tag }}
       </label>
       <div class="control">{{form.content}}</div>
-      <p class="help">{{form.content.help_text}}</p>  
+      <p class="help">{{form.content.help_text}}</p>
       <p id="contentError" class="help form-error"></p>
     </div>
 
@@ -101,11 +101,11 @@
       </div>
       <div class="column is-6 field">
         {% if user_is_approver %}
-          <label class="label"> 
+          <label class="label">
             {% if form.sticky.field.required %}
                 <span style="color:red;">*</span>
             {% endif %}
-            Sticky: 
+            Sticky:
           </label>
           <div class="control is-flex is-align-items-center" style="height:2.5em;">
             <label class="checkbox"> {{form.sticky}} Keep this entry on top </label>
@@ -198,9 +198,9 @@
         <label class="label">
           Unpublish this entry:
         </label>
-        <button 
-          name="formConfirmationBtn" 
-          class="button is-danger is-fullwidth js-modal-trigger" 
+        <button
+          name="formConfirmationBtn"
+          class="button is-danger is-fullwidth js-modal-trigger"
           type="button"
           form="feedItemForm"
           data-target="confirmation-modal"
@@ -214,23 +214,21 @@
     </div>
     {% endif %}
 
-    {% if not form.instance.pk %}
-      <div class="columns">
-        <div class="column is-12 field">
-          <label class="label">
-            {% if form.approvers.field.required %}
-                <span style="color:red;">*</span>
-            {% endif %}
-            Reviewers
-          </label>
-          <div class="select is-fullwidth">{{form.approvers}}</div>
-          <p class="help">{{form.approvers.help_text}}</p>
-          {% for error in form.approvers.errors %}
-            <p class="help is-danger">{{ error }}</p>
-          {% endfor %}
-        </div>
+    <div class="columns">
+      <div class="column is-12 field">
+        <label class="label">
+          {% if form.reviewers.field.required %}
+              <span style="color:red;">*</span>
+          {% endif %}
+          Reviewers
+        </label>
+        <div class="select is-fullwidth">{{form.reviewers}}</div>
+        <p class="help">Select reviewers who will review this entry</p>
+        {% for error in form.reviewers.errors %}
+          <p class="help is-danger">{{ error }}</p>
+        {% endfor %}
       </div>
-    {% endif %}
+    </div>
   </div>
   {% for error in form.non_field_errors %}
   <p class="form-error">{{ error }}</p>
