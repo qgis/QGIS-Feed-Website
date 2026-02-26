@@ -29,6 +29,8 @@ from user_visit.models import UserVisit
 from .models import (
     CharacterLimitConfiguration,
     DailyQgisUserVisit,
+    FeedEntryReview,
+    FeedEntryRevision,
     QgisFeedEntry,
     QgisUserVisit,
 )
@@ -164,8 +166,30 @@ class UpdatedUserVisitAdmin(UserVisitAdmin):
     qgis_version.short_description = "QGIS Version"
 
 
+class FeedEntryReviewAdmin(admin.ModelAdmin):
+    list_display = ("entry", "reviewer", "action", "created_at")
+    list_filter = ("action", "created_at")
+    search_fields = ("entry__title", "reviewer__username", "comment")
+    readonly_fields = ("entry", "reviewer", "created_at")
+
+    def has_add_permission(self, request):
+        return False
+
+
+class FeedEntryRevisionAdmin(admin.ModelAdmin):
+    list_display = ("entry", "user", "changed_at", "change_summary")
+    list_filter = ("changed_at",)
+    search_fields = ("entry__title", "user__username", "change_summary")
+    readonly_fields = ("entry", "user", "title", "content", "url", "changed_at")
+
+    def has_add_permission(self, request):
+        return False
+
+
 admin.site.register(QgisFeedEntry, QgisFeedEntryAdmin)
 admin.site.register(CharacterLimitConfiguration, CharacterLimitConfigurationAdmin)
+admin.site.register(FeedEntryReview, FeedEntryReviewAdmin)
+admin.site.register(FeedEntryRevision, FeedEntryRevisionAdmin)
 admin.site.unregister(UserVisit)
 admin.site.register(UserVisit, UpdatedUserVisitAdmin)
 admin.site.register(DailyQgisUserVisit, DailyQgisUserVisitAdmin)

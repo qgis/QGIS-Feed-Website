@@ -31,125 +31,392 @@
     .chosen-container-multi .chosen-choices li.search-choice .search-choice-close {
         top: unset !important;
     }
+
+    .review-item {
+        background-color: #f5f5f5;
+        border-radius: 6px;
+        padding: 1rem;
+        margin-bottom: 0.75rem;
+    }
+
+    .review-item:last-child {
+        margin-bottom: 0;
+    }
+
+    /* Ensure Bulma tabs active state is visible */
+    .tabs.is-boxed {
+        border-bottom: 1px solid #dbdbdb;
+        margin-bottom: 0;
+    }
+
+    .tabs.is-boxed li.is-active a {
+        background-color: #fff;
+        border-color: #dbdbdb;
+        border-bottom-color: #fff !important;
+        margin-bottom: -1px;
+        position: relative;
+        z-index: 1;
+    }
+
+    .tabs.is-boxed a {
+        border: 1px solid transparent;
+        border-radius: 4px 4px 0 0;
+        padding: 0.75em 1em;
+    }
+
+    .tabs.is-boxed a:hover {
+        background-color: #f5f5f5;
+        border-color: #dbdbdb;
+        border-bottom-color: transparent;
+    }
+
+    /* Tab content styling */
+    .tab-content {
+        border: 1px solid #dbdbdb;
+        border-top: none;
+        border-radius: 0 0 6px 6px;
+        padding: 1.5rem;
+        background-color: #fff;
+    }
 </style>
 <link rel="stylesheet" media="all" type="text/css" href="{% static "js/chosen.min.css" %}">
 
 {% endblock stylesheets %}
 {% block content %}
 
+<div class="container">
+    <h1 class="title">
+        {% if form.title.value %}
+            Edit feed entry
+            {% if feed_entry %}
+            <span class="tag {% if feed_entry.status == 'published' %}is-success
+                              {% elif feed_entry.status == 'approved' %}is-primary
+                              {% elif feed_entry.status == 'pending_review' %}is-warning
+                              {% elif feed_entry.status == 'changes_requested' %}is-danger
+                              {% else %}is-light{% endif %}">
+                {{ feed_entry.get_status_display }}
+            </span>
+            {% endif %}
+        {% else %}
+            New feed entry
+        {% endif %}
+    </h1>
+    <a href="{% url 'feeds_list' %}" class="button">
+        <span class="icon">
+            <i class="fas fa-arrow-left"></i>
+        </span>
+        <span>Back to the list</span>
+    </a>
 
-<h1 class="title">
-    {% if form.title.value %}
-        Edit feed entry
-    {% else %}
-        New feed entry
-    {% endif %}
-</h1>
-<a href="{% url 'feeds_list' %}" class="button">
-    <span class="icon">
-        <i class="fas fa-arrow-left"></i>
-    </span>
-    <span>Back to the list</span>
-</a>
+    <div class="mt-5">
+        <div class="tabs is-boxed">
+            <ul>
+                <li class="is-active" data-tab="form-tab">
+                    <a>
+                        <span class="icon is-small"><i class="fas fa-edit" aria-hidden="true"></i></span>
+                        <span>Edit</span>
+                    </a>
+                </li>
+                <li data-tab="preview-tab">
+                    <a>
+                        <span class="icon is-small"><i class="fas fa-eye" aria-hidden="true"></i></span>
+                        <span>Preview</span>
+                    </a>
+                </li>
+            </ul>
+        </div>
 
-<div class="columns is-multiline is-centered mt-3 ">
-    <div class="column is-6">
+    <div id="form-tab" class="tab-content is-active">
         {% include 'feeds/feed_item_form_widgets.html' %}
     </div>
-    <div class="column is-6">
-        <div style="border: solid #e5e5e5 1px; border-radius: 10px;">
-            <h5 class="title is-5 has-text-centered mt-3">Preview</h5>
-            {% include 'feeds/feed_item_preview.html' %}
+
+    <div id="preview-tab" class="tab-content" style="display: none;">
+                {% include 'feeds/feed_item_preview.html' %}
+
+                {% if published %}
+                    <div class="mt-5">
+                        <h4 class="title is-5">Share this feed item:</h4>
+                        <div class="buttons">
+                            <a
+                                class="button js-modal-trigger"
+                                title="Share on Mastodon"
+                                data-target="social-share-modal"
+                                data-social="Mastodon"
+                                data-url="{% url 'feed_entry_share_mastodon' pk=feed_entry.pk %}"
+                                style="background-color: #6364FF; color: #fff; border: none;"
+                            >
+                                <span class="icon is-large">
+                                    <i class="fab fa-mastodon"></i>
+                                </span>
+                                <span>Mastodon</span>
+                            </a>
+                            <a
+                                class="button js-modal-trigger"
+                                title="Share on Bluesky"
+                                data-target="social-share-modal"
+                                data-social="Bluesky"
+                                data-url="{% url 'feed_entry_share_bluesky' pk=feed_entry.pk %}"
+                                style="background-color: #0285FF; color: #fff; border: none;"
+                            >
+                                <span class="icon is-large">
+                                    <i class="fa-brands fa-bluesky"></i>
+                                </span>
+                                <span>Bluesky</span>
+                            </a>
+                            <a
+                                class="button js-modal-trigger"
+                                title="Share on Telegram"
+                                data-target="social-share-modal"
+                                data-social="Telegram"
+                                data-url="{% url 'feed_entry_share_telegram' pk=feed_entry.pk %}"
+                                style="background-color: #229ED9; color: #fff; border: none;"
+                            >
+                                <span class="icon is-large">
+                                    <i class="fab fa-telegram-plane"></i>
+                                </span>
+                                <span>Telegram</span>
+                            </a>
+                        </div>
+                    </div>
+                {% endif %}
+            </div>
         </div>
-        {% if published %}
-            <div class="m-3">
-                <h4>Share this feed item:</h4>
-                <div class="buttons">
-                    <a
-                        class="button js-modal-trigger"
-                        title="Share on Mastodon"
-                        data-target="social-share-modal"
-                        data-social="Mastodon"
-                        data-url="{% url 'feed_entry_share_mastodon' pk=feed_entry.pk %}"
-                        style="background-color: #6364FF; color: #fff; border: none;"
-                    >
-                        <span class="icon is-large">
-                            <i class="fab fa-mastodon"></i>
+
+    {% if feed_entry and feed_entry.reviewers.exists %}
+    <div class="mt-4">
+        <div class="notification is-info is-light">
+            <h5 class="title is-6 mb-2">
+                <span class="icon"><i class="fas fa-users"></i></span>
+                <strong>Assigned Reviewers</strong>
+            </h5>
+            {% if reviewer_statuses %}
+            <div class="mt-3">
+                {% for reviewer_id, status in reviewer_statuses.items %}
+                <div class="mb-2">
+                    <span class="icon-text">
+                        <span class="icon">
+                            {% if status.action == 'approve' %}
+                                <i class="fas fa-check-circle has-text-success"></i>
+                            {% elif status.action == 'request_changes' %}
+                                <i class="fas fa-exclamation-circle has-text-warning"></i>
+                            {% elif status.action == 'comment' %}
+                                <i class="fas fa-comment has-text-info"></i>
+                            {% else %}
+                                <i class="fas fa-clock has-text-grey"></i>
+                            {% endif %}
                         </span>
-                        <span>Mastodon</span>
-                    </a>
-                    <a
-                        class="button js-modal-trigger"
-                        title="Share on Bluesky"
-                        data-target="social-share-modal"
-                        data-social="Bluesky"
-                        data-url="{% url 'feed_entry_share_bluesky' pk=feed_entry.pk %}"
-                        style="background-color: #0285FF; color: #fff; border: none;"
-                    >
-                        <span class="icon is-large">
-                            <i class="fa-brands fa-bluesky"></i>
+                        <span><strong>{{ status.reviewer.username }}</strong>: </span>
+                        <span class="tag is-small {% if status.action == 'approve' %}is-success{% elif status.action == 'request_changes' %}is-warning{% elif status.action == 'comment' %}is-info{% else %}is-light{% endif %}">
+                            {{ status.display }}
                         </span>
-                        <span>Bluesky</span>
-                    </a>
-                    <a
-                        class="button js-modal-trigger"
-                        title="Share on Telegram"
-                        data-target="social-share-modal"
-                        data-social="Telegram"
-                        data-url="{% url 'feed_entry_share_telegram' pk=feed_entry.pk %}"
-                        style="background-color: #229ED9; color: #fff; border: none;"
-                    >
-                        <span class="icon is-large">
-                            <i class="fab fa-telegram-plane"></i>
+                    </span>
+                    {% if status.created_at %}
+                        <span class="is-size-7 has-text-grey ml-2">
+                            {{ status.created_at|date:"M d, Y H:i" }}
                         </span>
-                        <span>Telegram</span>
-                    </a>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <p class="mt-2">
+                {% for reviewer in feed_entry.reviewers.all %}
+                    <span class="tag is-light">{{ reviewer.username }}</span>
+                {% endfor %}
+            </p>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    {% if feed_entry and reviews %}
+    <div class="mt-5">
+        <h4 class="title is-4 mb-3">
+            <span class="icon-text">
+                <span class="icon has-text-info"><i class="fas fa-comments"></i></span>
+                <span>Review History</span>
+        </span>
+    </h4>
+    {% for review in reviews %}
+    <div class="review-item">
+        <article class="media mb-0">
+            <figure class="media-left">
+                <span class="icon is-large">
+                    <i class="fas fa-user-circle fa-2x has-text-grey"></i>
+                </span>
+            </figure>
+            <div class="media-content">
+                <div class="content">
+                    <p class="mb-2">
+                        <strong>{{ review.reviewer.username }}</strong>
+                        <span class="tag is-small {% if review.action == 'approve' %}is-success{% elif review.action == 'request_changes' %}is-warning{% else %}is-info{% endif %} ml-2">
+                            {{ review.get_action_display }}
+                        </span>
+                        <br>
+                        <small class="has-text-grey">{{ review.created_at|date:"F d, Y \a\t H:i" }}</small>
+                    </p>
+                    <div>{{ review.comment|linebreaks }}</div>
                 </div>
             </div>
-        {% endif %}
-
+        </article>
     </div>
-</div>
+    {% endfor %}
+    </div>
+    {% endif %}
 
-<div class="columns">
-    <div class="column is-6 is-flex is-justify-content-end">
-        <div class="columns">
-            {% if not published and user_is_approver and form.instance.pk %}
-            <div class="column is-5">
-                <button name="formConfirmationBtn" class="button is-outlined is-primary1" type="submit"
-                    form="feedItemForm">
-                    <span class="icon">
-                        <i class="fa fa-floppy-disk" aria-hidden="true"></i>
-                    </span>
-                    <span>Save changes</span>
-                </button>
+    {% if feed_entry and revisions %}
+    <div class="mt-4">
+        <details class="mb-4">
+            <summary class="title is-5 is-clickable">
+                <span class="icon-text">
+                    <span class="icon has-text-grey"><i class="fas fa-history"></i></span>
+                    <span>Revision History ({{ revisions|length }})</span>
+                </span>
+            </summary>
+            <div class="content mt-3">
+                <div class="table-container">
+                    <table class="table is-fullwidth is-striped is-hoverable">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Modified By</th>
+                                <th>Summary</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for revision in revisions %}
+                            <tr>
+                                <td class="is-vcentered"><small>{{ revision.changed_at|date:"Y-m-d H:i" }}</small></td>
+                                <td class="is-vcentered">{{ revision.user.username }}</td>
+                                <td class="is-vcentered">{{ revision.change_summary|default:"No summary provided" }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
             </div>
-            {% endif %}
+        </details>
+    </div>
+    {% endif %}
 
-            <div class="column is-7">
-                <button name="formConfirmationBtn" class="button is-primary1 js-modal-trigger"
-                    data-target="form-review-modal">
-                    {% if published %}
-                    <span class="icon">
-                        <i class="fa fa-floppy-disk" aria-hidden="true"></i>
-                    </span>
-                    <span>Save changes</span>
-                    {% elif not published and user_is_approver and form.instance.pk %}
-                    <span class="icon">
-                        <i class="fa fa-check" aria-hidden="true"></i>
-                    </span>
-                    <span>Approve and publish</span>
-                    {% else %}
-                    <span class="icon">
-                        <i class="fa fa-floppy-disk" aria-hidden="true"></i>
-                    </span>
-                    <span>Submit for review</span>
+    {% if feed_entry %}
+        {% if user_can_review or user_is_author %}
+            {% if feed_entry.status == 'pending_review' or feed_entry.status == 'changes_requested' or feed_entry.status == 'approved' %}
+    <div class="mt-4 mb-5">
+        <div class="notification is-light" style="border-left: 4px solid #3273dc;">
+            <h4 class="title is-5 mb-3">
+                <span class="icon-text">
+                    <span class="icon has-text-primary"><i class="fas fa-clipboard-check"></i></span>
+                    <span>{% if user_is_author %}Add Comment{% else %}Reviewer Actions{% endif %}</span>
+                </span>
+                </h4>
+                <form method="POST" action="{% url 'feed_entry_review_action' pk=feed_entry.pk %}">
+                {% csrf_token %}
+                <div class="field">
+                    <label class="label">{% if user_is_author %}Comment{% else %}Review Comment{% endif %} <span class="has-text-danger">*</span></label>
+                    <div class="control">
+                        <textarea name="comment" class="textarea" placeholder="{% if user_is_author %}Add a note for reviewers or respond to feedback...{% else %}Provide detailed feedback to help the author improve this entry...{% endif %}" rows="4" required></textarea>
+                    </div>
+                    <p class="help">{% if user_is_author %}Your comments will be visible to all reviewers.{% else %}Be specific and constructive in your feedback.{% endif %}</p>
+                </div>
+
+                <div class="field is-grouped is-grouped-centered mt-4">
+                    {% if user_can_review %}
+                    <p class="control">
+                        <button type="submit" name="action" value="approve" class="button is-success">
+                            <span class="icon"><i class="fas fa-check"></i></span>
+                            <span>Approve</span>
+                        </button>
+                    </p>
+                    <p class="control">
+                        <button type="submit" name="action" value="request_changes" class="button is-warning">
+                            <span class="icon"><i class="fas fa-exclamation-triangle"></i></span>
+                            <span>Request Changes</span>
+                        </button>
+                    </p>
                     {% endif %}
-                </button>
-            </div>
+                    <p class="control">
+                        <button type="submit" name="action" value="comment" class="button is-info">
+                            <span class="icon"><i class="fas fa-comment"></i></span>
+                            <span>Add Comment</span>
+                        </button>
+                    </p>
+                </div>
+            </form>
         </div>
     </div>
-</div>
+            {% endif %}
+        {% endif %}
+    {% endif %}
+
+    <div class="buttons is-centered mt-4">
+                {% if feed_entry %}
+                    {# Existing entry - different actions based on status and permissions #}
+
+                    <button type="button" class="button is-light js-modal-trigger" data-target="form-review-modal">
+                        <span class="icon"><i class="fa fa-eye" aria-hidden="true"></i></span>
+                        <span>Preview</span>
+                    </button>
+
+                    {% if user_can_publish %}
+                        {# Approver can publish approved entries #}
+                        <button type="submit" name="action" value="publish" form="feedItemForm" class="button is-success">
+                            <span class="icon"><i class="fa fa-globe" aria-hidden="true"></i></span>
+                            <span>Publish Entry</span>
+                    </button>
+                {% endif %}
+
+                {% if user_can_submit %}
+                    {# Author can submit for review (draft or changes requested) #}
+                    <button type="submit" name="action" value="submit_for_review" form="feedItemForm" class="button is-warning">
+                        <span class="icon"><i class="fa fa-paper-plane" aria-hidden="true"></i></span>
+                        <span>Submit for Review</span>
+                    </button>
+                {% endif %}
+
+                {% if user_is_author or user_is_approver %}
+                    {# Save changes button for eligible users #}
+                    <button type="submit" name="action" value="save" form="feedItemForm" class="button is-primary1">
+                        <span class="icon"><i class="fa fa-floppy-disk" aria-hidden="true"></i></span>
+                        <span>Save Changes</span>
+                    </button>
+                {% endif %}
+
+            {% else %}
+                {# New entry - save as draft or submit for review #}
+                <button type="button" class="button is-light js-modal-trigger" data-target="form-review-modal">
+                    <span class="icon"><i class="fa fa-eye" aria-hidden="true"></i></span>
+                    <span>Preview</span>
+                </button>
+
+                <button type="submit" name="action" value="save" form="feedItemForm" class="button is-primary1">
+                    <span class="icon"><i class="fa fa-floppy-disk" aria-hidden="true"></i></span>
+                    <span>Save as Draft</span>
+                </button>
+
+                <button type="submit" name="submit_for_review" value="1" form="feedItemForm" class="button is-warning">
+                    <span class="icon"><i class="fa fa-paper-plane" aria-hidden="true"></i></span>
+                    <span>Submit for Review</span>
+                </button>
+            {% endif %}
+    </div>
+
+    {% if feed_entry.status == 'published' or feed_entry.status == 'approved' %}
+    <div class="mt-4">
+        <div class="notification is-info is-light">
+            <p class="has-text-centered">
+                <span class="icon"><i class="fas fa-info-circle"></i></span>
+                {% if feed_entry.status == 'published' %}
+                <strong>Note:</strong> Editing a published entry will unpublish it and send it back for review before republishing.
+                {% elif feed_entry.status == 'approved' %}
+                <strong>Note:</strong> This entry is approved. You can still edit it, but changes will require re-review before publishing.
+                {% endif %}
+            </p>
+        </div>
+    </div>
+    {% endif %}
+
+</div> <!-- End of container -->
 
 {% include 'feeds/feed_item_confirmation.html' %}
 {% include 'feeds/social_share_modal.html' %}
@@ -241,14 +508,84 @@
 
     // Select reviewers
     let checkElement = setInterval(function () {
-        let element = document.getElementById('id_approvers');
+        let element = document.getElementById('id_reviewers');
         if (element) {
-            $('#id_approvers').chosen({
+            $('#id_reviewers').chosen({
                 placeholder_text_multiple: "Select Some Reviewers",
                 no_results_text: "Oops, nothing found!"
             });
             clearInterval(checkElement);
         }
     }, 200);
+
+    // Tab switching functionality using Bulma tabs
+    document.addEventListener('DOMContentLoaded', () => {
+        const tabItems = document.querySelectorAll('.tabs li');
+        const tabContents = document.querySelectorAll('.tab-content');
+
+        tabItems.forEach(item => {
+            item.addEventListener('click', (e) => {
+                e.preventDefault();
+                const targetTab = item.getAttribute('data-tab');
+
+                // Remove active class from all tabs and hide all contents
+                tabItems.forEach(tab => tab.classList.remove('is-active'));
+                tabContents.forEach(content => {
+                    content.style.display = 'none';
+                    content.classList.remove('is-active');
+                });
+
+                // Add active class to clicked tab and show target content
+                item.classList.add('is-active');
+                const targetContent = document.getElementById(targetTab);
+                targetContent.style.display = 'block';
+                targetContent.classList.add('is-active');
+            });
+        });
+    });
+
+    // Modal trigger functionality
+    document.addEventListener('DOMContentLoaded', () => {
+        // Functions to open and close modals
+        function openModal($el) {
+            $el.classList.add('is-active');
+        }
+
+        function closeModal($el) {
+            $el.classList.remove('is-active');
+        }
+
+        function closeAllModals() {
+            (document.querySelectorAll('.modal') || []).forEach(($modal) => {
+                closeModal($modal);
+            });
+        }
+
+        // Add click event on buttons to open modals
+        (document.querySelectorAll('.js-modal-trigger') || []).forEach(($trigger) => {
+            const modal = $trigger.dataset.target;
+            const $target = document.getElementById(modal);
+
+            $trigger.addEventListener('click', () => {
+                openModal($target);
+            });
+        });
+
+        // Add click event on various child elements to close the parent modal
+        (document.querySelectorAll('.modal-background, .modal-close, .modal-card-head .delete, .modal-card-foot .button') || []).forEach(($close) => {
+            const $target = $close.closest('.modal');
+
+            $close.addEventListener('click', () => {
+                closeModal($target);
+            });
+        });
+
+        // Add keyboard event to close all modals
+        document.addEventListener('keydown', (event) => {
+            if (event.code === 'Escape') {
+                closeAllModals();
+            }
+        });
+    });
 </script>
 {% endblock javascripts %}
