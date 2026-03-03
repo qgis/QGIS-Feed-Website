@@ -20,7 +20,7 @@ from django.utils import timezone
 from django.utils.translation import gettext as _
 from imagekit.models import ProcessedImageField
 from imagekit.processors import ResizeToFill
-from qgisfeed.utils import simplify
+from qgisfeed.utils import get_content_plain_text_length, simplify
 from user_visit.models import UserVisit
 
 from .languages import LANGUAGES
@@ -349,9 +349,11 @@ class QgisFeedEntry(models.Model):
         except CharacterLimitConfiguration.DoesNotExist:
             content_max_length = 500
 
-        if len(self.content) > content_max_length:
+        content_length = get_content_plain_text_length(self.content)
+
+        if content_length > content_max_length:
             raise ValidationError(
-                f"Ensure content value has at most {str(content_max_length)} characters (it has {str(len(self.content))})."
+                f"Ensure content value has at most {str(content_max_length)} characters (it has {str(content_length)})."
             )
 
         super(QgisFeedEntry, self).save(*args, **kwargs)

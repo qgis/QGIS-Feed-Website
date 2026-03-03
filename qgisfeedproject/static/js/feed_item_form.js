@@ -9,6 +9,7 @@ let languageField = document.getElementById("id_language_filter");
 let spatialFilterField = document.getElementById("id_spatial_filter");
 let publishFromField = document.getElementById("id_publish_from");
 let publishToField = document.getElementById("id_publish_to");
+let reviewersField = document.getElementById("id_reviewers");
 
 let contentPreview = document.getElementsByName("contentPreview");
 let titlePreview = document.getElementsByName("titlePreview");
@@ -25,6 +26,8 @@ let imageFileName = document.getElementById("imageFileName");
 let urlError = document.getElementById("urlError");
 let contentError = document.getElementById("contentError");
 let formConfirmationBtn = document.getElementsByName("formConfirmationBtn");
+let reviewActionButtons = document.querySelectorAll(".js-review-action-btn");
+let unsavedFormNotice = document.getElementById("unsavedFormNotice");
 
 let fields = [
   titleField,
@@ -36,7 +39,30 @@ let fields = [
   spatialFilterField,
   publishFromField,
   publishToField,
-];
+  reviewersField,
+].filter((field) => !!field);
+
+let hasUnsavedFormChanges = false;
+let isContentExceeded = false;
+
+function syncReviewActionState() {
+  reviewActionButtons.forEach((button) => {
+    button.disabled = hasUnsavedFormChanges;
+  });
+  if (unsavedFormNotice) {
+    unsavedFormNotice.style.display = hasUnsavedFormChanges ? "block" : "none";
+  }
+}
+
+window.markFeedFormDirty = function () {
+  hasUnsavedFormChanges = true;
+  syncReviewActionState();
+};
+
+window.updateContentExceededState = function (isExceeded) {
+  isContentExceeded = isExceeded;
+  checkFormValid();
+};
 
 // Update title in preview when input change
 titleField.addEventListener("input", function () {
@@ -44,6 +70,7 @@ titleField.addEventListener("input", function () {
   titlePreview.forEach((item) => {
     item.innerText = fieldValue;
   });
+  window.markFeedFormDirty();
   checkFormValid();
 });
 
@@ -109,6 +136,7 @@ imageField.addEventListener("change", function () {
     imageFileName.innerHTML =
       "<i>No image chosen. Click here to add an image.</i>";
   }
+  window.markFeedFormDirty();
   checkFormValid();
 });
 
@@ -123,6 +151,7 @@ urlField.addEventListener("input", function () {
         "</a>"
       : "<i>-</i>";
   });
+  window.markFeedFormDirty();
   checkFormValid();
 });
 
@@ -138,6 +167,7 @@ if (stickyField) {
           '<i class="fa-solid fa-circle-xmark"></i>' +
           "</span>";
     });
+    window.markFeedFormDirty();
     checkFormValid();
   });
 }
@@ -147,6 +177,7 @@ sortingField.addEventListener("input", function () {
   sortingPreview.forEach((item) => {
     item.innerText = sortingField.value ? sortingField.value : "-";
   });
+  window.markFeedFormDirty();
   checkFormValid();
 });
 
@@ -158,6 +189,7 @@ languageField.addEventListener("change", function () {
         languageField.value
       : "-";
   });
+  window.markFeedFormDirty();
   checkFormValid();
 });
 
@@ -195,6 +227,7 @@ publishFromField.addEventListener("change", function () {
       ? moment(new Date(publishFromField.value)).format('ddd DD MMM YYYY HH:mm:ss [UTC]')
       : "-";
   });
+  window.markFeedFormDirty();
   checkFormValid();
 });
 
@@ -205,6 +238,7 @@ publishToField.addEventListener("change", function () {
       ? moment(new Date(publishToField.value)).format('ddd DD MMM YYYY HH:mm:ss [UTC]')
       : "-";
   });
+  window.markFeedFormDirty();
   checkFormValid();
 });
 
@@ -222,7 +256,7 @@ function isURLValid(url) {
 }
 
 
-function checkFormValid(contentExceed=false) {
+function checkFormValid() {
   const isURLValueValid = isURLValid(urlField.value);
   const isFormValid = fields.every((field) => {
     const isFieldRequired = field.hasAttribute("required");
@@ -230,11 +264,21 @@ function checkFormValid(contentExceed=false) {
     return !isFieldRequired || value; // Field is not required or has a value
   });
   formConfirmationBtn.forEach((item) => {
-    item.disabled = !isFormValid || !isURLValueValid || contentExceed
+    item.disabled = !isFormValid || !isURLValueValid || isContentExceeded
   })
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+  syncReviewActionState();
+
+  fields.forEach((field) => {
+    ["input", "change"].forEach((eventName) => {
+      field.addEventListener(eventName, () => {
+        window.markFeedFormDirty();
+      });
+    });
+  });
+
   // Refresh some fieds on start
   refreshSpatialFilter();
   refreshDates();

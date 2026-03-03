@@ -1,4 +1,5 @@
 # coding=utf-8
+import html
 import logging
 import unicodedata
 
@@ -8,6 +9,7 @@ from django.contrib.gis.geoip2 import GeoIP2
 from django.core.mail import EmailMultiAlternatives
 from django.http import HttpRequest
 from django.urls import reverse
+from django.utils.html import strip_tags
 
 logger = logging.getLogger("qgisfeed.admin")
 DEFAULT_FROM_EMAIL = getattr(settings, "DEFAULT_FROM_EMAIL", "noreply@qgis.org")
@@ -40,12 +42,97 @@ def notify_reviewers(author, request, recipients, obj):
     msg.send(fail_silently=True)
 
 
+def get_author_and_reviewer_recipients(entry):
+    from django.contrib.auth.models import User
+
+    recipients = set()
+
+    if entry.author and entry.author.email:
+        recipients.add(entry.author.email)
+
+    if entry.reviewers.exists():
+        for reviewer in entry.reviewers.all():
+            if reviewer.email and reviewer.has_perm("qgisfeed.publish_qgisfeedentry"):
+                recipients.add(reviewer.email)
+    else:
+        reviewers = User.objects.filter(is_active=True, email__isnull=False).exclude(
+            email=""
+        )
+        recipients.update(
+            [u.email for u in reviewers if u.has_perm("qgisfeed.publish_qgisfeedentry")]
+        )
+
+    return list(recipients)
+
+
+def notify_entry_submitted(entry, submitted_by, request):
+    recipients = get_author_and_reviewer_recipients(entry)
+    if not recipients:
+        return
+
+    body = f"""
+    Hi,
+
+    {submitted_by.username} submitted the feed entry "{entry.title}" for review.
+
+    Review it at:
+    {request.build_absolute_uri(reverse('feed_entry_update', args=(entry.pk,)))}
+
+    Your beloved QGIS Feed bot.
+    """
+
+    msg = EmailMultiAlternatives(
+        f"Feed entry submitted for review: {entry.title}",
+        body,
+        DEFAULT_FROM_EMAIL,
+        recipients,
+    )
+    msg.send(fail_silently=True)
+
+
+def notify_review_action_submitted(entry, review, request):
+    recipients = get_author_and_reviewer_recipients(entry)
+    if not recipients:
+        return
+
+    action_display = review.get_action_display()
+    body = f"""
+    Hi,
+
+    A new review action was submitted for "{entry.title}".
+
+    Reviewer: {review.reviewer.username}
+    Action: {action_display}
+    Comment: {review.comment}
+
+    View it at:
+    {request.build_absolute_uri(reverse('feed_entry_update', args=(entry.pk,)))}
+
+    Your beloved QGIS Feed bot.
+    """
+
+    msg = EmailMultiAlternatives(
+        f"Feed entry review update ({action_display}): {entry.title}",
+        body,
+        DEFAULT_FROM_EMAIL,
+        recipients,
+    )
+    msg.send(fail_silently=True)
+
+
 def get_field_max_length(ConfigurationModel: Model, field_name: str):
     try:
         config = ConfigurationModel.objects.get(field_name=field_name)
         return config.max_characters
     except ConfigurationModel.DoesNotExist:
         return 500
+
+
+def get_content_plain_text_length(content: str) -> int:
+    if not content:
+        return 0
+    plain_text = html.unescape(strip_tags(content))
+    return len(plain_text)
 
 
 def parse_remote_addr(request: HttpRequest) -> str:

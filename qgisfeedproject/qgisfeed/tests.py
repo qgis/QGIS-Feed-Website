@@ -694,7 +694,7 @@ class FeedsItemFormTestCase(TestCase):
         entry.save()
 
         self.client.login(username="staff", password="staff")
-        self.post_data["action"] = "save"  # Regular save action
+        self.post_data["action"] = "unpublish"
 
         response = self.client.post(
             reverse("feed_entry_update", args=[7]), data=self.post_data
@@ -739,7 +739,7 @@ class FeedsItemFormTestCase(TestCase):
         self.assertIn(
             "content",
             form.errors,
-            "Ensure this value has at most 10 characters (it has 104).",
+            "Ensure this value has at most 10 characters",
         )
 
     def test_get_field_max_length(self):
@@ -771,6 +771,9 @@ class FeedsItemFormTestCase(TestCase):
         # Check that email was sent
         self.assertGreater(len(mail.outbox), 0)
         self.assertEqual(mail.outbox[0].from_email, settings.DEFAULT_FROM_EMAIL)
+        recipients = set(mail.outbox[0].recipients())
+        self.assertIn("staff@email.me", recipients)
+        self.assertIn("me@email.com", recipients)
 
 
 class FeedEntryDetailViewTestCase(TestCase):
@@ -1279,3 +1282,81 @@ class ReviewWorkflowTestCase(TestCase):
         entry.status = QgisFeedEntry.DRAFT
         entry.save()
         self.assertFalse(entry.published)
+
+    def test_comment_action_sends_notification_to_author_and_reviewers(self):
+        """Test comment action notification recipients"""
+        from qgisfeed.models import QgisFeedEntry
+
+        entry = QgisFeedEntry.objects.create(
+            title="Test Comment Notification",
+            content="Test content",
+            author=self.author,
+            status=QgisFeedEntry.PENDING_REVIEW,
+        )
+        entry.reviewers.add(self.admin, self.reviewer2)
+
+        self.client.login(username="admin", password="admin")
+        response = self.client.post(
+            reverse("feed_entry_review_action", args=[entry.pk]),
+            data={"action": "comment", "comment": "Please clarify this paragraph."},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertGreater(len(mail.outbox), 0)
+        recipients = set(mail.outbox[0].recipients())
+        self.assertEqual(
+            recipients,
+            {self.author.email, self.admin.email, self.reviewer2.email},
+        )
+
+    def test_approve_action_sends_notification_to_author_and_reviewers(self):
+        """Test approve action notification recipients"""
+        from qgisfeed.models import QgisFeedEntry
+
+        entry = QgisFeedEntry.objects.create(
+            title="Test Approve Notification",
+            content="Test content",
+            author=self.author,
+            status=QgisFeedEntry.PENDING_REVIEW,
+        )
+        entry.reviewers.add(self.admin, self.reviewer2)
+
+        self.client.login(username="admin", password="admin")
+        response = self.client.post(
+            reverse("feed_entry_review_action", args=[entry.pk]),
+            data={"action": "approve", "comment": "Looks good to publish."},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertGreater(len(mail.outbox), 0)
+        recipients = set(mail.outbox[0].recipients())
+        self.assertEqual(
+            recipients,
+            {self.author.email, self.admin.email, self.reviewer2.email},
+        )
+
+    def test_request_changes_action_sends_notification_to_author_and_reviewers(self):
+        """Test request_changes action notification recipients"""
+        from qgisfeed.models import QgisFeedEntry
+
+        entry = QgisFeedEntry.objects.create(
+            title="Test Changes Notification",
+            content="Test content",
+            author=self.author,
+            status=QgisFeedEntry.PENDING_REVIEW,
+        )
+        entry.reviewers.add(self.admin, self.reviewer2)
+
+        self.client.login(username="admin", password="admin")
+        response = self.client.post(
+            reverse("feed_entry_review_action", args=[entry.pk]),
+            data={"action": "request_changes", "comment": "Please revise the title."},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertGreater(len(mail.outbox), 0)
+        recipients = set(mail.outbox[0].recipients())
+        self.assertEqual(
+            recipients,
+            {self.author.email, self.admin.email, self.reviewer2.email},
+        )

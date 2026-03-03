@@ -310,7 +310,7 @@
                     <span>{% if user_is_author %}Add Comment{% else %}Reviewer Actions{% endif %}</span>
                 </span>
                 </h4>
-                <form method="POST" action="{% url 'feed_entry_review_action' pk=feed_entry.pk %}">
+                <form method="POST" id="reviewActionForm" action="{% url 'feed_entry_review_action' pk=feed_entry.pk %}">
                 {% csrf_token %}
                 <div class="field">
                     <label class="label">{% if user_is_author %}Comment{% else %}Review Comment{% endif %} <span class="has-text-danger">*</span></label>
@@ -318,25 +318,26 @@
                         <textarea name="comment" class="textarea" placeholder="{% if user_is_author %}Add a note for reviewers or respond to feedback...{% else %}Provide detailed feedback to help the author improve this entry...{% endif %}" rows="4" required></textarea>
                     </div>
                     <p class="help">{% if user_is_author %}Your comments will be visible to all reviewers.{% else %}Be specific and constructive in your feedback.{% endif %}</p>
+                    <p id="unsavedFormNotice" class="help has-text-danger has-text-weight-bold" style="display: none;">Save your form changes before using reviewer actions.</p>
                 </div>
 
                 <div class="field is-grouped is-grouped-centered mt-4">
                     {% if user_can_review %}
                     <p class="control">
-                        <button type="submit" name="action" value="approve" class="button is-success">
+                        <button type="submit" name="action" value="approve" class="button is-success is-outlined js-review-action-btn">
                             <span class="icon"><i class="fas fa-check"></i></span>
                             <span>Approve</span>
                         </button>
                     </p>
                     <p class="control">
-                        <button type="submit" name="action" value="request_changes" class="button is-warning">
+                        <button type="submit" name="action" value="request_changes" class="button is-primary2 is-light is-outlined js-review-action-btn">
                             <span class="icon"><i class="fas fa-exclamation-triangle"></i></span>
                             <span>Request Changes</span>
                         </button>
                     </p>
                     {% endif %}
                     <p class="control">
-                        <button type="submit" name="action" value="comment" class="button is-info">
+                        <button type="submit" name="action" value="comment" class="button is-outlined js-review-action-btn">
                             <span class="icon"><i class="fas fa-comment"></i></span>
                             <span>Add Comment</span>
                         </button>
@@ -349,58 +350,6 @@
         {% endif %}
     {% endif %}
 
-    <div class="buttons is-centered mt-4">
-                {% if feed_entry %}
-                    {# Existing entry - different actions based on status and permissions #}
-
-                    <button type="button" class="button is-light js-modal-trigger" data-target="form-review-modal">
-                        <span class="icon"><i class="fa fa-eye" aria-hidden="true"></i></span>
-                        <span>Preview</span>
-                    </button>
-
-                    {% if user_can_publish %}
-                        {# Approver can publish approved entries #}
-                        <button type="submit" name="action" value="publish" form="feedItemForm" class="button is-success">
-                            <span class="icon"><i class="fa fa-globe" aria-hidden="true"></i></span>
-                            <span>Publish Entry</span>
-                    </button>
-                {% endif %}
-
-                {% if user_can_submit %}
-                    {# Author can submit for review (draft or changes requested) #}
-                    <button type="submit" name="action" value="submit_for_review" form="feedItemForm" class="button is-warning">
-                        <span class="icon"><i class="fa fa-paper-plane" aria-hidden="true"></i></span>
-                        <span>Submit for Review</span>
-                    </button>
-                {% endif %}
-
-                {% if user_is_author or user_is_approver %}
-                    {# Save changes button for eligible users #}
-                    <button type="submit" name="action" value="save" form="feedItemForm" class="button is-primary1">
-                        <span class="icon"><i class="fa fa-floppy-disk" aria-hidden="true"></i></span>
-                        <span>Save Changes</span>
-                    </button>
-                {% endif %}
-
-            {% else %}
-                {# New entry - save as draft or submit for review #}
-                <button type="button" class="button is-light js-modal-trigger" data-target="form-review-modal">
-                    <span class="icon"><i class="fa fa-eye" aria-hidden="true"></i></span>
-                    <span>Preview</span>
-                </button>
-
-                <button type="submit" name="action" value="save" form="feedItemForm" class="button is-primary1">
-                    <span class="icon"><i class="fa fa-floppy-disk" aria-hidden="true"></i></span>
-                    <span>Save as Draft</span>
-                </button>
-
-                <button type="submit" name="submit_for_review" value="1" form="feedItemForm" class="button is-warning">
-                    <span class="icon"><i class="fa fa-paper-plane" aria-hidden="true"></i></span>
-                    <span>Submit for Review</span>
-                </button>
-            {% endif %}
-    </div>
-
     {% if feed_entry.status == 'published' or feed_entry.status == 'approved' %}
     <div class="mt-4">
         <div class="notification is-info is-light">
@@ -412,6 +361,17 @@
                 <strong>Note:</strong> This entry is approved. You can still edit it, but changes will require re-review before publishing.
                 {% endif %}
             </p>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if feed_entry and user_can_publish %}
+    <div class="field mt-5 mb-2">
+        <div class="buttons is-centered">
+            <button type="button" class="button is-success is-large js-modal-trigger" data-target="form-review-modal">
+                <span class="icon"><i class="fa fa-globe" aria-hidden="true"></i></span>
+                <span>Publish Entry</span>
+            </button>
         </div>
     </div>
     {% endif %}
@@ -448,7 +408,10 @@
                     item.innerHTML = content;
                 });
                 tinymce.triggerSave();
-                tinymce_updateCharCounter(this, tinymce_getContentLength());
+                if (window.markFeedFormDirty) {
+                    window.markFeedFormDirty();
+                }
+                tinymce_updateCharCounter(this, tinymce_getContentLength(this));
             });
             editor.on('input', function () {
                 // Update content in preview when input change
@@ -457,12 +420,15 @@
                     item.innerHTML = content;
                 });
                 tinymce.triggerSave();
-                tinymce_updateCharCounter(this, tinymce_getContentLength());
+                if (window.markFeedFormDirty) {
+                    window.markFeedFormDirty();
+                }
+                tinymce_updateCharCounter(this, tinymce_getContentLength(this));
             });
             var allowedKeys = [8, 37, 38, 39, 40, 46]; // backspace, delete and cursor keys
             editor.on('keydown', function (e) {
                 if (allowedKeys.indexOf(e.keyCode) != -1) return true;
-                if (tinymce_getContentLength() + 1 > this.settings.max_chars) {
+                if (tinymce_getContentLength(this) + 1 > this.settings.max_chars) {
                     e.preventDefault();
                     e.stopPropagation();
                     return false;
@@ -472,15 +438,15 @@
         },
         init_instance_callback: function () { // initialize counter div
             $('.tox-statusbar__path').after('<div class="char_count" style="text-align:right"></div>');
-            tinymce_updateCharCounter(this, tinymce_getContentLength());
+            tinymce_updateCharCounter(this, tinymce_getContentLength(this));
         },
         paste_preprocess: function (plugin, args) {
             var editor = tinymce.get(tinymce.activeEditor.id);
-            var len = editor.contentDocument.body.innerHTML.length;
+            var len = tinymce_getContentLength(editor);
             var tempDiv = document.createElement('div');
             tempDiv.innerHTML = args.content;
             var text = tempDiv.textContent || tempDiv.innerText || "";
-            if (text.length > editor.settings.max_chars) {
+            if (len + text.length > editor.settings.max_chars) {
                 alert('Pasting this exceeds the maximum allowed number of ' + editor.settings.max_chars +
                     ' characters.');
                 args.content = '';
@@ -494,7 +460,9 @@
         $('#' + el.id).next().find('.char_count').text(len + '/' + el.settings.max_chars + ' CHARACTERS');
         let isCharExceed = len > el.settings.max_chars
 
-        checkFormValid(contentExceed = isCharExceed)
+        if (window.updateContentExceededState) {
+            window.updateContentExceededState(isCharExceed);
+        }
         $('#' + el.id).next().find('.char_count').css(
             'color', isCharExceed ? 'red' : 'inherit'
         );
@@ -502,8 +470,14 @@
             `Ensure this value has at most ${el.settings.max_chars} characters (it has ${len}).` : ''
     }
 
-    function tinymce_getContentLength() {
-        return contentField.value.length
+    function tinymce_getContentLength(editor) {
+        const activeEditor = editor || tinymce.activeEditor;
+        if (activeEditor) {
+            return activeEditor.getContent({ format: 'text' }).length;
+        }
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = contentField.value;
+        return (tempDiv.textContent || tempDiv.innerText || '').length;
     }
 
     // Select reviewers
