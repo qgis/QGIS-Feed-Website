@@ -43,6 +43,18 @@
         margin-bottom: 0;
     }
 
+    .revision-item {
+        background-color: #eff5fb;
+        border-left: 4px solid #3273dc;
+        border-radius: 0 6px 6px 0;
+        padding: 1rem;
+        margin-bottom: 0.75rem;
+    }
+
+    .revision-item:last-child {
+        margin-bottom: 0;
+    }
+
     /* Ensure Bulma tabs active state is visible */
     .tabs.is-boxed {
         border-bottom: 1px solid #dbdbdb;
@@ -229,73 +241,89 @@
     </div>
     {% endif %}
 
-    {% if feed_entry and reviews %}
+    {% if feed_entry and history %}
     <div class="mt-5">
         <h4 class="title is-4 mb-3">
             <span class="icon-text">
                 <span class="icon has-text-info"><i class="fas fa-comments"></i></span>
-                <span>Review History</span>
-        </span>
-    </h4>
-    {% for review in reviews %}
-    <div class="review-item">
-        <article class="media mb-0">
-            <figure class="media-left">
-                <span class="icon is-large">
-                    <i class="fas fa-user-circle fa-2x has-text-grey"></i>
-                </span>
-            </figure>
-            <div class="media-content">
-                <div class="content">
-                    <p class="mb-2">
-                        <strong>{{ review.reviewer.username }}</strong>
-                        <span class="tag is-small {% if review.action == 'approve' %}is-success{% elif review.action == 'request_changes' %}is-warning{% else %}is-info{% endif %} ml-2">
-                            {{ review.get_action_display }}
+                <span>Review and Changes History</span>
+            </span>
+        </h4>
+        {% for item in history %}
+            {% if item.type == 'review' %}
+            <div class="review-item">
+                <article class="media mb-0">
+                    <figure class="media-left">
+                        <span class="icon is-large">
+                            <i class="fas fa-user-circle fa-2x has-text-grey"></i>
                         </span>
-                        <br>
-                        <small class="has-text-grey">{{ review.created_at|date:"F d, Y \a\t H:i" }}</small>
-                    </p>
-                    <div>{{ review.comment|linebreaks }}</div>
-                </div>
+                    </figure>
+                    <div class="media-content">
+                        <div class="content">
+                            <p class="mb-2">
+                                <strong>{{ item.obj.reviewer.username }}</strong>
+                                <span class="tag is-small {% if item.obj.action == 'approve' %}is-success{% elif item.obj.action == 'request_changes' %}is-warning{% else %}is-info{% endif %} ml-2">
+                                    {{ item.obj.get_action_display }}
+                                </span>
+                                <br>
+                                <small class="has-text-grey">{{ item.obj.created_at|date:"F d, Y \a\t H:i" }}</small>
+                            </p>
+                            <div>{{ item.obj.comment|linebreaks }}</div>
+                        </div>
+                    </div>
+                </article>
             </div>
-        </article>
-    </div>
-    {% endfor %}
-    </div>
-    {% endif %}
-
-    {% if feed_entry and revisions %}
-    <div class="mt-4">
-        <details class="mb-4">
-            <summary class="title is-5 is-clickable">
-                <span class="icon-text">
-                    <span class="icon has-text-grey"><i class="fas fa-history"></i></span>
-                    <span>Revision History ({{ revisions|length }})</span>
-                </span>
-            </summary>
-            <div class="content mt-3">
-                <div class="table-container">
-                    <table class="table is-fullwidth is-striped is-hoverable">
-                        <thead>
-                            <tr>
-                                <th>Date</th>
-                                <th>Modified By</th>
-                                <th>Summary</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for revision in revisions %}
-                            <tr>
-                                <td class="is-vcentered"><small>{{ revision.changed_at|date:"Y-m-d H:i" }}</small></td>
-                                <td class="is-vcentered">{{ revision.user.username }}</td>
-                                <td class="is-vcentered">{{ revision.change_summary|default:"No summary provided" }}</td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
+            {% else %}
+            <div class="revision-item">
+                <article class="media mb-0">
+                    <figure class="media-left">
+                        <span class="icon is-large">
+                            <i class="fas fa-pencil-alt fa-2x has-text-link"></i>
+                        </span>
+                    </figure>
+                    <div class="media-content">
+                        <div class="content">
+                            <p class="mb-2">
+                                <strong>{{ item.obj.user.username }}</strong>
+                                <span class="tag is-small is-link is-light ml-2">Edit</span>
+                                <br>
+                                <small class="has-text-grey">{{ item.obj.changed_at|date:"F d, Y \a\t H:i" }}</small>
+                            </p>
+                            {% if item.obj.field_changes %}
+                            <ul class="mb-0" style="list-style:none; padding-left:0; font-size:0.9em; margin-top:0.25rem;">
+                                {% for change in item.obj.field_changes %}
+                                <li class="mb-1">
+                                    <strong>{{ change.label }}:</strong>
+                                    {% if change.old is None and change.new is None %}
+                                        <em class="has-text-grey">changed</em>
+                                    {% elif change.label == "Content" %}
+                                        <div class="mt-1" style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem;">
+                                            <div>
+                                                <small class="has-text-grey">Before</small>
+                                                <div class="has-text-danger content" style="background:#fff5f5; border:1px solid #ffb3b3; border-radius:4px; padding:0.4rem 0.6rem; max-height:8rem; overflow-y:auto;">{% if change.old %}{{ change.old|safe }}{% else %}<em>(empty)</em>{% endif %}</div>
+                                            </div>
+                                            <div>
+                                                <small class="has-text-grey">After</small>
+                                                <div class="has-text-success content" style="background:#f5fff5; border:1px solid #99e099; border-radius:4px; padding:0.4rem 0.6rem; max-height:8rem; overflow-y:auto;">{% if change.new %}{{ change.new|safe }}{% else %}<em>(empty)</em>{% endif %}</div>
+                                            </div>
+                                        </div>
+                                    {% else %}
+                                        <span class="has-text-danger" style="text-decoration:line-through;">{{ change.old|default:"(empty)" }}</span>
+                                        &nbsp;<i class="fas fa-arrow-right has-text-grey" style="font-size:0.75em;"></i>&nbsp;
+                                        <span class="has-text-success">{{ change.new|default:"(empty)" }}</span>
+                                    {% endif %}
+                                </li>
+                                {% endfor %}
+                            </ul>
+                            {% else %}
+                            <p class="mb-0"><small>{{ item.obj.change_summary|default:"No details available." }}</small></p>
+                            {% endif %}
+                        </div>
+                    </div>
+                </article>
             </div>
-        </details>
+            {% endif %}
+        {% endfor %}
     </div>
     {% endif %}
 

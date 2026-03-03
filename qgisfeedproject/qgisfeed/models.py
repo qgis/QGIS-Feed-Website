@@ -424,7 +424,7 @@ class FeedEntryRevision(models.Model):
         get_user_model(), on_delete=models.CASCADE, verbose_name=_("Modified by")
     )
 
-    # Snapshot of changed fields
+    # Snapshot of changed fields (kept for backward-compat / full-text auditing)
     title = models.CharField(_("Title"), max_length=255)
     content = models.TextField(_("Content"))
     url = models.URLField(_("URL"), max_length=200, blank=True, null=True)
@@ -436,6 +436,14 @@ class FeedEntryRevision(models.Model):
         max_length=255,
         blank=True,
         help_text=_("Brief description of what changed"),
+    )
+
+    # Per-field diff: list of {"label": ..., "old": ..., "new": ...}
+    field_changes = models.JSONField(
+        _("Field Changes"),
+        default=list,
+        blank=True,
+        help_text=_("Structured list of per-field old→new changes"),
     )
 
     class Meta:

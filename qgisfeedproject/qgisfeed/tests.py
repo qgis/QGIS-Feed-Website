@@ -1126,17 +1126,16 @@ class ReviewWorkflowTestCase(TestCase):
         self.assertFalse(review1.is_latest_for_reviewer)
 
     def test_revision_tracking(self):
-        """Test that revisions are created when entries are modified"""
+        """FeedEntryRevision is correctly linked to its entry"""
         from qgisfeed.models import FeedEntryRevision, QgisFeedEntry
 
         entry = QgisFeedEntry.objects.create(
             title="Original Title",
-            content="Original content",
+            content="<p>Original content</p>",
             url="https://original.com",
             author=self.author,
         )
 
-        # Create a revision
         revision = FeedEntryRevision.objects.create(
             entry=entry,
             user=self.author,
@@ -1144,10 +1143,12 @@ class ReviewWorkflowTestCase(TestCase):
             content=entry.content,
             url=entry.url,
             change_summary="Initial version",
+            field_changes=[{"label": "Title", "old": "Old", "new": "Original Title"}],
         )
 
         self.assertEqual(entry.revisions.count(), 1)
         self.assertEqual(revision.title, "Original Title")
+        self.assertEqual(len(revision.field_changes), 1)
 
     def test_permission_can_edit_entry(self):
         """Test can_edit_entry permission function"""
@@ -1360,3 +1361,333 @@ class ReviewWorkflowTestCase(TestCase):
             recipients,
             {self.author.email, self.admin.email, self.reviewer2.email},
         )
+
+
+class RevisionSnapshotTestCase(TestCase):
+    """Unit tests for create_revision_snapshot (field-level diff recording)."""
+
+    fixtures = ["qgisfeed.json", "users.json"]
+
+    def setUp(self):
+        self.client = Client()
+        self.author = User.objects.get(username="staff")
+        self.admin = User.objects.get(username="admin")
+
+    def _make_entry(self, **kwargs):
+        from qgisfeed.models import QgisFeedEntry
+
+        defaults = dict(
+            title="Original Title",
+            content="<p>Original content</p>",
+            url="https://example.com",
+            author=self.author,
+            sorting=0,
+        )
+        defaults.update(kwargs)
+        return QgisFeedEntry.objects.create(**defaults)
+
+    # ------------------------------------------------------------------
+    # create_revision_snapshot unit tests
+    # ------------------------------------------------------------------
+
+    def test_no_revision_when_nothing_changed(self):
+        """create_revision_snapshot returns None and writes no DB row when nothing changed."""
+        from qgisfeed.models import QgisFeedEntry
+        from qgisfeed.utils import create_revision_snapshot
+
+        entry = self._make_entry()
+        import copy
+
+        unchanged = copy.copy(entry)
+
+        result = create_revision_snapshot(entry, unchanged, self.author)
+
+        self.assertIsNone(result)
+        self.assertEqual(entry.revisions.count(), 0)
+
+    def test_title_change_recorded(self):
+        """A title change stores old and new values in field_changes."""
+        import copy
+
+        from qgisfeed.utils import create_revision_snapshot
+
+        entry = self._make_entry(title="Old Title")
+        new_instance = copy.copy(entry)
+        new_instance.title = "New Title"
+
+        revision = create_revision_snapshot(entry, new_instance, self.author)
+
+        self.assertIsNotNone(revision)
+        title_change = next(c for c in revision.field_changes if c["label"] == "Title")
+        self.assertEqual(title_change["old"], "Old Title")
+        self.assertEqual(title_change["new"], "New Title")
+
+    def test_url_change_recorded(self):
+        """A URL change stores old and new values."""
+        import copy
+
+        from qgisfeed.utils import create_revision_snapshot
+
+        entry = self._make_entry(url="https://old.example.com")
+        new_instance = copy.copy(entry)
+        new_instance.url = "https://new.example.com"
+
+        revision = create_revision_snapshot(entry, new_instance, self.author)
+
+        self.assertIsNotNone(revision)
+        url_change = next(c for c in revision.field_changes if c["label"] == "URL")
+        self.assertEqual(url_change["old"], "https://old.example.com")
+        self.assertEqual(url_change["new"], "https://new.example.com")
+
+    def test_content_text_change_recorded(self):
+        """A plain-text content change is detected and raw HTML is stored."""
+        import copy
+
+        from qgisfeed.utils import create_revision_snapshot
+
+        entry = self._make_entry(content="<p>Original text</p>")
+        new_instance = copy.copy(entry)
+        new_instance.content = "<p>Updated text</p>"
+
+        revision = create_revision_snapshot(entry, new_instance, self.author)
+
+        self.assertIsNotNone(revision)
+        content_change = next(
+            c for c in revision.field_changes if c["label"] == "Content"
+        )
+        # Raw HTML is stored, not plain text
+        self.assertIn("<p>", content_change["old"])
+        self.assertIn("<p>", content_change["new"])
+        self.assertIn("Original text", content_change["old"])
+        self.assertIn("Updated text", content_change["new"])
+
+    def test_content_formatting_change_detected(self):
+        """A formatting-only change (plain text identical, HTML differs) is detected."""
+        import copy
+
+        from qgisfeed.utils import create_revision_snapshot
+
+        entry = self._make_entry(content="<p>Hello world</p>")
+        new_instance = copy.copy(entry)
+        new_instance.content = "<p><strong>Hello world</strong></p>"
+
+        revision = create_revision_snapshot(entry, new_instance, self.author)
+
+        self.assertIsNotNone(revision)
+        labels = [c["label"] for c in revision.field_changes]
+        self.assertIn("Content", labels)
+
+    def test_tinymce_whitespace_noise_ignored(self):
+        """TinyMCE re-serialisation whitespace noise does NOT create a revision."""
+        import copy
+
+        from qgisfeed.utils import create_revision_snapshot
+
+        entry = self._make_entry(content="<p>Hello world</p>")
+        new_instance = copy.copy(entry)
+        # TinyMCE sometimes adds extra newlines / spaces around tags
+        new_instance.content = "<p>\n  Hello world\n</p>"
+
+        result = create_revision_snapshot(entry, new_instance, self.author)
+
+        self.assertIsNone(result)
+        self.assertEqual(entry.revisions.count(), 0)
+
+    def test_bool_field_change_recorded(self):
+        """A sticky boolean change stores human-readable Yes/No values."""
+        import copy
+
+        from qgisfeed.utils import create_revision_snapshot
+
+        entry = self._make_entry()
+        entry.sticky = False
+        new_instance = copy.copy(entry)
+        new_instance.sticky = True
+
+        revision = create_revision_snapshot(entry, new_instance, self.author)
+
+        self.assertIsNotNone(revision)
+        sticky_change = next(
+            c for c in revision.field_changes if c["label"] == "Sticky"
+        )
+        self.assertEqual(sticky_change["old"], "No")
+        self.assertEqual(sticky_change["new"], "Yes")
+
+    def test_multiple_field_changes_in_one_revision(self):
+        """Changing several fields at once produces one revision with multiple entries."""
+        import copy
+
+        from qgisfeed.utils import create_revision_snapshot
+
+        entry = self._make_entry(title="Old Title", url="https://old.com")
+        new_instance = copy.copy(entry)
+        new_instance.title = "New Title"
+        new_instance.url = "https://new.com"
+
+        revision = create_revision_snapshot(entry, new_instance, self.author)
+
+        self.assertIsNotNone(revision)
+        labels = [c["label"] for c in revision.field_changes]
+        self.assertIn("Title", labels)
+        self.assertIn("URL", labels)
+
+    def test_auto_change_summary_generated(self):
+        """change_summary lists the changed field names automatically."""
+        import copy
+
+        from qgisfeed.utils import create_revision_snapshot
+
+        entry = self._make_entry(title="Before")
+        new_instance = copy.copy(entry)
+        new_instance.title = "After"
+
+        revision = create_revision_snapshot(entry, new_instance, self.author)
+
+        self.assertTrue(revision.change_summary.startswith("Changed:"))
+        self.assertIn("Title", revision.change_summary)
+
+    def test_revision_stored_in_db(self):
+        """create_revision_snapshot persists a FeedEntryRevision row in the database."""
+        import copy
+
+        from qgisfeed.utils import create_revision_snapshot
+
+        entry = self._make_entry(title="Before")
+        new_instance = copy.copy(entry)
+        new_instance.title = "After"
+
+        self.assertEqual(entry.revisions.count(), 0)
+        create_revision_snapshot(entry, new_instance, self.author)
+        self.assertEqual(entry.revisions.count(), 1)
+
+    # ------------------------------------------------------------------
+    # Integration: via HTTP form POST
+    # ------------------------------------------------------------------
+
+    def test_save_changes_via_form_creates_revision(self):
+        """POSTing the edit form with a changed title creates a FeedEntryRevision."""
+        from qgisfeed.models import QgisFeedEntry
+
+        entry = QgisFeedEntry.objects.create(
+            title="Form Title Before",
+            content="<p>Some content</p>",
+            author=self.author,
+            status=QgisFeedEntry.DRAFT,
+        )
+
+        self.client.login(username="admin", password="admin")
+        response = self.client.post(
+            reverse("feed_entry_update", args=[entry.pk]),
+            data={
+                "title": "Form Title After",
+                "content": "<p>Some content</p>",
+                "url": "",
+                "sorting": 0,
+                "action": "save",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        entry.refresh_from_db()
+        self.assertEqual(entry.revisions.count(), 1)
+
+        revision = entry.revisions.first()
+        title_change = next(
+            (c for c in revision.field_changes if c["label"] == "Title"), None
+        )
+        self.assertIsNotNone(title_change)
+        self.assertEqual(title_change["old"], "Form Title Before")
+        self.assertEqual(title_change["new"], "Form Title After")
+
+    def test_save_with_no_changes_creates_no_revision(self):
+        """POSTing the edit form with identical values creates no FeedEntryRevision."""
+        from qgisfeed.models import QgisFeedEntry
+
+        entry = QgisFeedEntry.objects.create(
+            title="Unchanged Title",
+            content="<p>Exactly the same</p>",
+            author=self.author,
+            status=QgisFeedEntry.DRAFT,
+        )
+
+        self.client.login(username="admin", password="admin")
+        self.client.post(
+            reverse("feed_entry_update", args=[entry.pk]),
+            data={
+                "title": "Unchanged Title",
+                "content": "<p>Exactly the same</p>",
+                "url": "",
+                "sorting": 0,
+                "action": "save",
+            },
+        )
+
+        entry.refresh_from_db()
+        self.assertEqual(entry.revisions.count(), 0)
+
+    def test_history_context_contains_revisions(self):
+        """The update view passes a merged history list containing revision entries."""
+        from qgisfeed.models import FeedEntryRevision, QgisFeedEntry
+
+        entry = QgisFeedEntry.objects.create(
+            title="History Test",
+            content="<p>Content</p>",
+            author=self.author,
+            status=QgisFeedEntry.DRAFT,
+        )
+        FeedEntryRevision.objects.create(
+            entry=entry,
+            user=self.author,
+            title="History Test",
+            content="<p>Content</p>",
+            url=None,
+            change_summary="Changed: Title",
+            field_changes=[{"label": "Title", "old": "Old", "new": "History Test"}],
+        )
+
+        self.client.login(username="admin", password="admin")
+        response = self.client.get(reverse("feed_entry_update", args=[entry.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        history = response.context["history"]
+        self.assertEqual(len(history), 1)
+        self.assertEqual(history[0]["type"], "revision")
+
+    def test_history_sorted_chronologically(self):
+        """Reviews and revisions are interleaved in ascending date order."""
+        import time
+
+        from qgisfeed.models import FeedEntryReview, FeedEntryRevision, QgisFeedEntry
+
+        entry = QgisFeedEntry.objects.create(
+            title="Chrono Test",
+            content="<p>Content</p>",
+            author=self.author,
+            status=QgisFeedEntry.PENDING_REVIEW,
+        )
+
+        FeedEntryRevision.objects.create(
+            entry=entry,
+            user=self.author,
+            title="Chrono Test",
+            content="<p>Content</p>",
+            url=None,
+            change_summary="Changed: Title",
+            field_changes=[],
+        )
+        time.sleep(0.05)
+        FeedEntryReview.objects.create(
+            entry=entry,
+            reviewer=self.admin,
+            action=FeedEntryReview.ACTION_COMMENT,
+            comment="Looks good",
+        )
+
+        self.client.login(username="admin", password="admin")
+        response = self.client.get(reverse("feed_entry_update", args=[entry.pk]))
+
+        history = response.context["history"]
+        self.assertEqual(len(history), 2)
+        # Revision was created first so it must come first in the sorted list
+        self.assertEqual(history[0]["type"], "revision")
+        self.assertEqual(history[1]["type"], "review")

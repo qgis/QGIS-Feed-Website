@@ -417,6 +417,25 @@ class FeedEntryAddView(View):
         return render(request, self.template_name, args)
 
 
+def build_entry_history(feed_entry):
+    """Return a chronologically sorted list combining reviews and revisions.
+
+    Each item is a dict with:
+      - ``type``: ``'review'`` or ``'revision'``
+      - ``date``: datetime used for sorting
+      - ``obj``:  the underlying model instance (FeedEntryReview / FeedEntryRevision)
+    """
+    history = []
+    for review in feed_entry.reviews.all():
+        history.append({"type": "review", "date": review.created_at, "obj": review})
+    for revision in feed_entry.revisions.all():
+        history.append(
+            {"type": "revision", "date": revision.changed_at, "obj": revision}
+        )
+    history.sort(key=lambda x: x["date"])
+    return history
+
+
 @method_decorator(staff_required, name="dispatch")
 class FeedEntryUpdateView(View):
     """
@@ -445,14 +464,11 @@ class FeedEntryUpdateView(View):
 
         form = self.form_class(instance=feed_entry, user=user)
 
-        # Get review history
-        reviews = feed_entry.reviews.all()
-
         # Get reviewer statuses
         reviewer_statuses = feed_entry.get_all_reviewer_statuses()
 
-        # Get revision history
-        revisions = feed_entry.revisions.all()[:5]  # Show last 5 revisions
+        # Build merged, chronological review + change history
+        history = build_entry_history(feed_entry)
 
         # Initialize the social syndication form with values from feed_entry
         post_link = f"\n\nLink: {feed_entry.url}" if feed_entry.url else ""
@@ -472,9 +488,8 @@ class FeedEntryUpdateView(View):
             "user_can_review": user_can_review,
             "user_can_submit": user_can_submit,
             "user_can_publish": user_can_publish,
-            "reviews": reviews,
+            "history": history,
             "reviewer_statuses": reviewer_statuses,
-            "revisions": revisions,
             "content_max_length": get_field_max_length(
                 CharacterLimitConfiguration, field_name="content"
             ),
@@ -508,16 +523,16 @@ class FeedEntryUpdateView(View):
         if form.is_valid():
             with transaction.atomic():
                 form_has_changes = form.has_changed()
+
+                # Re-fetch a clean DB copy BEFORE form.save(commit=False)
+                # mutates the instance in place — otherwise old == new for every field.
+                original_snapshot = QgisFeedEntry.objects.get(pk=feed_entry.pk)
+
                 instance = form.save(commit=False)
 
-                # Create revision snapshot if content changed
-                if instance.pk and (
-                    instance.title != feed_entry.title
-                    or instance.content != feed_entry.content
-                    or instance.url != feed_entry.url
-                ):
-                    change_summary = request.POST.get("change_summary", "Entry updated")
-                    create_revision_snapshot(feed_entry, user, change_summary)
+                # Record a revision with per-field diffs
+                if instance.pk:
+                    create_revision_snapshot(original_snapshot, instance, user)
 
                 # Save the instance first
                 instance.save()
@@ -626,9 +641,8 @@ class FeedEntryUpdateView(View):
             msg = "Form is not valid"
 
         # Re-render with errors
-        reviews = feed_entry.reviews.all()
         reviewer_statuses = feed_entry.get_all_reviewer_statuses()
-        revisions = feed_entry.revisions.all()[:5]
+        history = build_entry_history(feed_entry)
 
         args = {
             "form": form,
@@ -641,9 +655,8 @@ class FeedEntryUpdateView(View):
             "user_can_review": can_review_entry(user, feed_entry),
             "user_can_submit": can_submit_for_review(user, feed_entry),
             "user_can_publish": can_publish_entry(user, feed_entry),
-            "reviews": reviews,
+            "history": history,
             "reviewer_statuses": reviewer_statuses,
-            "revisions": revisions,
             "content_max_length": get_field_max_length(
                 CharacterLimitConfiguration, field_name="content"
             ),
