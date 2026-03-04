@@ -1,4 +1,5 @@
 # coding=utf-8
+import html
 import logging
 import unicodedata
 
@@ -8,6 +9,7 @@ from django.contrib.gis.geoip2 import GeoIP2
 from django.core.mail import EmailMultiAlternatives
 from django.http import HttpRequest
 from django.urls import reverse
+from django.utils.html import strip_tags
 
 logger = logging.getLogger("qgisfeed.admin")
 DEFAULT_FROM_EMAIL = getattr(settings, "DEFAULT_FROM_EMAIL", "noreply@qgis.org")
@@ -40,12 +42,97 @@ def notify_reviewers(author, request, recipients, obj):
     msg.send(fail_silently=True)
 
 
+def get_author_and_reviewer_recipients(entry):
+    from django.contrib.auth.models import User
+
+    recipients = set()
+
+    if entry.author and entry.author.email:
+        recipients.add(entry.author.email)
+
+    if entry.reviewers.exists():
+        for reviewer in entry.reviewers.all():
+            if reviewer.email and reviewer.has_perm("qgisfeed.publish_qgisfeedentry"):
+                recipients.add(reviewer.email)
+    else:
+        reviewers = User.objects.filter(is_active=True, email__isnull=False).exclude(
+            email=""
+        )
+        recipients.update(
+            [u.email for u in reviewers if u.has_perm("qgisfeed.publish_qgisfeedentry")]
+        )
+
+    return list(recipients)
+
+
+def notify_entry_submitted(entry, submitted_by, request):
+    recipients = get_author_and_reviewer_recipients(entry)
+    if not recipients:
+        return
+
+    body = f"""
+    Hi,
+
+    {submitted_by.username} submitted the feed entry "{entry.title}" for review.
+
+    Review it at:
+    {request.build_absolute_uri(reverse('feed_entry_update', args=(entry.pk,)))}
+
+    Your beloved QGIS Feed bot.
+    """
+
+    msg = EmailMultiAlternatives(
+        f"Feed entry submitted for review: {entry.title}",
+        body,
+        DEFAULT_FROM_EMAIL,
+        recipients,
+    )
+    msg.send(fail_silently=True)
+
+
+def notify_review_action_submitted(entry, review, request):
+    recipients = get_author_and_reviewer_recipients(entry)
+    if not recipients:
+        return
+
+    action_display = review.get_action_display()
+    body = f"""
+    Hi,
+
+    A new review action was submitted for "{entry.title}".
+
+    Reviewer: {review.reviewer.username}
+    Action: {action_display}
+    Comment: {review.comment}
+
+    View it at:
+    {request.build_absolute_uri(reverse('feed_entry_update', args=(entry.pk,)))}
+
+    Your beloved QGIS Feed bot.
+    """
+
+    msg = EmailMultiAlternatives(
+        f"Feed entry review update ({action_display}): {entry.title}",
+        body,
+        DEFAULT_FROM_EMAIL,
+        recipients,
+    )
+    msg.send(fail_silently=True)
+
+
 def get_field_max_length(ConfigurationModel: Model, field_name: str):
     try:
         config = ConfigurationModel.objects.get(field_name=field_name)
         return config.max_characters
     except ConfigurationModel.DoesNotExist:
         return 500
+
+
+def get_content_plain_text_length(content: str) -> int:
+    if not content:
+        return 0
+    plain_text = html.unescape(strip_tags(content))
+    return len(plain_text)
 
 
 def parse_remote_addr(request: HttpRequest) -> str:
@@ -273,15 +360,114 @@ def notify_author_published(entry, request):
     msg.send(fail_silently=True)
 
 
-def create_revision_snapshot(entry, user, change_summary=""):
-    """Create a revision snapshot of the entry"""
+def create_revision_snapshot(original_entry, new_instance, user):
+    """Compare original_entry (old DB state) with new_instance (unsaved new state)
+    and persist a FeedEntryRevision recording per-field old→new diffs.
+
+    Returns the created FeedEntryRevision, or None when nothing changed.
+    """
     from qgisfeed.models import FeedEntryRevision
 
-    FeedEntryRevision.objects.create(
-        entry=entry,
+    # (field_attr, human label, type hint)
+    # type hints: 'text' | 'content' | 'file' | 'geometry' | 'datetime' | 'bool'
+    TRACKED_FIELDS = [
+        ("title", "Title", "text"),
+        ("url", "URL", "text"),
+        ("content", "Content", "content"),
+        ("image", "Image", "file"),
+        ("sticky", "Sticky", "bool"),
+        ("sorting", "Sorting Order", "text"),
+        ("language_filter", "Language Filter", "text"),
+        ("spatial_filter", "Spatial Filter", "geometry"),
+        ("publish_from", "Publish From", "datetime"),
+        ("publish_to", "Publish To", "datetime"),
+    ]
+
+    def _normalize_html(html_str):
+        """Normalise HTML for comparison: collapse whitespace between/around tags
+        so TinyMCE re-serialisation quirks (extra newlines, spaces) are ignored,
+        while structural/formatting changes (bold, italic, etc.) are still detected.
+        """
+        import re
+
+        if not html_str:
+            return ""
+        # Collapse runs of whitespace (spaces, tabs, newlines) into a single space
+        normalised = re.sub(r"\s+", " ", html_str).strip()
+        # Remove spaces immediately after an opening tag or before a closing tag
+        normalised = re.sub(r">\s+", ">", normalised)
+        normalised = re.sub(r"\s+<", "<", normalised)
+        return normalised
+
+    field_changes = []
+    changed_labels = []
+
+    for field_attr, label, field_type in TRACKED_FIELDS:
+        old_val = getattr(original_entry, field_attr, None)
+        new_val = getattr(new_instance, field_attr, None)
+
+        # For content (HTML rich text) compare normalised HTML so that TinyMCE
+        # whitespace re-serialisation quirks don't produce false positives,
+        # but real formatting changes (bold, italic, etc.) are still detected.
+        if field_type == "content":
+            old_cmp = _normalize_html(old_val)
+            new_cmp = _normalize_html(new_val)
+        # Geometry comparison via WKT to avoid object identity issues
+        elif field_type == "geometry":
+            old_cmp = old_val.wkt if old_val else None
+            new_cmp = new_val.wkt if new_val else None
+        else:
+            old_cmp, new_cmp = old_val, new_val
+
+        if old_cmp == new_cmp:
+            continue
+
+        changed_labels.append(label)
+
+        if field_type == "content":
+            # Store the raw HTML so the template can render formatting
+            field_changes.append(
+                {"label": label, "old": old_val or None, "new": new_val or None}
+            )
+        elif field_type in ("file", "geometry"):
+            # Too large / not human-readable — just record that it changed
+            field_changes.append({"label": label, "old": None, "new": None})
+        elif field_type == "datetime":
+            field_changes.append(
+                {
+                    "label": label,
+                    "old": old_val.strftime("%Y-%m-%d %H:%M") if old_val else None,
+                    "new": new_val.strftime("%Y-%m-%d %H:%M") if new_val else None,
+                }
+            )
+        elif field_type == "bool":
+            field_changes.append(
+                {
+                    "label": label,
+                    "old": "Yes" if old_val else "No",
+                    "new": "Yes" if new_val else "No",
+                }
+            )
+        else:
+            field_changes.append(
+                {
+                    "label": label,
+                    "old": str(old_val) if old_val is not None else None,
+                    "new": str(new_val) if new_val is not None else None,
+                }
+            )
+
+    if not field_changes:
+        return None
+
+    auto_summary = "Changed: " + ", ".join(changed_labels)
+
+    return FeedEntryRevision.objects.create(
+        entry=original_entry,
         user=user,
-        title=entry.title,
-        content=entry.content,
-        url=entry.url,
-        change_summary=change_summary,
+        title=new_instance.title,
+        content=new_instance.content,
+        url=new_instance.url,
+        change_summary=auto_summary,
+        field_changes=field_changes,
     )

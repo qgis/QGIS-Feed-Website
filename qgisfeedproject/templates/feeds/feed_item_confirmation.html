@@ -10,14 +10,14 @@
             {% if not published and user_is_approver and form.instance.pk %}
             <div>
                 <div class="notification is-warning is-light">
-                    Before you publish this item, please ensure that you have reviewed the content and 
+                    Before you publish this item, please ensure that you have reviewed the content and
                     the entry adheres to the following guidelines:
                     {% include "feeds/guidelines_content.html" %}
                     </div>
                 <p class="notification is-danger is-light">
-                    Please note: When you publish this item it will be cached on the QGIS client side. 
-                    Any subsequent changes you make to this posting will not be propagated to clients 
-                    that have already cached this post. So double check everything one more time before 
+                    Please note: When you publish this item it will be cached on the QGIS client side.
+                    Any subsequent changes you make to this posting will not be propagated to clients
+                    that have already cached this post. So double check everything one more time before
                     publishing please!
                 </p>
             </div>
@@ -33,7 +33,7 @@
             </button>
 
             {% if published %}
-            <button class="button is-success" type="submit" form="feedItemForm">
+            <button class="button is-outlined" type="submit" form="feedItemForm">
                 <span class="icon">
                     <i class="fa fa-floppy-disk" aria-hidden="true"></i>
                 </span>
@@ -41,11 +41,11 @@
             </button>
 
             {% elif not published and user_is_approver and form.instance.pk%}
-            <button class="button is-success" type="submit" form="feedItemForm" name="publish" value="1">
+            <button class="button is-success" type="submit" form="feedItemForm" name="action" value="publish">
                 <span class="icon">
                     <i class="fa fa-check" aria-hidden="true"></i>
                 </span>
-                <span>Approve and publish</span>
+                <span>Publish Entry</span>
             </button>
             {% else %}
             <button class="button is-success" type="submit" form="feedItemForm">

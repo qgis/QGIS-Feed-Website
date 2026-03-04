@@ -5,6 +5,7 @@ from django.utils import timezone
 
 from .languages import LANGUAGES
 from .models import CharacterLimitConfiguration, QgisFeedEntry
+from .utils import get_content_plain_text_length
 
 
 class HomePageFilterForm(forms.Form):
@@ -198,9 +199,11 @@ class FeedItemForm(forms.ModelForm):
         except CharacterLimitConfiguration.DoesNotExist:
             content_max_length = 500
 
-        if len(content) > content_max_length:
+        content_length = get_content_plain_text_length(content)
+
+        if content_length > content_max_length:
             raise ValidationError(
-                f"Ensure this value has at most {str(content_max_length)} characters (it has {str(len(content))})."
+                f"Ensure this value has at most {str(content_max_length)} characters (it has {str(content_length)})."
             )
         return content
 

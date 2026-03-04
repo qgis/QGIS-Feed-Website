@@ -59,7 +59,12 @@
       </label>
       <div class="control">{{form.content}}</div>
       <p class="help">{{form.content.help_text}}</p>
-      <p id="contentError" class="help form-error"></p>
+      {% if not form.content.errors %}
+        <p id="contentError" class="help form-error"></p>
+      {% endif %}
+      {% for error in form.content.errors %}
+        <p class="help form-error">{{ error }}</p>
+      {% endfor %}
     </div>
 
     <div class="columns">
@@ -227,6 +232,36 @@
         {% for error in form.reviewers.errors %}
           <p class="help is-danger">{{ error }}</p>
         {% endfor %}
+      </div>
+    </div>
+
+    <div class="field mt-4">
+      <div class="buttons is-right">
+        {% if feed_entry %}
+          {% if user_can_submit %}
+            <button type="submit" name="action" value="submit_for_review" class="button is-warning">
+              <span class="icon"><i class="fa fa-paper-plane" aria-hidden="true"></i></span>
+              <span>Submit for Review</span>
+            </button>
+          {% endif %}
+
+          {% if user_is_author or user_is_approver %}
+            <button type="submit" name="action" value="save" class="button is-outlined">
+              <span class="icon"><i class="fa fa-floppy-disk" aria-hidden="true"></i></span>
+              <span>Save Changes</span>
+            </button>
+          {% endif %}
+        {% else %}
+          <button type="submit" name="action" value="save" class="button is-primary1">
+            <span class="icon"><i class="fa fa-floppy-disk" aria-hidden="true"></i></span>
+            <span>Save as Draft</span>
+          </button>
+
+          <button type="submit" name="submit_for_review" value="1" class="button is-warning">
+            <span class="icon"><i class="fa fa-paper-plane" aria-hidden="true"></i></span>
+            <span>Submit for Review</span>
+          </button>
+        {% endif %}
       </div>
     </div>
   </div>

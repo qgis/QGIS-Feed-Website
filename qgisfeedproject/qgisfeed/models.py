@@ -20,7 +20,7 @@ from django.utils import timezone
 from django.utils.translation import gettext as _
 from imagekit.models import ProcessedImageField
 from imagekit.processors import ResizeToFill
-from qgisfeed.utils import simplify
+from qgisfeed.utils import get_content_plain_text_length, simplify
 from user_visit.models import UserVisit
 
 from .languages import LANGUAGES
@@ -349,9 +349,11 @@ class QgisFeedEntry(models.Model):
         except CharacterLimitConfiguration.DoesNotExist:
             content_max_length = 500
 
-        if len(self.content) > content_max_length:
+        content_length = get_content_plain_text_length(self.content)
+
+        if content_length > content_max_length:
             raise ValidationError(
-                f"Ensure content value has at most {str(content_max_length)} characters (it has {str(len(self.content))})."
+                f"Ensure content value has at most {str(content_max_length)} characters (it has {str(content_length)})."
             )
 
         super(QgisFeedEntry, self).save(*args, **kwargs)
@@ -422,7 +424,7 @@ class FeedEntryRevision(models.Model):
         get_user_model(), on_delete=models.CASCADE, verbose_name=_("Modified by")
     )
 
-    # Snapshot of changed fields
+    # Snapshot of changed fields (kept for backward-compat / full-text auditing)
     title = models.CharField(_("Title"), max_length=255)
     content = models.TextField(_("Content"))
     url = models.URLField(_("URL"), max_length=200, blank=True, null=True)
@@ -434,6 +436,14 @@ class FeedEntryRevision(models.Model):
         max_length=255,
         blank=True,
         help_text=_("Brief description of what changed"),
+    )
+
+    # Per-field diff: list of {"label": ..., "old": ..., "new": ...}
+    field_changes = models.JSONField(
+        _("Field Changes"),
+        default=list,
+        blank=True,
+        help_text=_("Structured list of per-field old→new changes"),
     )
 
     class Meta:

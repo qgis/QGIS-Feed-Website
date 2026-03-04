@@ -49,10 +49,9 @@ from .utils import (
     create_revision_snapshot,
     get_field_max_length,
     get_location,
-    notify_author_approved,
-    notify_author_changes_requested,
     notify_author_published,
-    notify_reviewers,
+    notify_entry_submitted,
+    notify_review_action_submitted,
     notify_reviewers_resubmitted,
     parse_remote_addr,
 )
@@ -393,27 +392,7 @@ class FeedEntryAddView(View):
                 if submit_for_review:
                     new_object.status = QgisFeedEntry.PENDING_REVIEW
                     new_object.save()
-
-                    # Notify assigned reviewers or all reviewers
-                    if new_object.reviewers.exists():
-                        recipients = [
-                            r.email
-                            for r in new_object.reviewers.all()
-                            if r.email and r.has_perm("qgisfeed.publish_qgisfeedentry")
-                        ]
-                    else:
-                        # No specific reviewers, notify all possible reviewers
-                        reviewers = User.objects.filter(
-                            is_active=True, email__isnull=False
-                        ).exclude(email="")
-                        recipients = [
-                            u.email
-                            for u in reviewers
-                            if u.has_perm("qgisfeed.publish_qgisfeedentry")
-                        ]
-
-                    if recipients and len(recipients) > 0:
-                        notify_reviewers(request.user, request, recipients, new_object)
+                    notify_entry_submitted(new_object, request.user, request)
 
                     messages.success(request, "Feed entry submitted for review!")
                 else:
@@ -436,6 +415,25 @@ class FeedEntryAddView(View):
         }
 
         return render(request, self.template_name, args)
+
+
+def build_entry_history(feed_entry):
+    """Return a chronologically sorted list combining reviews and revisions.
+
+    Each item is a dict with:
+      - ``type``: ``'review'`` or ``'revision'``
+      - ``date``: datetime used for sorting
+      - ``obj``:  the underlying model instance (FeedEntryReview / FeedEntryRevision)
+    """
+    history = []
+    for review in feed_entry.reviews.all():
+        history.append({"type": "review", "date": review.created_at, "obj": review})
+    for revision in feed_entry.revisions.all():
+        history.append(
+            {"type": "revision", "date": revision.changed_at, "obj": revision}
+        )
+    history.sort(key=lambda x: x["date"])
+    return history
 
 
 @method_decorator(staff_required, name="dispatch")
@@ -466,14 +464,11 @@ class FeedEntryUpdateView(View):
 
         form = self.form_class(instance=feed_entry, user=user)
 
-        # Get review history
-        reviews = feed_entry.reviews.all()
-
         # Get reviewer statuses
         reviewer_statuses = feed_entry.get_all_reviewer_statuses()
 
-        # Get revision history
-        revisions = feed_entry.revisions.all()[:5]  # Show last 5 revisions
+        # Build merged, chronological review + change history
+        history = build_entry_history(feed_entry)
 
         # Initialize the social syndication form with values from feed_entry
         post_link = f"\n\nLink: {feed_entry.url}" if feed_entry.url else ""
@@ -493,9 +488,8 @@ class FeedEntryUpdateView(View):
             "user_can_review": user_can_review,
             "user_can_submit": user_can_submit,
             "user_can_publish": user_can_publish,
-            "reviews": reviews,
+            "history": history,
             "reviewer_statuses": reviewer_statuses,
-            "revisions": revisions,
             "content_max_length": get_field_max_length(
                 CharacterLimitConfiguration, field_name="content"
             ),
@@ -528,16 +522,17 @@ class FeedEntryUpdateView(View):
 
         if form.is_valid():
             with transaction.atomic():
+                form_has_changes = form.has_changed()
+
+                # Re-fetch a clean DB copy BEFORE form.save(commit=False)
+                # mutates the instance in place — otherwise old == new for every field.
+                original_snapshot = QgisFeedEntry.objects.get(pk=feed_entry.pk)
+
                 instance = form.save(commit=False)
 
-                # Create revision snapshot if content changed
-                if instance.pk and (
-                    instance.title != feed_entry.title
-                    or instance.content != feed_entry.content
-                    or instance.url != feed_entry.url
-                ):
-                    change_summary = request.POST.get("change_summary", "Entry updated")
-                    create_revision_snapshot(feed_entry, user, change_summary)
+                # Record a revision with per-field diffs
+                if instance.pk:
+                    create_revision_snapshot(original_snapshot, instance, user)
 
                 # Save the instance first
                 instance.save()
@@ -561,27 +556,7 @@ class FeedEntryUpdateView(View):
                         if original_status == QgisFeedEntry.CHANGES_REQUESTED:
                             notify_reviewers_resubmitted(instance, request)
                         else:
-                            # Submission - send to assigned reviewers
-                            if instance.reviewers.exists():
-                                recipients = [
-                                    r.email
-                                    for r in instance.reviewers.all()
-                                    if r.email
-                                    and r.has_perm("qgisfeed.publish_qgisfeedentry")
-                                ]
-                            else:
-                                # No specific reviewers, notify all
-                                reviewers = User.objects.filter(
-                                    is_active=True, email__isnull=False
-                                ).exclude(email="")
-                                recipients = [
-                                    u.email
-                                    for u in reviewers
-                                    if u.has_perm("qgisfeed.publish_qgisfeedentry")
-                                ]
-
-                            if recipients:
-                                notify_reviewers(user, request, recipients, instance)
+                            notify_entry_submitted(instance, user, request)
 
                         messages.success(request, "Entry submitted for review!")
                     else:
@@ -608,7 +583,7 @@ class FeedEntryUpdateView(View):
                 elif action == "save":
                     # Regular save
                     # If author is editing published entry, unpublish and send back to review
-                    if original_status == QgisFeedEntry.PUBLISHED and user_is_author:
+                    if original_status == QgisFeedEntry.PUBLISHED and form_has_changes:
                         instance.status = QgisFeedEntry.PENDING_REVIEW
                         instance.published = False
                         instance.save()
@@ -644,6 +619,21 @@ class FeedEntryUpdateView(View):
                         instance.save()
                         messages.success(request, "Changes saved successfully!")
 
+                elif action == "unpublish":
+                    if original_status == QgisFeedEntry.PUBLISHED:
+                        instance.status = QgisFeedEntry.PENDING_REVIEW
+                        instance.published = False
+                        instance.save()
+                        notify_reviewers_resubmitted(instance, request)
+                        messages.info(
+                            request,
+                            "Entry unpublished and sent back for review.",
+                        )
+                    else:
+                        messages.error(
+                            request, "Only published entries can be unpublished."
+                        )
+
                 success = True
                 return redirect("feed_entry_update", pk=pk)
         else:
@@ -651,9 +641,8 @@ class FeedEntryUpdateView(View):
             msg = "Form is not valid"
 
         # Re-render with errors
-        reviews = feed_entry.reviews.all()
         reviewer_statuses = feed_entry.get_all_reviewer_statuses()
-        revisions = feed_entry.revisions.all()[:5]
+        history = build_entry_history(feed_entry)
 
         args = {
             "form": form,
@@ -666,9 +655,8 @@ class FeedEntryUpdateView(View):
             "user_can_review": can_review_entry(user, feed_entry),
             "user_can_submit": can_submit_for_review(user, feed_entry),
             "user_can_publish": can_publish_entry(user, feed_entry),
-            "reviews": reviews,
+            "history": history,
             "reviewer_statuses": reviewer_statuses,
-            "revisions": revisions,
             "content_max_length": get_field_max_length(
                 CharacterLimitConfiguration, field_name="content"
             ),
@@ -742,16 +730,13 @@ class FeedEntryReviewActionView(View):
                 entry.status = QgisFeedEntry.APPROVED
                 entry.save()
                 messages.success(request, "Entry approved! You can now publish it.")
-                # Notify author
-                notify_author_approved(entry, review, request)
+                notify_review_action_submitted(entry, review, request)
 
             elif action == FeedEntryReview.ACTION_REQUEST_CHANGES:
                 entry.status = QgisFeedEntry.CHANGES_REQUESTED
                 entry.save()
                 messages.info(request, "Changes requested. Author will be notified.")
-
-                # Notify author
-                notify_author_changes_requested(entry, review, request)
+                notify_review_action_submitted(entry, review, request)
 
             elif action == FeedEntryReview.ACTION_COMMENT:
                 if is_author:
@@ -760,6 +745,7 @@ class FeedEntryReviewActionView(View):
                     )
                 else:
                     messages.success(request, "Comment added to review.")
+                notify_review_action_submitted(entry, review, request)
 
         return redirect("feed_entry_update", pk=pk)
 
