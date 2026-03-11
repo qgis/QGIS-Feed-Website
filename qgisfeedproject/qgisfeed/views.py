@@ -177,8 +177,12 @@ class QgisEntriesView(View):
             else:
                 qs = QgisFeedEntry.objects.all()
                 now = timezone.now()
-                qs = qs.filter(modified__gte=after, published=True).exclude(
-                    publish_from__gte=now
+                # Include entries modified since `after`, OR entries whose publish_from
+                # fell between `after` and now (entries that became active since last check).
+                qs = (
+                    qs.filter(published=True)
+                    .exclude(publish_from__gte=now)
+                    .filter(Q(modified__gte=after) | Q(publish_from__gte=after))
                 )
 
         # Get filters for lang and lat/lon
