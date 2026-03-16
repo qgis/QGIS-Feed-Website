@@ -232,6 +232,33 @@ class QgisFeedEntryTestCase(TestCase):
         titles = [d["title"] for d in data]
         self.assertFalse("Null Island QGIS Hackfest" in titles)
 
+    def test_upcoming_feed_becomes_active(self):
+        """Test that entries whose publish_from falls between `after` and now
+        are included for QGIS >= 3.36, even if their modified date predates `after`.
+        Regression test for https://github.com/qgis/QGIS-Feed-Website/issues/164
+        """
+        c = Client(
+            HTTP_USER_AGENT="Mozilla/5.0 QGIS/33600/Fedora "
+            "Linux (Workstation Edition)"
+        )
+        # Simulate an entry that was created in the past, scheduled to publish later,
+        # but is now active: modified=2025-01-01, publish_from=2025-06-01.
+        # QGIS last checked on 2025-02-01 (after=2025-02-01).
+        # modified (2025-01-01) < after (2025-02-01), so the old query would miss it.
+        # publish_from (2025-06-01) is between after and now, so it must be included.
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "UPDATE qgisfeed_qgisfeedentry "
+                "SET publish_from='2025-06-01', modified='2025-01-01', "
+                "publish_to=NULL, published=True "
+                "WHERE title='QGIS Italian Meeting'"
+            )
+        # after = 2025-02-01, before publish_from but after modified
+        response = c.get("/?after=%s" % timezone.datetime(2025, 2, 1).timestamp())
+        data = json.loads(response.content)
+        titles = [d["title"] for d in data]
+        self.assertIn("QGIS Italian Meeting", titles)
+
     def test_invalid_parameters(self):
         c = Client(
             HTTP_USER_AGENT="Mozilla/5.0 QGIS/32400/Fedora "
