@@ -183,17 +183,6 @@ WEBPACK_LOADER = {
     }
 }
 
-LOGGING = {
-    "version": 1,
-    "disable_existing_loggers": False,
-    "handlers": {
-        "file": {
-            "class": "logging.FileHandler",
-            "filename": "django.log",
-        },
-    },
-}
-
 # Sentry
 SENTRY_DSN = os.environ.get("SENTRY_DSN", "")
 SENTRY_RATE = os.environ.get("SENTRY_RATE", 1.0)
