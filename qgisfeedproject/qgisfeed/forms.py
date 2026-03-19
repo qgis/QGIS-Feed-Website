@@ -115,6 +115,7 @@ class FeedItemForm(forms.ModelForm):
             "image",
             "content",
             "url",
+            "action_text",
             "sticky",
             "sorting",
             "language_filter",
@@ -158,6 +159,12 @@ class FeedItemForm(forms.ModelForm):
         )
         self.fields["url"].widget = forms.TextInput(
             attrs={"class": "input", "placeholder": "URL for more information link"}
+        )
+        self.fields["action_text"].widget = forms.TextInput(
+            attrs={
+                "class": "input",
+                "placeholder": "e.g. Double-click here to read more (QGIS 3 only)",
+            }
         )
         self.fields["sorting"].widget = forms.NumberInput(
             attrs={

@@ -124,6 +124,16 @@ class QgisFeedEntry(models.Model):
         blank=True,
         null=True,
     )
+    action_text = models.CharField(
+        _("Call to action text"),
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text=_(
+            "Optional call-to-action shown only on QGIS 3 (e.g. 'Double-click here to read more'). "
+            "Leave blank if not needed. QGIS 4 opens the URL via a dedicated button so this text is hidden there."
+        ),
+    )
 
     # Auto fields
     author = models.ForeignKey(

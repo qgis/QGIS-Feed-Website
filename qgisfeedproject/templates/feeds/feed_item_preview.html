@@ -1,19 +1,70 @@
-<div class="form-preview columns has-background-light box-container m-0">
-    <div class="column is-4" name="imagePreview">
-        {% if form.image.value %}
-        <img src="{{ form.image.value.url }}" style="border-radius:20px;">
-        {% else %}
-        {% endif %}
-    </div>
-    <div class="column is-8">
-        <h5 name="titlePreview" class="title is-5">
-            {{form.title.value | default:""}}
-        </h5>
-        <div name="contentPreview">
-            {{form.content.value | default:"" | safe }}
+<div class="preview-version-container">
+<div class="tabs is-toggle is-small mb-3">
+    <ul class="preview-version-tabs is-justify-content-center">
+        <li class="is-active" data-preview="qgis3">
+            <a><span>QGIS 3 preview</span></a>
+        </li>
+        <li data-preview="qgis4">
+            <a><span>QGIS 4 preview</span></a>
+        </li>
+    </ul>
+</div>
+
+<div class="preview-pane preview-qgis3">
+    <div class="form-preview columns has-background-light box-container m-0">
+        <div class="column is-4" name="imagePreview">
+            {% if form.image.value %}
+            <img src="{{ form.image.value.url }}" style="border-radius:20px;">
+            {% endif %}
+        </div>
+        <div class="column is-8">
+            <h5 name="titlePreview" class="title is-5">
+                {{form.title.value | default:""}}
+            </h5>
+            <div name="contentPreview">
+                {{form.content.value | default:"" | safe }}
+            </div>
+            {% if form.action_text.value %}
+            <p name="actionTextPreview" class="mt-2"><strong>{{ form.action_text.value }}</strong></p>
+            {% endif %}
         </div>
     </div>
 </div>
+
+<div class="preview-pane preview-qgis4" style="display:none;">
+    <div class="form-preview columns has-background-light box-container m-0">
+        <div class="column is-4" name="imagePreview">
+            {% if form.image.value %}
+            <img src="{{ form.image.value.url }}" style="border-radius:20px;">
+            {% endif %}
+        </div>
+        <div class="column is-8">
+            <h5 class="title is-5">
+                {{form.title.value | default:""}}
+            </h5>
+            <div>
+                {{form.content.value | default:"" | safe }}
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+(function () {
+    var container = document.currentScript.closest('.preview-version-container');
+    var tabs = container.querySelectorAll('.preview-version-tabs li');
+    tabs.forEach(function (tab) {
+        tab.addEventListener('click', function () {
+            tabs.forEach(function (t) { t.classList.remove('is-active'); });
+            tab.classList.add('is-active');
+            container.querySelectorAll('.preview-pane').forEach(function (p) {
+                p.style.display = 'none';
+            });
+            container.querySelector('.preview-' + tab.dataset.preview).style.display = '';
+        });
+    });
+}());
+</script>
 
 <div class="form-preview columns box-container m-0">
     <table class="table is-fullwidth">
@@ -73,3 +124,4 @@
         </tbody>
     </table>
 </div>
+</div><!-- /.preview-version-container -->
