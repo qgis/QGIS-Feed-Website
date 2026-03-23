@@ -373,6 +373,7 @@ def create_revision_snapshot(original_entry, new_instance, user):
     TRACKED_FIELDS = [
         ("title", "Title", "text"),
         ("url", "URL", "text"),
+        ("action_text", "Call to Action Text", "text"),
         ("content", "Content", "content"),
         ("image", "Image", "file"),
         ("sticky", "Sticky", "bool"),

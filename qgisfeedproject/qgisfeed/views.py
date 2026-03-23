@@ -226,6 +226,7 @@ class QgisEntriesView(View):
             "image",
             "content",
             "url",
+            "action_text",
             "sticky",
         )[:QGISFEED_MAX_RECORDS]:
             if record["publish_from"]:
@@ -236,6 +237,16 @@ class QgisEntriesView(View):
                 record["image"] = request.build_absolute_uri(
                     settings.MEDIA_URL + record["image"]
                 )
+            # action_text is a QGIS-3-only call-to-action (e.g. "Double-click
+            # here to read more").  For QGIS 4+ the UI provides its own
+            # interaction affordance so we omit it; for older clients we
+            # append it to the content so they still see it.
+            action_text = record.pop("action_text", None)
+            if action_text and (qgis_version is None or qgis_version < 40000):
+                record["content"] = (
+                    record["content"] or ""
+                ) + f"<p><strong>{action_text}</strong></p>"
+
             data.append(record)
 
         data_json = json.dumps(data, indent=(2 if settings.DEBUG else 0))

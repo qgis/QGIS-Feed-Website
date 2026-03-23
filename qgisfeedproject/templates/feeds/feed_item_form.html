@@ -522,7 +522,7 @@
 
     // Tab switching functionality using Bulma tabs
     document.addEventListener('DOMContentLoaded', () => {
-        const tabItems = document.querySelectorAll('.tabs li');
+        const tabItems = document.querySelectorAll('.tabs li[data-tab]');
         const tabContents = document.querySelectorAll('.tab-content');
 
         tabItems.forEach(item => {

@@ -311,6 +311,63 @@ class QgisFeedEntryTestCase(TestCase):
             set(("qgisfeed.add_qgisfeedentry", "qgisfeed.view_qgisfeedentry")),
         )
 
+    def test_action_text_shown_on_qgis3_hidden_on_qgis4(self):
+        """action_text must be appended to content for QGIS 3 clients and
+        omitted for QGIS 4+ clients, regardless of the language used."""
+        author = User.objects.get(username="admin")
+        entry = QgisFeedEntry.objects.create(
+            title="Action-text test entry",
+            content="<p>Some real content here.</p>",
+            action_text="Double-cliquez ici pour en savoir plus.",
+            url="https://www.example.com",
+            author=author,
+            status=QgisFeedEntry.PUBLISHED,
+            publish_from="2019-05-05T12:00:00Z",
+        )
+
+        # --- QGIS 3 client ---
+        c3 = Client(
+            HTTP_USER_AGENT="Mozilla/5.0 QGIS/33600/Fedora Linux (Workstation Edition)"
+        )
+        response = c3.get("/")
+        data = json.loads(response.content)
+
+        # action_text appended for QGIS 3
+        match = next((d for d in data if d["title"] == "Action-text test entry"), None)
+        self.assertIsNotNone(match)
+        self.assertIn("Double-cliquez ici pour en savoir plus.", match["content"])
+        self.assertIn("Some real content here", match["content"])
+
+        # --- QGIS 4 client ---
+        c4 = Client(
+            HTTP_USER_AGENT="Mozilla/5.0 QGIS/40000/Fedora Linux (Workstation Edition)"
+        )
+        response = c4.get("/")
+        data = json.loads(response.content)
+
+        # action_text must NOT appear in content for QGIS 4
+        match = next((d for d in data if d["title"] == "Action-text test entry"), None)
+        self.assertIsNotNone(match)
+        self.assertNotIn("Double-cliquez ici pour en savoir plus.", match["content"])
+        self.assertIn("Some real content here", match["content"])
+        self.assertNotIn("action_text", match)
+
+        # Entry with no action_text: content unchanged for all versions
+        entry_no_action = QgisFeedEntry.objects.create(
+            title="No-action-text entry",
+            content="<p>Plain content.</p>",
+            action_text=None,
+            url="https://www.example.com",
+            author=author,
+            status=QgisFeedEntry.PUBLISHED,
+            publish_from="2019-05-05T12:00:00Z",
+        )
+        response = c4.get("/")
+        data = json.loads(response.content)
+        match = next((d for d in data if d["title"] == "No-action-text entry"), None)
+        self.assertIsNotNone(match)
+        self.assertEqual(match["content"], "<p>Plain content.</p>")
+
     def test_admin_publish_from(self):
         """Test that published entries have publish_from set"""
 
