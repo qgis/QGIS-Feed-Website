@@ -24,9 +24,7 @@
             <div name="contentPreview">
                 {{form.content.value | default:"" | safe }}
             </div>
-            {% if form.action_text.value %}
-            <p name="actionTextPreview" class="mt-2"><strong>{{ form.action_text.value }}</strong></p>
-            {% endif %}
+            <p name="actionTextPreview" class="mt-2"{% if not form.action_text.value %} style="display:none;"{% endif %}><strong>{{ form.action_text.value|default:"" }}</strong></p>
         </div>
     </div>
 </div>
@@ -39,10 +37,10 @@
             {% endif %}
         </div>
         <div class="column is-8">
-            <h5 class="title is-5">
+            <h5 name="titlePreview" class="title is-5">
                 {{form.title.value | default:""}}
             </h5>
-            <div>
+            <div name="contentPreview">
                 {{form.content.value | default:"" | safe }}
             </div>
         </div>

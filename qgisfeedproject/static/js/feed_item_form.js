@@ -10,9 +10,11 @@ let spatialFilterField = document.getElementById("id_spatial_filter");
 let publishFromField = document.getElementById("id_publish_from");
 let publishToField = document.getElementById("id_publish_to");
 let reviewersField = document.getElementById("id_reviewers");
+let actionTextField = document.getElementById("id_action_text");
 
 let contentPreview = document.getElementsByName("contentPreview");
 let titlePreview = document.getElementsByName("titlePreview");
+let actionTextPreview = document.getElementsByName("actionTextPreview");
 let imagePreview = document.getElementsByName("imagePreview");
 let urlPreview = document.getElementsByName("urlPreview");
 let stickyPreview = document.getElementsByName("stickyPreview");
@@ -34,6 +36,7 @@ let fields = [
   contentField,
   imageField,
   urlField,
+  actionTextField,
   sortingField,
   languageField,
   spatialFilterField,
@@ -154,6 +157,18 @@ urlField.addEventListener("input", function () {
   window.markFeedFormDirty();
   checkFormValid();
 });
+
+// Update action_text in preview when input change
+if (actionTextField) {
+  actionTextField.addEventListener("input", function () {
+    actionTextPreview.forEach((item) => {
+      item.querySelector("strong").innerText = actionTextField.value;
+      item.style.display = actionTextField.value ? "" : "none";
+    });
+    window.markFeedFormDirty();
+    checkFormValid();
+  });
+}
 
 // Update sticky in preview when change
 if (stickyField) {
