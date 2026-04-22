@@ -22,6 +22,10 @@
         border-radius: 5px;
         white-space: pre-wrap;
     }
+
+    #filter-container {
+        display: none;
+    }
 </style>
 {% endblock stylesheets %}
 {% block pagetitle %}
@@ -32,10 +36,155 @@
 <div>
     <h1 class="title">QGIS News Feed</h1>
     <p>You can also access the QGIS News Feed in <a href="/?json=1" target="_blank" rel="noopener" class="external-link">JSON</a> format.</p>
+
+    <div class="is-flex is-justify-content-flex-end" style="gap: 10px;">
+        <button id="filter-button" type="button" class="button is-primary1 is-outlined">
+            <span>
+                <span id="filter-button-label">Filter &amp; sort</span>
+                <span id="filter-count" class="tag is-info ml-1">0</span>
+            </span>
+        </button>
+    </div>
+
+    <div id="filter-container" class="has-background-light p-3 mt-3">
+        <form method="GET" id="filter-form">
+            <div class="columns is-multiline is-centered">
+                <div class="column is-6">
+                    <div class="field">
+                        <label class="label">Title:</label>
+                        <div class="control has-icons-left">
+                            {{ form.title }}
+                            <span class="icon is-small is-left">
+                                <i class="fas fa-quote-right"></i>
+                            </span>
+                        </div>
+                    </div>
+
+                    <div class="field">
+                        <label class="label">Language:</label>
+                        <div class="control has-icons-left">
+                            {{ form.lang }}
+                            <span class="icon is-small is-left">
+                                <i class="fas fa-language"></i>
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="column is-6">
+                    <div class="field">
+                        <label class="label">Publication start from:</label>
+                        <div class="control has-icons-left">
+                            {{ form.publish_from }}
+                            <span class="icon is-small is-left">
+                                <i class="fas fa-calendar"></i>
+                            </span>
+                        </div>
+                    </div>
+
+                    <div class="field">
+                        <label class="label">Publication end to:</label>
+                        <div class="control has-icons-left">
+                            {{ form.publish_to }}
+                            <span class="icon is-small is-left">
+                                <i class="fas fa-calendar"></i>
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="columns is-multiline is-centered">
+                <div class="column is-6">
+                    <div class="field">
+                        <label class="label">Sort by:</label>
+                        <div class="control has-icons-left">
+                            {{ form.sort_by }}
+                            <span class="icon is-small is-left">
+                                <i class="fas fa-sort"></i>
+                            </span>
+                        </div>
+                    </div>
+                </div>
+                <div class="column is-6">
+                    <div class="field">
+                        <label class="label">Order:</label>
+                        <div class="control has-icons-left">
+                            {{ form.order }}
+                            <span class="icon is-small is-left">
+                                <i class="fas fa-arrow-down-wide-short"></i>
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </form>
+
+        <div class="is-flex is-justify-content-flex-end mt-3" style="gap: 10px;">
+            <button class="button is-primary1" type="submit" form="filter-form">
+                <span class="icon">
+                    <i class="fas fa-filter" aria-hidden="true"></i>
+                </span>
+                <span>Apply filter</span>
+            </button>
+            <button
+                class="button is-primary1 is-outlined"
+                onclick="window.location.href='?';"
+            >
+                <span class="icon">
+                    <i class="fas fa-eraser" aria-hidden="true"></i>
+                </span>
+                <span>Clear filter</span>
+            </button>
+        </div>
+    </div>
+
     {% if data|length > 0 %}
     {% for feed in data %}
-        {% include "feeds/feed_rich_item.html" with feed=feed show_buttons=1 %}
+        {% include "feeds/feed_rich_item.html" with feed=feed show_buttons=1 show_status_badge=1 now_ts=now %}
     {% endfor %}
+
+    {% if data.paginator.num_pages > 1 %}
+    <nav class="pagination is-centered mt-5" role="navigation" aria-label="pagination">
+        {% if data.has_previous %}
+            <a class="pagination-previous" href="?{% if page_query_string %}{{ page_query_string }}&{% endif %}page={{ data.previous_page_number }}">Previous</a>
+        {% else %}
+            <a class="pagination-previous" disabled>Previous</a>
+        {% endif %}
+
+        {% if data.has_next %}
+            <a class="pagination-next" href="?{% if page_query_string %}{{ page_query_string }}&{% endif %}page={{ data.next_page_number }}">Next page</a>
+        {% else %}
+            <a class="pagination-next" disabled>Next page</a>
+        {% endif %}
+
+        <ul class="pagination-list">
+            {% if data.number > 2 %}
+                <li><a class="pagination-link" href="?{% if page_query_string %}{{ page_query_string }}&{% endif %}page=1">1</a></li>
+                {% if data.number > 3 %}
+                    <li><span class="pagination-ellipsis">&hellip;</span></li>
+                {% endif %}
+            {% endif %}
+
+            {% if data.has_previous %}
+                <li><a class="pagination-link" href="?{% if page_query_string %}{{ page_query_string }}&{% endif %}page={{ data.previous_page_number }}">{{ data.previous_page_number }}</a></li>
+            {% endif %}
+
+            <li><a class="pagination-link is-current" aria-current="page">{{ data.number }}</a></li>
+
+            {% if data.has_next %}
+                <li><a class="pagination-link" href="?{% if page_query_string %}{{ page_query_string }}&{% endif %}page={{ data.next_page_number }}">{{ data.next_page_number }}</a></li>
+            {% endif %}
+
+            {% if data.number < data.paginator.num_pages|add:"-1" %}
+                {% if data.number < data.paginator.num_pages|add:"-2" %}
+                    <li><span class="pagination-ellipsis">&hellip;</span></li>
+                {% endif %}
+                <li><a class="pagination-link" href="?{% if page_query_string %}{{ page_query_string }}&{% endif %}page={{ data.paginator.num_pages }}">{{ data.paginator.num_pages }}</a></li>
+            {% endif %}
+        </ul>
+    </nav>
+    {% endif %}
     {% else %}
     <div style="width: 100%; text-align: center;" class="m-5">
         No news found
@@ -48,6 +197,48 @@
 {% block javascripts %}
 <script>
     $(document).ready(function () {
+        function renderFilterButton(isOpen) {
+            $('#filter-button-label').text(isOpen ? 'Hide filters' : 'Filter & sort');
+        }
+
+        $('#filter-button').click(function (event) {
+            event.preventDefault();
+            $('#filter-container').toggle();
+            renderFilterButton($('#filter-container').is(':visible'));
+            updateFilterCount();
+        });
+
+        function updateFilterCount() {
+            const defaultSortBy = 'publish_to';
+            const defaultOrder = 'desc';
+            let filledFields = 0;
+            $('#filter-form input, #filter-form select').each(function () {
+                const name = $(this).attr('name');
+                const value = $(this).val();
+
+                if (!value) {
+                    return;
+                }
+
+                if (name === 'sort_by' && value === defaultSortBy) {
+                    return;
+                }
+
+                if (name === 'order' && value === defaultOrder) {
+                    return;
+                }
+
+                if (value) {
+                    filledFields++;
+                }
+            });
+            $('#filter-count').text(filledFields);
+        }
+
+        $('#filter-form input, #filter-form select').on('change', updateFilterCount);
+        renderFilterButton(false);
+        updateFilterCount();
+
         $('#tabs li a').on('click', function () {
             var tab = $(this).data('tab');
 

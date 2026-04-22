@@ -1,6 +1,13 @@
 
 <div class="container rich has-right rounded mt-5" {% if feed.url %}ondblclick="window.open('{{ feed.url }}', '_blank');"{% endif %}>
     <div class="cont coloring-1">
+        {% if show_status_badge %}
+            {% if feed.publish_to and feed.publish_to < now_ts %}
+                <span class="tag is-danger mb-2">Expired</span>
+            {% else %}
+                <span class="tag is-success mb-2">Active</span>
+            {% endif %}
+        {% endif %}
         <h3 name="titlePreview">
             {{feed.title | default:""}}
         </h5>
@@ -21,7 +28,7 @@
                 </a>
             </div>
         {% endif %}
-            
+
     </div>
 
     <div class="rich-right"
@@ -61,6 +68,6 @@
                 <span>More details</span>
             </a>
         </div>
-            
+
     </div>
 </div> {% endcomment %}
