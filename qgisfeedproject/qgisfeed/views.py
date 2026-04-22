@@ -57,6 +57,7 @@ from .utils import (
 )
 
 QGISFEED_MAX_RECORDS = getattr(settings, "QGISFEED_MAX_RECORDS", 20)
+WEB_PAGE_ITEMS_PER_PAGE = getattr(settings, "QGISFEED_WEB_PAGE_ITEMS_PER_PAGE", 10)
 
 # Decorator
 staff_required = user_passes_test(lambda u: u.is_staff)
@@ -77,6 +78,12 @@ class QgisEntriesView(View):
 
     form_class = HomePageFilterForm
     template_name = "feeds/feed_home_page.html"
+    allowed_web_sort_fields = {
+        "pk",
+        "title",
+        "publish_from",
+        "publish_to",
+    }
 
     def get_filters(self, request):
         """Extract filters from the request and checks validity
@@ -138,6 +145,7 @@ class QgisEntriesView(View):
     def get(self, request):
         form = self.form_class(request.GET)
         data = []
+        now = timezone.now()
 
         try:
             filters = self.get_filters(request)
@@ -154,36 +162,76 @@ class QgisEntriesView(View):
             except ValueError:
                 pass
 
-        # "after" is only set by QGIS client on requests after the first one.
-        # The logic here is for QGIS >= 3.36 to send anything "published=True"
-        # that has been modified since the last feed check, and exclude upcoming entries,
-        # we also need to send expired items because setting the "publish_to" publication end
-        # time in the past is the way to remove them from the client cache and
-        # because entries might have been updated.
-        # For older QGIS < 3.36 we only send published items, optionally filtered
-        # by >= `after`.
+        is_qgis_or_json = (
+            "qgis" in str(user_agent).lower() or request.GET.get("json", "") == "1"
+        )
 
-        after = filters.get("after")
-        if after is None:
-            qs = QgisFeedEntry.published_entries.all()
-        else:
-            # fallback to original behavior if
-            # QGIS Version is not specified or QGIS < 3.36
-            if qgis_version is None or qgis_version < 33600:
+        # "after" is only set by QGIS client on requests after the first one.
+        # API behavior keeps backward compatibility for QGIS clients.
+        # Web behavior intentionally includes expired entries, while still
+        # excluding unpublished and upcoming entries.
+        if is_qgis_or_json:
+
+            # The logic here is for QGIS >= 3.36 to send anything "published=True"
+            # that has been modified since the last feed check, and exclude upcoming entries,
+            # we also need to send expired items because setting the "publish_to" publication end
+            # time in the past is the way to remove them from the client cache and
+            # because entries might have been updated.
+            # For older QGIS < 3.36 we only send published items, optionally filtered
+            # by >= `after`.
+            after = filters.get("after")
+            if after is None:
                 qs = QgisFeedEntry.published_entries.all()
-                qs = qs.filter(publish_from__gte=filters.get("after"))
-            # For update capabilities require QGIS >= 3.36,
-            # exclude upcoming entries
             else:
-                qs = QgisFeedEntry.objects.all()
-                now = timezone.now()
-                # Include entries modified since `after`, OR entries whose publish_from
-                # fell between `after` and now (entries that became active since last check).
-                qs = (
-                    qs.filter(published=True)
-                    .exclude(publish_from__gte=now)
-                    .filter(Q(modified__gte=after) | Q(publish_from__gte=after))
-                )
+                # fallback to original behavior if
+                # QGIS Version is not specified or QGIS < 3.36
+                if qgis_version is None or qgis_version < 33600:
+                    qs = QgisFeedEntry.published_entries.all()
+                    qs = qs.filter(publish_from__gte=filters.get("after"))
+                # For update capabilities require QGIS >= 3.36,
+                # exclude upcoming entries
+                else:
+                    qs = QgisFeedEntry.objects.all()
+                    # Include entries modified since `after`, OR entries whose publish_from
+                    # fell between `after` and now (entries that became active since last check).
+                    qs = (
+                        qs.filter(published=True)
+                        .exclude(publish_from__gte=now)
+                        .filter(Q(modified__gte=after) | Q(publish_from__gte=after))
+                    )
+        else:
+            qs = QgisFeedEntry.objects.filter(published=True).exclude(
+                publish_from__gte=now
+            )
+            if form.is_valid():
+                title = form.cleaned_data.get("title")
+                if title:
+                    qs = qs.filter(title__icontains=title)
+
+                lang_filter = form.cleaned_data.get("lang")
+                if lang_filter:
+                    qs = qs.filter(language_filter=lang_filter)
+
+                publish_from = form.cleaned_data.get("publish_from")
+                if publish_from:
+                    qs = qs.filter(publish_from__date__gte=publish_from)
+
+                publish_to = form.cleaned_data.get("publish_to")
+                if publish_to:
+                    qs = qs.filter(publish_to__date__lte=publish_to)
+
+                sort_by = form.cleaned_data.get("sort_by") or "publish_to"
+                if sort_by not in self.allowed_web_sort_fields:
+                    sort_by = "publish_to"
+                current_order = form.cleaned_data.get("order") or "desc"
+                if current_order == "asc":
+                    qs = qs.order_by(sort_by)
+                else:
+                    qs = qs.order_by(f"-{sort_by}")
+            else:
+                sort_by = "publish_to"
+                current_order = "desc"
+                qs = qs.order_by("-publish_to")
 
         # Get filters for lang and lat/lon
         lang = filters.get("lang")
@@ -218,42 +266,59 @@ class QgisEntriesView(View):
                 | Q(language_filter__isnull=True, spatial_filter__isnull=True)
             )
 
-        for record in qs.values(
-            "pk",
-            "publish_from",
-            "publish_to",
-            "title",
-            "image",
-            "content",
-            "url",
-            "action_text",
-            "sticky",
-        )[:QGISFEED_MAX_RECORDS]:
-            if record["publish_from"]:
-                record["publish_from"] = record["publish_from"].timestamp()
-            if record["publish_to"]:
-                record["publish_to"] = record["publish_to"].timestamp()
-            if record["image"]:
-                record["image"] = request.build_absolute_uri(
-                    settings.MEDIA_URL + record["image"]
-                )
-            # action_text is a QGIS-3-only call-to-action (e.g. "Double-click
-            # here to read more").  For QGIS 4+ the UI provides its own
-            # interaction affordance so we omit it; for older clients we
-            # append it to the content so they still see it.
-            action_text = record.pop("action_text", None)
-            if action_text and (qgis_version is None or qgis_version < 40000):
-                record["content"] = (
-                    record["content"] or ""
-                ) + f"<p><strong>{action_text}</strong></p>"
+        if is_qgis_or_json:
+            for record in qs.values(
+                "pk",
+                "publish_from",
+                "publish_to",
+                "title",
+                "image",
+                "content",
+                "url",
+                "action_text",
+                "sticky",
+            )[:QGISFEED_MAX_RECORDS]:
+                if record["publish_from"]:
+                    record["publish_from"] = record["publish_from"].timestamp()
+                if record["publish_to"]:
+                    record["publish_to"] = record["publish_to"].timestamp()
+                if record["image"]:
+                    record["image"] = request.build_absolute_uri(
+                        settings.MEDIA_URL + record["image"]
+                    )
+                # action_text is a QGIS-3-only call-to-action (e.g. "Double-click
+                # here to read more").  For QGIS 4+ the UI provides its own
+                # interaction affordance so we omit it; for older clients we
+                # append it to the content so they still see it.
+                action_text = record.pop("action_text", None)
+                if action_text and (qgis_version is None or qgis_version < 40000):
+                    record["content"] = (
+                        record["content"] or ""
+                    ) + f"<p><strong>{action_text}</strong></p>"
 
-            data.append(record)
+                data.append(record)
 
         data_json = json.dumps(data, indent=(2 if settings.DEBUG else 0))
-        if "qgis" in str(user_agent).lower() or request.GET.get("json", "") == "1":
+        if is_qgis_or_json:
             return HttpResponse(data_json, content_type="application/json")
         else:
-            args = {"data": data, "form": form, "data_json": json.dumps(data, indent=2)}
+            page = request.GET.get("page", 1)
+            paginator = Paginator(qs, WEB_PAGE_ITEMS_PER_PAGE)
+            page_obj = paginator.get_page(page)
+
+            query_params = request.GET.copy()
+            query_params.pop("page", None)
+            page_query_string = query_params.urlencode()
+
+            args = {
+                "data": page_obj,
+                "form": form,
+                "data_json": json.dumps(data, indent=2),
+                "page_query_string": page_query_string,
+                "sort_by": sort_by,
+                "current_order": current_order,
+                "now": now,
+            }
             return render(request, self.template_name, args)
 
 
