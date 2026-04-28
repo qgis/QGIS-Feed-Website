@@ -101,13 +101,46 @@
         {% if form.title.value %}
             Edit feed entry
             {% if feed_entry %}
-            <span class="tag {% if feed_entry.status == 'published' %}is-success
-                              {% elif feed_entry.status == 'approved' %}is-primary
-                              {% elif feed_entry.status == 'pending_review' %}is-warning
-                              {% elif feed_entry.status == 'changes_requested' %}is-danger
-                              {% else %}is-light{% endif %}">
-                {{ feed_entry.get_status_display }}
-            </span>
+            {% if feed_entry.status == 'published' %}
+              {% if feed_entry.publication_state == 'upcoming' %}
+                <span class="tag is-info">
+                  <span class="icon is-small mr-1"><i class="fas fa-clock"></i></span>
+                  Upcoming
+                </span>
+              {% elif feed_entry.publication_state == 'expired' %}
+                <span class="tag is-light">
+                  <span class="icon is-small mr-1"><i class="fas fa-calendar-xmark"></i></span>
+                  Expired
+                </span>
+              {% else %}
+                <span class="tag is-success">
+                  <span class="icon is-small mr-1"><i class="fas fa-circle-check"></i></span>
+                  Live
+                </span>
+              {% endif %}
+            {% else %}
+              {% if feed_entry.status == 'approved' %}
+                <span class="tag is-primary">
+                  <span class="icon is-small mr-1"><i class="fas fa-check"></i></span>
+                  {{ feed_entry.get_status_display }}
+                </span>
+              {% elif feed_entry.status == 'pending_review' %}
+                <span class="tag is-warning">
+                  <span class="icon is-small mr-1"><i class="fas fa-hourglass-half"></i></span>
+                  {{ feed_entry.get_status_display }}
+                </span>
+              {% elif feed_entry.status == 'changes_requested' %}
+                <span class="tag is-danger">
+                  <span class="icon is-small mr-1"><i class="fas fa-exclamation-triangle"></i></span>
+                  {{ feed_entry.get_status_display }}
+                </span>
+              {% else %}
+                <span class="tag is-light">
+                  <span class="icon is-small mr-1"><i class="fas fa-file-pen"></i></span>
+                  {{ feed_entry.get_status_display }}
+                </span>
+              {% endif %}
+            {% endif %}
             {% endif %}
         {% else %}
             New feed entry
