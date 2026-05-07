@@ -253,6 +253,19 @@ class QgisFeedEntry(models.Model):
             return self.publish_from.timestamp()
         return 0
 
+    @property
+    def publication_state(self):
+        """Return the publication state for published entries.
+        Returns 'upcoming', 'live', or 'expired', or None for non-published entries."""
+        if self.status != self.PUBLISHED:
+            return None
+        now = timezone.now()
+        if self.publish_from and self.publish_from > now:
+            return "upcoming"
+        if self.publish_to and self.publish_to < now:
+            return "expired"
+        return "live"
+
     def __str__(self):
         return self.title
 

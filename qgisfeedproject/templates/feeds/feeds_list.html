@@ -233,13 +233,46 @@
                     {% endif %}
                   </td>
                   <td>
-                    <span class="tag {% if feed.status == 'published' %}is-success
-                                      {% elif feed.status == 'approved' %}is-primary
-                                      {% elif feed.status == 'pending_review' %}is-warning
-                                      {% elif feed.status == 'changes_requested' %}is-danger
-                                      {% else %}is-light{% endif %}">
-                        {{ feed.get_status_display }}
-                    </span>
+                    {% if feed.status == 'published' %}
+                      {% if feed.publication_state == 'upcoming' %}
+                        <span class="tag is-info">
+                          <span class="icon is-small mr-1"><i class="fas fa-clock"></i></span>
+                          Upcoming
+                        </span>
+                      {% elif feed.publication_state == 'expired' %}
+                        <span class="tag is-light">
+                          <span class="icon is-small mr-1"><i class="fas fa-calendar-xmark"></i></span>
+                          Expired
+                        </span>
+                      {% else %}
+                        <span class="tag is-success">
+                          <span class="icon is-small mr-1"><i class="fas fa-circle-check"></i></span>
+                          Live
+                        </span>
+                      {% endif %}
+                    {% else %}
+                      {% if feed.status == 'approved' %}
+                        <span class="tag is-primary">
+                          <span class="icon is-small mr-1"><i class="fas fa-check"></i></span>
+                          {{ feed.get_status_display }}
+                        </span>
+                      {% elif feed.status == 'pending_review' %}
+                        <span class="tag is-warning">
+                          <span class="icon is-small mr-1"><i class="fas fa-hourglass-half"></i></span>
+                          {{ feed.get_status_display }}
+                        </span>
+                      {% elif feed.status == 'changes_requested' %}
+                        <span class="tag is-danger">
+                          <span class="icon is-small mr-1"><i class="fas fa-exclamation-triangle"></i></span>
+                          {{ feed.get_status_display }}
+                        </span>
+                      {% else %}
+                        <span class="tag is-light">
+                          <span class="icon is-small mr-1"><i class="fas fa-file-pen"></i></span>
+                          {{ feed.get_status_display }}
+                        </span>
+                      {% endif %}
+                    {% endif %}
                   </td>
 
                   <td>{{ feed.publish_from|date:"Y-m-d, H:i"|default:"-" }}</td>
