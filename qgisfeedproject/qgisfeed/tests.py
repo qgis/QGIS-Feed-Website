@@ -13,6 +13,7 @@ __date__ = "2019-05-07"
 __copyright__ = "Copyright 2019, ItOpen"
 
 import json
+from datetime import timedelta
 from os.path import join
 
 from django.conf import settings
@@ -444,6 +445,99 @@ class HomePageTestCase(TestCase):
         # Check if the correct template is used
         self.assertTemplateUsed(response, "feeds/feed_home_page.html")
         self.assertTrue("form" in response.context)
+
+    def test_homepage_default_ordering_is_by_publication_end_desc(self):
+        response = self.client.get(reverse("all"))
+        self.assertEqual(response.status_code, 200)
+        first_two = list(response.context["data"].object_list[:2])
+        titles = [entry.title for entry in first_two]
+        self.assertEqual(titles, ["QGIS acquired by ESRI", "QGIS Italian Meeting"])
+
+    def test_homepage_filter_and_ordering(self):
+        author = User.objects.get(username="admin")
+
+        QgisFeedEntry.objects.create(
+            title="Filter target B",
+            content="<p>B</p>",
+            author=author,
+            status=QgisFeedEntry.PUBLISHED,
+            language_filter="en",
+            publish_from=timezone.now() - timedelta(days=2),
+        )
+        QgisFeedEntry.objects.create(
+            title="Filter target A",
+            content="<p>A</p>",
+            author=author,
+            status=QgisFeedEntry.PUBLISHED,
+            language_filter="en",
+            publish_from=timezone.now() - timedelta(days=1),
+        )
+        QgisFeedEntry.objects.create(
+            title="Filter non matching",
+            content="<p>Other</p>",
+            author=author,
+            status=QgisFeedEntry.PUBLISHED,
+            language_filter="fr",
+            publish_from=timezone.now() - timedelta(days=1),
+        )
+
+        response = self.client.get(
+            reverse("all"),
+            {
+                "title": "Filter target",
+                "lang": "en",
+                "sort_by": "title",
+                "order": "asc",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        visible_titles = [entry.title for entry in response.context["data"].object_list]
+        self.assertIn("Filter target A", visible_titles)
+        self.assertIn("Filter target B", visible_titles)
+        self.assertNotIn("Filter non matching", visible_titles)
+        self.assertLess(
+            visible_titles.index("Filter target A"),
+            visible_titles.index("Filter target B"),
+        )
+
+    def test_web_page_includes_expired_entries(self):
+        author = User.objects.get(username="admin")
+        QgisFeedEntry.objects.create(
+            title="Expired entry visible on web",
+            content="<p>Expired entry content</p>",
+            author=author,
+            status=QgisFeedEntry.PUBLISHED,
+            publish_from=timezone.now() - timedelta(days=3),
+            publish_to=timezone.now() - timedelta(days=1),
+        )
+
+        response = self.client.get(reverse("all"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Expired entry visible on web")
+        self.assertContains(response, "Expired")
+
+    def test_web_page_is_paginated(self):
+        author = User.objects.get(username="admin")
+        for i in range(16):
+            QgisFeedEntry.objects.create(
+                title=f"Paginated web entry {i}",
+                content="<p>Pagination test content</p>",
+                author=author,
+                status=QgisFeedEntry.PUBLISHED,
+                publish_from=timezone.now() - timedelta(minutes=i + 1),
+            )
+
+        response = self.client.get(reverse("all"))
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue("data" in response.context)
+        self.assertTrue(isinstance(response.context["data"], Page))
+        self.assertEqual(response.context["data"].paginator.per_page, 10)
+        self.assertGreaterEqual(response.context["data"].paginator.num_pages, 2)
+
+        page_two_response = self.client.get(reverse("all"), {"page": 2})
+        self.assertEqual(page_two_response.status_code, 200)
+        self.assertEqual(page_two_response.context["data"].number, 2)
 
 
 class QgisUserVisitTestCase(TestCase):

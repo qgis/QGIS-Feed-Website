@@ -16,8 +16,27 @@ class HomePageFilterForm(forms.Form):
     empty_lang = ("", "Select a language")
     LANG_CHOICES = (empty_lang,) + LANGUAGES
 
+    SORT_CHOICES = [
+        ("publish_to", "Publication end"),
+        ("publish_from", "Publication start"),
+        ("title", "Title"),
+        ("pk", "Created"),
+    ]
+
+    ORDER_CHOICES = [
+        ("desc", "Descending"),
+        ("asc", "Ascending"),
+    ]
+
+    title = forms.CharField(
+        required=False,
+        widget=forms.TextInput(attrs={"class": "input", "placeholder": "Title"}),
+    )
+
     lang = forms.ChoiceField(
-        choices=LANG_CHOICES, required=False, widget=forms.Select()
+        choices=LANG_CHOICES,
+        required=False,
+        widget=forms.Select(attrs={"class": "input"}),
     )
 
     publish_from = forms.CharField(
@@ -28,6 +47,30 @@ class HomePageFilterForm(forms.Form):
                 "class": "input",
             }
         ),
+    )
+
+    publish_to = forms.CharField(
+        required=False,
+        widget=forms.DateInput(
+            attrs={
+                "type": "date",
+                "class": "input",
+            }
+        ),
+    )
+
+    sort_by = forms.ChoiceField(
+        choices=SORT_CHOICES,
+        required=False,
+        initial="publish_to",
+        widget=forms.Select(attrs={"class": "input"}),
+    )
+
+    order = forms.ChoiceField(
+        choices=ORDER_CHOICES,
+        required=False,
+        initial="desc",
+        widget=forms.Select(attrs={"class": "input"}),
     )
 
 
