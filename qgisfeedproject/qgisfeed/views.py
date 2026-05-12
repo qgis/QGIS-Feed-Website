@@ -975,7 +975,7 @@ class FeedEntryCloneView(View):
 
         messages.success(
             request,
-            f"Entry '{original_title}' cloned successfully. "
-            "Please update the dates and content before publishing.",
+            f"Entry <b>{original_title}</b> cloned successfully. "
+            "Please <b> check/update the title</b> and any other values before submitting for review.",
         )
         return redirect("feed_entry_update", pk=original.pk)
