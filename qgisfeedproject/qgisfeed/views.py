@@ -945,3 +945,37 @@ class FeedEntryShareTelegramView(View):
                 request, f"Error sharing to Telegram: {str(e)}", fail_silently=True
             )
         return redirect("feeds_list")
+
+
+@method_decorator(staff_required, name="dispatch")
+@method_decorator(permission_required("qgisfeed.add_qgisfeedentry"), name="dispatch")
+class FeedEntryCloneView(View):
+    """
+    View to clone an existing feed entry.
+    Creates a new draft entry with the same content but cleared publication
+    dates, a new primary key, and the current user as author.
+    The user is redirected to the edit form so they can adjust the entry
+    before submitting it for review or publishing.
+    """
+
+    def get(self, request, pk):
+        original = get_object_or_404(QgisFeedEntry, pk=pk)
+        original_title = original.title
+
+        # Setting pk/id to None then calling save() makes Django INSERT a new row.
+        original.pk = None
+        original.id = None
+        original.title = f"Copy of {original_title}"
+        original.published = False
+        original.status = QgisFeedEntry.DRAFT
+        original.publish_from = timezone.now()
+        original.publish_to = timezone.now() + timezone.timedelta(days=10)
+        original.author = request.user
+        original.save()
+
+        messages.success(
+            request,
+            f"Entry '{original_title}' cloned successfully. "
+            "Please update the dates and content before publishing.",
+        )
+        return redirect("feed_entry_update", pk=original.pk)
