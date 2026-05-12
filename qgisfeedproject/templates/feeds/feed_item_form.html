@@ -152,6 +152,14 @@
         </span>
         <span>Back to the list</span>
     </a>
+    {% if feed_entry %}
+    <a href="{% url 'feed_entry_clone' pk=feed_entry.pk %}" class="button is-info is-outlined ml-2">
+        <span class="icon">
+            <i class="fas fa-copy"></i>
+        </span>
+        <span>Clone</span>
+    </a>
+    {% endif %}
 
     <div class="mt-5">
         <div class="tabs is-boxed">

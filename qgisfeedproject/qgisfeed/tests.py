@@ -1869,3 +1869,98 @@ class RevisionSnapshotTestCase(TestCase):
         # Revision was created first so it must come first in the sorted list
         self.assertEqual(history[0]["type"], "revision")
         self.assertEqual(history[1]["type"], "review")
+
+
+class FeedEntryCloneViewTestCase(TestCase):
+    """Tests for the clone feed entry feature."""
+
+    fixtures = ["qgisfeed.json", "users.json"]
+
+    def setUp(self):
+        self.client = Client()
+        self.admin = User.objects.get(username="admin")
+        self.staff = User.objects.get(username="staff")
+        # Use an existing published, expired entry from fixtures
+        self.entry = QgisFeedEntry.objects.get(pk=3)
+
+    def test_clone_creates_new_entry(self):
+        """Cloning an entry creates a new entry with the same content."""
+        self.client.login(username="admin", password="admin")
+        original_count = QgisFeedEntry.objects.count()
+
+        response = self.client.get(reverse("feed_entry_clone", args=[self.entry.pk]))
+
+        self.assertEqual(QgisFeedEntry.objects.count(), original_count + 1)
+        clone = QgisFeedEntry.objects.order_by("-pk").first()
+        self.assertNotEqual(clone.pk, self.entry.pk)
+        self.assertEqual(clone.content, self.entry.content)
+        self.assertEqual(clone.url, self.entry.url)
+
+    def test_clone_title_prefixed(self):
+        """The cloned entry title is prefixed with 'Copy of'."""
+        self.client.login(username="admin", password="admin")
+        response = self.client.get(reverse("feed_entry_clone", args=[self.entry.pk]))
+
+        clone = QgisFeedEntry.objects.order_by("-pk").first()
+        self.assertEqual(clone.title, f"Copy of {self.entry.title}")
+
+    def test_clone_dates_prefilled(self):
+        """The cloned entry has publication dates pre-filled like a new entry."""
+        before = timezone.now()
+        self.client.login(username="admin", password="admin")
+        response = self.client.get(reverse("feed_entry_clone", args=[self.entry.pk]))
+        after = timezone.now()
+
+        clone = QgisFeedEntry.objects.order_by("-pk").first()
+        self.assertIsNotNone(clone.publish_from)
+        self.assertIsNotNone(clone.publish_to)
+        self.assertGreaterEqual(clone.publish_from, before)
+        self.assertLessEqual(clone.publish_from, after)
+        self.assertAlmostEqual(
+            (clone.publish_to - clone.publish_from).days, 10, delta=1
+        )
+
+    def test_clone_status_is_draft_and_unpublished(self):
+        """The cloned entry is a draft and not published."""
+        self.client.login(username="admin", password="admin")
+        response = self.client.get(reverse("feed_entry_clone", args=[self.entry.pk]))
+
+        clone = QgisFeedEntry.objects.order_by("-pk").first()
+        self.assertEqual(clone.status, QgisFeedEntry.DRAFT)
+        self.assertFalse(clone.published)
+
+    def test_clone_author_is_current_user(self):
+        """The clone's author is set to the currently logged-in user."""
+        self.client.login(username="admin", password="admin")
+        response = self.client.get(reverse("feed_entry_clone", args=[self.entry.pk]))
+
+        clone = QgisFeedEntry.objects.order_by("-pk").first()
+        self.assertEqual(clone.author, self.admin)
+
+    def test_clone_redirects_to_edit_form(self):
+        """After cloning, the user is redirected to the edit form for the new entry."""
+        self.client.login(username="admin", password="admin")
+        response = self.client.get(reverse("feed_entry_clone", args=[self.entry.pk]))
+
+        clone = QgisFeedEntry.objects.order_by("-pk").first()
+        self.assertRedirects(response, reverse("feed_entry_update", args=[clone.pk]))
+
+    def test_unauthenticated_user_cannot_clone(self):
+        """An unauthenticated user is redirected to the login page."""
+        response = self.client.get(reverse("feed_entry_clone", args=[self.entry.pk]))
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(reverse("login"), response["Location"])
+
+    def test_nonstaff_user_cannot_clone(self):
+        """A non-staff user is redirected to the login page."""
+        user = User.objects.create_user(username="testuser2", password="testpass2")
+        self.client.login(username="testuser2", password="testpass2")
+        response = self.client.get(reverse("feed_entry_clone", args=[self.entry.pk]))
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(reverse("login"), response["Location"])
+
+    def test_clone_nonexistent_entry_returns_404(self):
+        """Cloning a non-existent entry returns a 404."""
+        self.client.login(username="admin", password="admin")
+        response = self.client.get(reverse("feed_entry_clone", args=[99999]))
+        self.assertEqual(response.status_code, 404)

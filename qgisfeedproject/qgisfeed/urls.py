@@ -33,4 +33,9 @@ urlpatterns = [
         views.FeedEntryShareTelegramView.as_view(),
         name="feed_entry_share_telegram",
     ),
+    path(
+        "manage/clone/<int:pk>/",
+        views.FeedEntryCloneView.as_view(),
+        name="feed_entry_clone",
+    ),
 ]
