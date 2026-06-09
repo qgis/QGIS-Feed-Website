@@ -292,6 +292,13 @@ p {
   }
 }
 
+#spatial-filter-modal {
+  #id_spatial_filter_map {
+    height: 44vh !important;
+    width: 100% !important;
+  }
+}
+
 .external-link {
   padding-right: 20px;
   &:after {

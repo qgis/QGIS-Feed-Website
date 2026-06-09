@@ -13,9 +13,25 @@
             <div class="spatial-filter-map">
                 {{form.spatial_filter}}
             </div>
+            <div class="field mt-4">
+                <label class="label">Or import from GeoJSON</label>
+                <div class="control">
+                    <textarea id="geojson-input" class="textarea" rows="4" placeholder="Paste GeoJSON (Feature, FeatureCollection, or Polygon geometry)..."></textarea>
+                </div>
+                <p class="help">Paste GeoJSON polygon data to set the spatial filter without drawing on the map.</p>
+                <p id="geojson-error" class="help is-danger"></p>
+                <div class="mt-2">
+                    <button class="button is-info" type="button" id="apply-geojson-btn">
+                        <span class="icon">
+                            <i class="fa fa-paste" aria-hidden="true"></i>
+                        </span>
+                        <span>Apply GeoJSON</span>
+                    </button>
+                </div>
+            </div>
         </section>
         <footer class="modal-card-foot is-justify-content-flex-end">
-            <button class="button is-success" type="button">        
+            <button class="button is-success" type="button">
                 <span class="icon">
                     <i class="fa fa-floppy-disk" aria-hidden="true"></i>
                 </span>
@@ -25,3 +41,67 @@
         </footer>
     </div>
 </div>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    document.getElementById('apply-geojson-btn').addEventListener('click', function () {
+        const input = document.getElementById('geojson-input');
+        const errorDiv = document.getElementById('geojson-error');
+        const text = input.value.trim();
+
+        errorDiv.textContent = '';
+
+        if (!text) {
+            errorDiv.textContent = 'Please paste GeoJSON data.';
+            return;
+        }
+
+        let parsed;
+        try {
+            parsed = JSON.parse(text);
+        } catch (e) {
+            errorDiv.textContent = 'Invalid JSON: ' + e.message;
+            return;
+        }
+
+        let geometry = null;
+        try {
+            if (parsed.type === 'Feature') {
+                geometry = parsed.geometry;
+            } else if (parsed.type === 'FeatureCollection') {
+                if (!parsed.features || parsed.features.length === 0) {
+                    throw new Error('FeatureCollection has no features.');
+                }
+                geometry = parsed.features[0].geometry;
+            } else if (parsed.type) {
+                geometry = parsed;
+            } else {
+                throw new Error('Unrecognized GeoJSON structure.');
+            }
+
+            if (!geometry) {
+                throw new Error('No geometry found in GeoJSON.');
+            }
+            if (geometry.type !== 'Polygon' && geometry.type !== 'MultiPolygon') {
+                throw new Error('Geometry must be a Polygon or MultiPolygon, got: ' + geometry.type);
+            }
+
+            const geoJsonFormat = new ol.format.GeoJSON();
+            const feature = geoJsonFormat.readFeature(
+                { type: 'Feature', geometry: geometry },
+                { dataProjection: 'EPSG:4326', featureProjection: 'EPSG:3857' }
+            );
+
+            const widget = window.geodjango_spatial_filter;
+            widget.clearFeatures();
+            widget.featureCollection.push(feature);
+
+            const extent = feature.getGeometry().getExtent();
+            widget.map.getView().fit(extent, { padding: [20, 20, 20, 20] });
+
+            input.value = '';
+        } catch (e) {
+            errorDiv.textContent = 'Error: ' + e.message;
+        }
+    });
+});
+</script>
