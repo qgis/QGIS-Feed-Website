@@ -1,4 +1,4 @@
-
+{% url 'saved_spatial_filters' as saved_spatial_filters_url %}
 <head>
     {{ form.media }}
 </head>
@@ -9,99 +9,273 @@
             <p class="modal-card-title">Set spatial filter</p>
             <button class="delete" aria-label="close" type="button"></button>
         </header>
+
         <section class="modal-card-body">
+
+            <!-- ── Map ──────────────────────────────────────────────────── -->
             <div class="spatial-filter-map">
-                {{form.spatial_filter}}
+                {{ form.spatial_filter }}
             </div>
-            <div class="field mt-4">
-                <label class="label">Or import from GeoJSON</label>
-                <div class="control">
-                    <textarea id="geojson-input" class="textarea" rows="4" placeholder="Paste GeoJSON (Feature, FeatureCollection, or Polygon geometry)..."></textarea>
-                </div>
-                <p class="help">Paste GeoJSON polygon data to set the spatial filter without drawing on the map.</p>
-                <p id="geojson-error" class="help is-danger"></p>
-                <div class="mt-2">
-                    <button class="button is-info" type="button" id="apply-geojson-btn">
-                        <span class="icon">
-                            <i class="fa fa-paste" aria-hidden="true"></i>
-                        </span>
-                        <span>Apply GeoJSON</span>
+
+            <!-- ── Icon toolbar (floating top-right on the map) ─────────── -->
+            <div class="sf-toolbar">
+                <button type="button" class="sf-btn" id="sf-clear-btn"
+                        title="Clear drawing">
+                    <i class="fa fa-trash" aria-hidden="true"></i>
+                </button>
+                <button type="button" class="sf-btn sf-toggle"
+                        data-panel="sf-panel-geojson"
+                        title="Import GeoJSON">
+                    <i class="fa fa-file-import" aria-hidden="true"></i>
+                </button>
+                <button type="button" class="sf-btn sf-toggle"
+                        data-panel="sf-panel-saved"
+                        title="Saved filters">
+                    <i class="fa fa-bookmark" aria-hidden="true"></i>
+                </button>
+            </div>
+
+            <!-- ── Import GeoJSON panel (hidden until toggled) ──────────── -->
+            <div id="sf-panel-geojson" class="sf-panel" style="display:none;">
+                <p class="is-size-7 has-text-weight-semibold mb-2">Import from GeoJSON</p>
+                <textarea id="geojson-input" class="textarea is-small mb-2" rows="5"
+                          placeholder="Paste GeoJSON (Feature, FeatureCollection, or Polygon geometry)…"></textarea>
+                <div class="is-flex is-align-items-center" style="gap:.5rem;">
+                    <button type="button" class="button is-info is-small" id="apply-geojson-btn">
+                        <span class="icon"><i class="fa fa-check" aria-hidden="true"></i></span>
+                        <span>Apply</span>
                     </button>
+                    <p id="geojson-error" class="help is-danger mb-0"></p>
                 </div>
             </div>
+
+            <!-- ── Saved filters panel (hidden until toggled) ───────────── -->
+            <div id="sf-panel-saved" class="sf-panel" style="display:none;">
+                <p class="is-size-7 has-text-weight-semibold mb-2">Save current drawing</p>
+                <div class="field is-grouped mb-1">
+                    <div class="control is-expanded">
+                        <input id="save-filter-name" class="input is-small" type="text"
+                               placeholder="Name (required)">
+                    </div>
+                    <div class="control">
+                        <button type="button" class="button is-primary is-small" id="save-filter-btn">
+                            <span class="icon"><i class="fa fa-floppy-disk" aria-hidden="true"></i></span>
+                            <span>Save</span>
+                        </button>
+                    </div>
+                </div>
+                <div class="control mb-2">
+                    <input id="save-filter-description" class="input is-small" type="text"
+                           placeholder="Description (optional)">
+                </div>
+                <p id="save-filter-error" class="help is-danger mb-2"></p>
+
+                <hr class="my-2">
+                <div id="saved-filters-list">
+                    <p class="has-text-grey is-size-7">Loading…</p>
+                </div>
+            </div>
+
         </section>
+
         <footer class="modal-card-foot is-justify-content-flex-end">
             <button class="button is-success" type="button">
-                <span class="icon">
-                    <i class="fa fa-floppy-disk" aria-hidden="true"></i>
-                </span>
+                <span class="icon"><i class="fa fa-floppy-disk" aria-hidden="true"></i></span>
                 <span>Set spatial filter</span>
             </button>
-
         </footer>
     </div>
 </div>
+
 <script>
-document.addEventListener('DOMContentLoaded', function () {
-    document.getElementById('apply-geojson-btn').addEventListener('click', function () {
-        const input = document.getElementById('geojson-input');
-        const errorDiv = document.getElementById('geojson-error');
-        const text = input.value.trim();
+(function () {
+    'use strict';
+    const FILTERS_URL = '{{ saved_spatial_filters_url }}';
 
-        errorDiv.textContent = '';
+    function getWidget() { return window.geodjango_spatial_filter; }
 
-        if (!text) {
-            errorDiv.textContent = 'Please paste GeoJSON data.';
-            return;
-        }
+    function getCsrf() {
+        const el = document.querySelector('[name=csrfmiddlewaretoken]');
+        return el ? el.value : '';
+    }
 
-        let parsed;
-        try {
-            parsed = JSON.parse(text);
-        } catch (e) {
-            errorDiv.textContent = 'Invalid JSON: ' + e.message;
-            return;
-        }
+    function escapeHtml(s) {
+        return String(s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
 
-        let geometry = null;
-        try {
-            if (parsed.type === 'Feature') {
-                geometry = parsed.geometry;
-            } else if (parsed.type === 'FeatureCollection') {
-                if (!parsed.features || parsed.features.length === 0) {
-                    throw new Error('FeatureCollection has no features.');
+    function closePanels() {
+        document.querySelectorAll('.sf-panel').forEach(function (p) { p.style.display = 'none'; });
+        document.querySelectorAll('.sf-toggle').forEach(function (b) { b.classList.remove('is-active'); });
+    }
+
+    // Apply a GeoJSON geometry (EPSG:4326) to the OL widget (EPSG:3857)
+    function applyGeometryToWidget(geometry) {
+        const fmt = new ol.format.GeoJSON();
+        const feature = fmt.readFeature(
+            { type: 'Feature', geometry: geometry },
+            { dataProjection: 'EPSG:4326', featureProjection: 'EPSG:3857' }
+        );
+        const w = getWidget();
+        w.clearFeatures();
+        w.featureCollection.push(feature);
+        w.map.getView().fit(feature.getGeometry().getExtent(), { padding: [20, 20, 20, 20] });
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+
+        // ── Resize map when modal becomes visible ───────────────────────
+        // (OL doesn't auto-detect container size changes)
+        const modal = document.getElementById('spatial-filter-modal');
+        new MutationObserver(function () {
+            if (modal.classList.contains('is-active')) {
+                const w = getWidget();
+                if (w) setTimeout(function () { w.map.updateSize(); }, 50);
+            }
+        }).observe(modal, { attributes: true, attributeFilter: ['class'] });
+
+        // ── Panel toggling ──────────────────────────────────────────────
+        document.querySelectorAll('.sf-toggle').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                const panel = document.getElementById(btn.dataset.panel);
+                const isOpen = panel.style.display !== 'none';
+                closePanels();
+                if (!isOpen) {
+                    panel.style.display = '';
+                    btn.classList.add('is-active');
+                    if (btn.dataset.panel === 'sf-panel-saved') loadSavedFilters();
                 }
-                geometry = parsed.features[0].geometry;
-            } else if (parsed.type) {
-                geometry = parsed;
-            } else {
-                throw new Error('Unrecognized GeoJSON structure.');
+            });
+        });
+
+        // ── Clear drawing ───────────────────────────────────────────────
+        document.getElementById('sf-clear-btn').addEventListener('click', function () {
+            getWidget().clearFeatures();
+        });
+
+        // ── Import GeoJSON ──────────────────────────────────────────────
+        document.getElementById('apply-geojson-btn').addEventListener('click', function () {
+            const input = document.getElementById('geojson-input');
+            const err = document.getElementById('geojson-error');
+            err.textContent = '';
+            const text = input.value.trim();
+            if (!text) { err.textContent = 'Please paste GeoJSON data.'; return; }
+            let parsed;
+            try { parsed = JSON.parse(text); }
+            catch (e) { err.textContent = 'Invalid JSON: ' + e.message; return; }
+            try {
+                let geom = null;
+                if (parsed.type === 'Feature') {
+                    geom = parsed.geometry;
+                } else if (parsed.type === 'FeatureCollection') {
+                    if (!parsed.features || !parsed.features.length) throw new Error('FeatureCollection is empty.');
+                    geom = parsed.features[0].geometry;
+                } else if (parsed.type) {
+                    geom = parsed;
+                } else {
+                    throw new Error('Unrecognized GeoJSON.');
+                }
+                if (!geom) throw new Error('No geometry found.');
+                if (geom.type !== 'Polygon' && geom.type !== 'MultiPolygon')
+                    throw new Error('Must be Polygon or MultiPolygon, got ' + geom.type + '.');
+                applyGeometryToWidget(geom);
+                input.value = '';
+                closePanels();  // reveal map to show the result
+            } catch (e) { err.textContent = 'Error: ' + e.message; }
+        });
+
+        // ── Saved filters ───────────────────────────────────────────────
+        function renderSavedFilters(filters) {
+            const container = document.getElementById('saved-filters-list');
+            if (!filters.length) {
+                container.innerHTML = '<p class="has-text-grey is-size-7">No saved filters yet.</p>';
+                return;
             }
+            const table = document.createElement('table');
+            table.className = 'table is-fullwidth is-narrow is-size-7 mb-0';
+            table.innerHTML = '<thead><tr><th>Name</th><th>Saved</th><th></th></tr></thead>';
+            const tbody = document.createElement('tbody');
+            filters.forEach(function (f) {
+                const tr = document.createElement('tr');
+                tr.title = f.description || '';
+                tr.innerHTML =
+                    '<td>' + escapeHtml(f.name) + '</td>' +
+                    '<td class="has-text-grey" style="white-space:nowrap">' + f.created_at + '</td>' +
+                    '<td style="white-space:nowrap">' +
+                      '<button type="button" class="button is-info is-small mr-1 js-load-filter" ' +
+                               'data-geometry=\'' + escapeHtml(JSON.stringify(f.geometry)) + '\'' +
+                               ' title="' + escapeHtml(f.description || 'Load filter') + '">Load</button>' +
+                      '<button type="button" class="button is-danger is-small js-delete-filter" ' +
+                               'data-id="' + f.id + '">Del</button>' +
+                    '</td>';
+                tbody.appendChild(tr);
+            });
+            table.appendChild(tbody);
+            container.innerHTML = '';
+            container.appendChild(table);
 
-            if (!geometry) {
-                throw new Error('No geometry found in GeoJSON.');
-            }
-            if (geometry.type !== 'Polygon' && geometry.type !== 'MultiPolygon') {
-                throw new Error('Geometry must be a Polygon or MultiPolygon, got: ' + geometry.type);
-            }
-
-            const geoJsonFormat = new ol.format.GeoJSON();
-            const feature = geoJsonFormat.readFeature(
-                { type: 'Feature', geometry: geometry },
-                { dataProjection: 'EPSG:4326', featureProjection: 'EPSG:3857' }
-            );
-
-            const widget = window.geodjango_spatial_filter;
-            widget.clearFeatures();
-            widget.featureCollection.push(feature);
-
-            const extent = feature.getGeometry().getExtent();
-            widget.map.getView().fit(extent, { padding: [20, 20, 20, 20] });
-
-            input.value = '';
-        } catch (e) {
-            errorDiv.textContent = 'Error: ' + e.message;
+            container.querySelectorAll('.js-load-filter').forEach(function (btn) {
+                btn.addEventListener('click', function () {
+                    applyGeometryToWidget(JSON.parse(btn.dataset.geometry));
+                    closePanels();
+                });
+            });
+            container.querySelectorAll('.js-delete-filter').forEach(function (btn) {
+                btn.addEventListener('click', function () {
+                    if (!confirm('Delete this saved filter?')) return;
+                    fetch(FILTERS_URL + btn.dataset.id + '/', {
+                        method: 'DELETE', headers: { 'X-CSRFToken': getCsrf() }
+                    }).then(function (r) { if (r.ok) loadSavedFilters(); });
+                });
+            });
         }
+
+        function loadSavedFilters() {
+            fetch(FILTERS_URL)
+                .then(function (r) { return r.json(); })
+                .then(renderSavedFilters)
+                .catch(function () {
+                    document.getElementById('saved-filters-list').innerHTML =
+                        '<p class="has-text-danger is-size-7">Could not load saved filters.</p>';
+                });
+        }
+
+        document.getElementById('save-filter-btn').addEventListener('click', function () {
+            const name = document.getElementById('save-filter-name').value.trim();
+            const desc = document.getElementById('save-filter-description').value.trim();
+            const err = document.getElementById('save-filter-error');
+            err.textContent = '';
+            if (!name) { err.textContent = 'A name is required.'; return; }
+            const w = getWidget();
+            const features = w.featureOverlay.getSource().getFeatures();
+            if (!features.length) { err.textContent = 'Draw or import a polygon first.'; return; }
+            const fmt = new ol.format.GeoJSON();
+            const geomJson = JSON.parse(fmt.writeGeometry(
+                features[0].getGeometry(),
+                { dataProjection: 'EPSG:4326', featureProjection: 'EPSG:3857' }
+            ));
+            fetch(FILTERS_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrf() },
+                body: JSON.stringify({ name: name, description: desc, geometry: geomJson })
+            })
+            .then(function (r) {
+                if (!r.ok) return r.text().then(function (t) { throw new Error(t); });
+                return r.json();
+            })
+            .then(function () {
+                document.getElementById('save-filter-name').value = '';
+                document.getElementById('save-filter-description').value = '';
+                loadSavedFilters();
+            })
+            .catch(function (e) { err.textContent = 'Error: ' + e.message; });
+        });
+
+        // Reset panels each time the modal opens
+        document.querySelectorAll('.js-modal-trigger[data-target="spatial-filter-modal"]').forEach(function (btn) {
+            btn.addEventListener('click', closePanels);
+        });
     });
-});
+})();
 </script>

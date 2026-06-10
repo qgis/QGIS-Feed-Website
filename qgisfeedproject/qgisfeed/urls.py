@@ -38,4 +38,14 @@ urlpatterns = [
         views.FeedEntryCloneView.as_view(),
         name="feed_entry_clone",
     ),
+    path(
+        "manage/saved-spatial-filters/",
+        views.SavedSpatialFilterView.as_view(),
+        name="saved_spatial_filters",
+    ),
+    path(
+        "manage/saved-spatial-filters/<int:pk>/",
+        views.SavedSpatialFilterDeleteView.as_view(),
+        name="saved_spatial_filter_delete",
+    ),
 ]

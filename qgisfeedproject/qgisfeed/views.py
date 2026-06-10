@@ -948,6 +948,82 @@ class FeedEntryShareTelegramView(View):
 
 
 @method_decorator(staff_required, name="dispatch")
+class SavedSpatialFilterView(View):
+    """List and create saved spatial filters for the current user."""
+
+    def get(self, request):
+        filters = request.user.saved_spatial_filters.values(
+            "id", "name", "description", "created_at", "geometry"
+        )
+        data = []
+        for f in filters:
+            geom = f["geometry"]
+            data.append(
+                {
+                    "id": f["id"],
+                    "name": f["name"],
+                    "description": f["description"],
+                    "created_at": f["created_at"].strftime("%Y-%m-%d %H:%M"),
+                    "geometry": json.loads(geom.json),
+                }
+            )
+        return HttpResponse(json.dumps(data), content_type="application/json")
+
+    def post(self, request):
+        try:
+            body = json.loads(request.body)
+            name = body.get("name", "").strip()
+            description = body.get("description", "").strip()
+            geometry_json = body.get("geometry", "")
+            if not name:
+                return HttpResponseBadRequest("Name is required.")
+            if not geometry_json:
+                return HttpResponseBadRequest("Geometry is required.")
+            geom = GEOSGeometry(
+                json.dumps(geometry_json)
+                if isinstance(geometry_json, dict)
+                else geometry_json
+            )
+            if geom.srid != 4326:
+                geom.transform(4326)
+            from .models import SavedSpatialFilter
+
+            saved = SavedSpatialFilter.objects.create(
+                user=request.user,
+                name=name,
+                description=description,
+                geometry=geom,
+            )
+            return HttpResponse(
+                json.dumps(
+                    {
+                        "id": saved.id,
+                        "name": saved.name,
+                        "description": saved.description,
+                        "created_at": saved.created_at.strftime("%Y-%m-%d %H:%M"),
+                        "geometry": json.loads(saved.geometry.json),
+                    }
+                ),
+                content_type="application/json",
+                status=201,
+            )
+        except Exception as e:
+            return HttpResponseBadRequest(str(e))
+
+
+@method_decorator(staff_required, name="dispatch")
+class SavedSpatialFilterDeleteView(View):
+    """Delete a saved spatial filter owned by the current user."""
+
+    def delete(self, request, pk):
+        from .models import SavedSpatialFilter
+
+        f = get_object_or_404(SavedSpatialFilter, pk=pk, user=request.user)
+        f.delete()
+        return HttpResponse(status=204)
+
+
+@method_decorator(staff_required, name="dispatch")
 @method_decorator(permission_required("qgisfeed.add_qgisfeedentry"), name="dispatch")
 class FeedEntryCloneView(View):
     """

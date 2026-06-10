@@ -288,14 +288,93 @@ p {
 
 .spatial-filter-map {
   .dj_map_wrapper {
-      width: 100%;
+    width: 100%;
   }
 }
 
 #spatial-filter-modal {
+  .modal-card-body {
+    padding: 0;
+    position: relative;
+    overflow: hidden;
+  }
+
+  // Map container — full body width, fixed viewport height
+  .spatial-filter-map {
+    .dj_map_wrapper {
+      width: 100%;
+    }
+    // Hide the widget's own "Delete all Features" link — replaced by toolbar
+    .clear_features {
+      display: none;
+    }
+  }
+
   #id_spatial_filter_map {
-    height: 44vh !important;
+    height: 60vh !important;
     width: 100% !important;
+  }
+
+  // Icon buttons floating over the top-right of the map
+  .sf-toolbar {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .sf-btn {
+    width: 44px;
+    height: 44px;
+    background: rgba(255, 255, 255, 0.92);
+    border: 1px solid rgba(0, 0, 0, 0.18);
+    border-radius: 6px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #555;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.28);
+    transition: background 0.15s, color 0.15s;
+    font-size: 18px;
+    padding: 0;
+
+    &:hover {
+      background: $white;
+      color: #222;
+    }
+
+    &.is-active {
+      background: #485fc7;
+      color: $white;
+      border-color: #3a4fa8;
+    }
+
+    &#sf-clear-btn {
+      color: #cc0f35;
+      &:hover {
+        background: #fff5f7;
+      }
+    }
+  }
+
+  // Collapsible panel — floats to the left of the toolbar
+  .sf-panel {
+    position: absolute;
+    top: 10px;
+    right: 52px;   // clear of 34px button + 10px right offset + 8px gap
+    width: 320px;
+    max-width: calc(100% - 64px);
+    z-index: 19;
+    background: rgba(255, 255, 255, 0.97);
+    border-radius: 6px;
+    padding: 14px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.22);
+    overflow-y: auto;
+    max-height: 40vh;
   }
 }
 

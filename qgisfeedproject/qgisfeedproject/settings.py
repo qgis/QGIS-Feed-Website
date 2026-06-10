@@ -221,6 +221,7 @@ DJANGO_LOCAL_SETTINGS = os.environ.get(
 
 try:
     from pathlib import Path
+    print(f"Looking for local settings override in {DJANGO_LOCAL_SETTINGS}")
 
     local_settings_path = Path(__file__).parent / DJANGO_LOCAL_SETTINGS
     if local_settings_path.exists():
@@ -234,6 +235,7 @@ try:
         for setting in dir(settings_local_override):
             if setting.isupper():
                 globals()[setting] = getattr(settings_local_override, setting)
+        print(f"Loaded local settings override from {DJANGO_LOCAL_SETTINGS}")
     else:
         raise ImportError(
             f"Local settings file {DJANGO_LOCAL_SETTINGS} does not exist."
