@@ -77,7 +77,10 @@
                 target: 'map',
                 layers: [
                     new ol.layer.Tile({
-                        source: new ol.source.OSM()
+                        source: new ol.source.XYZ({
+                            url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                            attributions: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                        })
                     })
                 ],
                 view: new ol.View({

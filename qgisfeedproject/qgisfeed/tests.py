@@ -1964,3 +1964,95 @@ class FeedEntryCloneViewTestCase(TestCase):
         self.client.login(username="admin", password="admin")
         response = self.client.get(reverse("feed_entry_clone", args=[99999]))
         self.assertEqual(response.status_code, 404)
+
+
+class SavedSpatialFilterTestCase(TestCase):
+    """Tests for the saved spatial filter API."""
+
+    fixtures = ["qgisfeed.json", "users.json"]
+
+    POLYGON_GEOJSON = {
+        "type": "Polygon",
+        "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]],
+    }
+
+    def setUp(self):
+        self.client = Client()
+        self.admin = User.objects.get(username="admin")
+
+    def _csrf(self):
+        self.client.login(username="admin", password="admin")
+        response = self.client.get(reverse("feed_entry_add"))
+        return response.cookies.get("csrftoken").value
+
+    def test_list_empty(self):
+        self.client.login(username="admin", password="admin")
+        response = self.client.get(reverse("saved_spatial_filters"))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(json.loads(response.content), [])
+
+    def test_create_and_list(self):
+        self.client.login(username="admin", password="admin")
+        csrf = self._csrf()
+        response = self.client.post(
+            reverse("saved_spatial_filters"),
+            data=json.dumps({"name": "Test", "description": "desc", "geometry": self.POLYGON_GEOJSON}),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=csrf,
+        )
+        self.assertEqual(response.status_code, 201)
+        data = json.loads(response.content)
+        self.assertEqual(data["name"], "Test")
+        self.assertEqual(data["description"], "desc")
+
+        response = self.client.get(reverse("saved_spatial_filters"))
+        self.assertEqual(len(json.loads(response.content)), 1)
+
+    def test_create_requires_name(self):
+        self.client.login(username="admin", password="admin")
+        csrf = self._csrf()
+        response = self.client.post(
+            reverse("saved_spatial_filters"),
+            data=json.dumps({"name": "", "geometry": self.POLYGON_GEOJSON}),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=csrf,
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_delete(self):
+        from .models import SavedSpatialFilter
+        from django.contrib.gis.geos import Polygon
+
+        geom = Polygon(((0, 0), (1, 0), (1, 1), (0, 1), (0, 0)))
+        f = SavedSpatialFilter.objects.create(user=self.admin, name="ToDelete", geometry=geom)
+
+        self.client.login(username="admin", password="admin")
+        csrf = self._csrf()
+        response = self.client.delete(
+            reverse("saved_spatial_filter_delete", args=[f.pk]),
+            HTTP_X_CSRFTOKEN=csrf,
+        )
+        self.assertEqual(response.status_code, 204)
+        self.assertFalse(SavedSpatialFilter.objects.filter(pk=f.pk).exists())
+
+    def test_delete_other_users_filter_returns_404(self):
+        from .models import SavedSpatialFilter
+        from django.contrib.gis.geos import Polygon
+
+        other_user = User.objects.get(username="staff")
+        geom = Polygon(((0, 0), (1, 0), (1, 1), (0, 1), (0, 0)))
+        f = SavedSpatialFilter.objects.create(user=other_user, name="OtherFilter", geometry=geom)
+
+        self.client.login(username="admin", password="admin")
+        csrf = self._csrf()
+        response = self.client.delete(
+            reverse("saved_spatial_filter_delete", args=[f.pk]),
+            HTTP_X_CSRFTOKEN=csrf,
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_non_staff_redirects_to_login(self):
+        """Non-staff (including unauthenticated) requests are redirected to login."""
+        response = self.client.get(reverse("saved_spatial_filters"))
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(reverse("login"), response["Location"])
