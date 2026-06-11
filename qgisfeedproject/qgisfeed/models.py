@@ -91,6 +91,7 @@ class QgisFeedEntry(models.Model):
     CHANGES_REQUESTED = "changes_requested"
     APPROVED = "approved"
     PUBLISHED = "published"
+    REJECTED = "rejected"
 
     STATUS_CHOICES = [
         (DRAFT, _("Draft")),
@@ -98,6 +99,7 @@ class QgisFeedEntry(models.Model):
         (CHANGES_REQUESTED, _("Changes Requested")),
         (APPROVED, _("Approved")),
         (PUBLISHED, _("Published")),
+        (REJECTED, _("Rejected")),
     ]
 
     title = models.CharField(_("Title"), max_length=255)
@@ -389,11 +391,13 @@ class FeedEntryReview(models.Model):
     ACTION_APPROVE = "approve"
     ACTION_REQUEST_CHANGES = "request_changes"
     ACTION_COMMENT = "comment"
+    ACTION_REJECT = "reject"
 
     ACTION_CHOICES = [
         (ACTION_APPROVE, _("Approve")),
         (ACTION_REQUEST_CHANGES, _("Request Changes")),
         (ACTION_COMMENT, _("Comment")),
+        (ACTION_REJECT, _("Reject")),
     ]
 
     entry = models.ForeignKey(

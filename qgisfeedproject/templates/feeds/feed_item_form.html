@@ -252,6 +252,8 @@
                                 <i class="fas fa-check-circle has-text-success"></i>
                             {% elif status.action == 'request_changes' %}
                                 <i class="fas fa-exclamation-circle has-text-warning"></i>
+                            {% elif status.action == 'reject' %}
+                                <i class="fas fa-ban has-text-danger"></i>
                             {% elif status.action == 'comment' %}
                                 <i class="fas fa-comment has-text-info"></i>
                             {% else %}
@@ -259,7 +261,7 @@
                             {% endif %}
                         </span>
                         <span><strong>{{ status.reviewer.username }}</strong>: </span>
-                        <span class="tag is-small {% if status.action == 'approve' %}is-success{% elif status.action == 'request_changes' %}is-warning{% elif status.action == 'comment' %}is-info{% else %}is-light{% endif %}">
+                        <span class="tag is-small {% if status.action == 'approve' %}is-success{% elif status.action == 'request_changes' %}is-warning{% elif status.action == 'reject' %}is-danger{% elif status.action == 'comment' %}is-info{% else %}is-light{% endif %}">
                             {{ status.display }}
                         </span>
                     </span>
@@ -303,7 +305,7 @@
                         <div class="content">
                             <p class="mb-2">
                                 <strong>{{ item.obj.reviewer.username }}</strong>
-                                <span class="tag is-small {% if item.obj.action == 'approve' %}is-success{% elif item.obj.action == 'request_changes' %}is-warning{% else %}is-info{% endif %} ml-2">
+                                <span class="tag is-small {% if item.obj.action == 'approve' %}is-success{% elif item.obj.action == 'request_changes' %}is-warning{% elif item.obj.action == 'reject' %}is-danger{% else %}is-info{% endif %} ml-2">
                                     {{ item.obj.get_action_display }}
                                 </span>
                                 <br>
@@ -404,6 +406,12 @@
                             <span>Request Changes</span>
                         </button>
                     </p>
+                    <p class="control">
+                        <button type="button" class="button is-danger is-outlined js-review-action-btn js-modal-trigger" data-target="reject-confirmation-modal">
+                            <span class="icon"><i class="fas fa-ban"></i></span>
+                            <span>Reject</span>
+                        </button>
+                    </p>
                     {% endif %}
                     <p class="control">
                         <button type="submit" name="action" value="comment" class="button is-outlined js-review-action-btn">
@@ -415,6 +423,9 @@
             </form>
         </div>
     </div>
+            {% if user_can_review %}
+                {% include 'feeds/reject_confirmation_modal.html' %}
+            {% endif %}
             {% endif %}
         {% endif %}
     {% endif %}
