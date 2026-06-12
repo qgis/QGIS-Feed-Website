@@ -361,10 +361,9 @@ class FeedsListView(View):
             if publish_to:
                 feeds_entry = feeds_entry.filter(publish_to__lt=publish_to)
 
-            need_review = form.cleaned_data.get("need_review")
-            if need_review:
-                published = not bool(int(need_review))
-                feeds_entry = feeds_entry.filter(published=published)
+            status = form.cleaned_data.get("status")
+            if status:
+                feeds_entry = feeds_entry.filter(status=status)
 
         # Get sorting parameters from the query string
         sort_by = request.GET.get("sort_by", "publish_from")
@@ -816,6 +815,16 @@ class FeedEntryReviewActionView(View):
                 entry.status = QgisFeedEntry.CHANGES_REQUESTED
                 entry.save()
                 messages.info(request, "Changes requested. Author will be notified.")
+                notify_review_action_submitted(entry, review, request)
+
+            elif action == FeedEntryReview.ACTION_REJECT:
+                # Terminal status: the author cannot resubmit a rejected entry
+                # and must clone it to start again.
+                entry.status = QgisFeedEntry.REJECTED
+                entry.save()
+                messages.warning(
+                    request, "Entry rejected. The author has been notified."
+                )
                 notify_review_action_submitted(entry, review, request)
 
             elif action == FeedEntryReview.ACTION_COMMENT:

@@ -292,6 +292,10 @@ p {
   }
 }
 
+.modal-card:not(#spatial-filter-modal .modal-card) {
+  max-width: 50%;
+}
+
 #spatial-filter-modal {
   .modal-card-body {
     padding: 0;

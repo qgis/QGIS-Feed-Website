@@ -1,0 +1,23 @@
+<div id="reject-confirmation-modal" class="modal">
+    <div class="modal-background"></div>
+    <div class="modal-card">
+        <header class="modal-card-head">
+            <p class="modal-card-title">Reject Feed Entry</p>
+            <button class="delete" aria-label="close" type="button"></button>
+        </header>
+        <section class="modal-card-body">
+            Are you sure you want to reject this entry? This is final &mdash; the author
+            cannot resubmit it and will need to clone it to start again. Make sure your
+            review comment explains why.
+        </section>
+        <footer class="modal-card-foot is-justify-content-flex-end">
+            <button class="button is-danger" type="submit" form="reviewActionForm" name="action" value="reject">
+                <span class="icon"><i class="fas fa-ban"></i></span>
+                <span>Confirm rejection</span>
+            </button>
+            <button class="button is-default" type="button">
+                <span>Cancel</span>
+            </button>
+        </footer>
+    </div>
+</div>

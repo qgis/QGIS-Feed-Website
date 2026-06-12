@@ -94,10 +94,9 @@ class FeedEntryFilterForm(forms.Form):
         choices=LANG_CHOICES, required=False, widget=forms.Select()
     )
 
-    need_review = forms.ChoiceField(
-        required=False,
-        widget=forms.Select(),
-        choices=[("", "Select an option"), (1, "Yes"), (0, "No")],
+    STATUS_CHOICES = [("", "All statuses")] + list(QgisFeedEntry.STATUS_CHOICES)
+    status = forms.ChoiceField(
+        choices=STATUS_CHOICES, required=False, widget=forms.Select()
     )
 
     publish_from = forms.CharField(
