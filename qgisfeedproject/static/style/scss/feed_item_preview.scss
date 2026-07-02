@@ -1,0 +1,45 @@
+.preview-qgis4 {
+  .qgis4-preview-card {
+    border: 1px solid $grey-light;
+    border-radius: 6px;
+    overflow: hidden;
+    background: $grey-lighter;
+  }
+
+  .qgis4-image-bg {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 0;
+    overflow: hidden;
+    line-height: 0;
+
+    img {
+      width: 100% !important;
+      height: 100% !important;
+      max-width: none !important;
+      display: block !important;
+      object-fit: cover !important;
+      border-radius: 0 !important;
+    }
+  }
+
+  .qgis4-overlay {
+    position: relative;
+    z-index: 1;
+    background: rgba(255, 255, 255, 0.9);
+    min-height: 250px;
+  }
+
+  .qgis4-read-more {
+    text-decoration: none;
+    color: rgb(0, 110, 255) !important;
+
+    &:hover {
+      text-decoration: underline;
+      color: rgb(0, 110, 255) !important;
+    }
+  }
+}

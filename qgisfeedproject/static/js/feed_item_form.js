@@ -23,6 +23,7 @@ let languagePreview = document.getElementsByName("languagePreview");
 let spatialFilterPreview = document.getElementsByName("spatialFilterPreview");
 let publishFromPreview = document.getElementsByName("publishFromPreview");
 let publishToPreview = document.getElementsByName("publishToPreview");
+let readMoreLinkPreview = document.getElementsByName("readMoreLinkPreview");
 
 let imageFileName = document.getElementById("imageFileName");
 let urlError = document.getElementById("urlError");
@@ -153,6 +154,15 @@ urlField.addEventListener("input", function () {
         urlField.value +
         "</a>"
       : "<i>-</i>";
+  });
+  readMoreLinkPreview.forEach((item) => {
+    if (urlField.value) {
+      item.href = urlField.value;
+      item.style.display = "";
+    } else {
+      item.removeAttribute("href");
+      item.style.display = "none";
+    }
   });
   window.markFeedFormDirty();
   checkFormValid();

@@ -11,7 +11,7 @@
 </div>
 
 <div class="preview-pane preview-qgis3">
-    <div class="form-preview columns has-background-light box-container m-0">
+    <div class="columns has-background-light box-container m-0">
         <div class="column is-4" name="imagePreview">
             {% if form.image.value %}
             <img src="{{ form.image.value.url }}" style="border-radius:20px;">
@@ -30,19 +30,20 @@
 </div>
 
 <div class="preview-pane preview-qgis4" style="display:none;">
-    <div class="form-preview columns has-background-light box-container m-0">
-        <div class="column is-4" name="imagePreview">
+    <div class="qgis4-preview-card box-container m-0 is-relative">
+        <div name="imagePreview" class="qgis4-image-bg">
             {% if form.image.value %}
-            <img src="{{ form.image.value.url }}" style="border-radius:20px;">
+            <img src="{{ form.image.value.url }}">
             {% endif %}
         </div>
-        <div class="column is-8">
+        <div class="qgis4-overlay p-5">
             <h5 name="titlePreview" class="title is-5">
                 {{form.title.value | default:""}}
             </h5>
-            <div name="contentPreview">
+            <div name="contentPreview" class="mb-4">
                 {{form.content.value | default:"" | safe }}
             </div>
+            <a name="readMoreLinkPreview" class="qgis4-read-more has-text-link" target="_blank" href="{{ form.url.value|default:'#' }}"{% if not form.url.value %} style="display:none;"{% endif %}>Read more...</a>
         </div>
     </div>
 </div>
@@ -64,7 +65,7 @@
 }());
 </script>
 
-<div class="form-preview columns box-container m-0">
+<div class="columns box-container m-0">
     <table class="table is-fullwidth">
         <tbody>
             <tr>
