@@ -10,7 +10,7 @@
                     <span aria-hidden="true"></span>
                 </a>
             </div>
-            
+
             <div id="menu" class="navbar-menu">
                 <div class="navbar-start">
                     <a class="navbar-item has-text-weight-semibold is-size-7"
@@ -26,14 +26,18 @@
                 <div class="navbar-end">
                     <div class="navbar-item">
                         {% if user.is_authenticated and not user.username == 'qgis_user' %}
-                        <a class="button is-warning is-small is-fullwidth" href="{% url "logout" %}">
-                            <span class="icon">
-                                <i class="fas fa-sign-out-alt"></i>
-                            </span>
-                            <span>
-                                {% trans "Logout" %}
-                            </span>
-                        </a>
+                        <form method="POST" action="{% url 'oidc_logout' %}">
+                            {% csrf_token %}
+
+                            <button class="button is-warning is-small is-fullwidth">
+                                <span class="icon">
+                                    <i class="fas fa-sign-out-alt"></i>
+                                </span>
+                                <span>
+                                    {% trans "Logout" %}
+                                </span>
+                            </button>
+                        </form>
                         {% else %}
                         <a class="button is-info is-small" href="{% url "login" %}">
                             <span class="icon">

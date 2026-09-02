@@ -1,4 +1,4 @@
-{% extends 'layouts/base-fullscreen.html' %} 
+{% extends 'layouts/base-fullscreen.html' %}
 {% load static %}
 
 {% block pagetitle %}
@@ -58,16 +58,24 @@
               </div>
               {% endif %}
 
-              <button 
+              <button
                 class="button is-success is-large is-fullwidth"
-                type="submit" 
-                value="login" 
+                type="submit"
+                value="login"
                 id="submit-button"
               >
                 Login <i class="fa fa-sign-in" aria-hidden="true"></i>
               </button>
             </form>
           </div>
+          <hr class="login-hr" />
+          <form method="get" action="{% url 'oidc_authentication_init' %}">
+            <button
+                class="button is-success is-large is-fullwidth"
+                type="submit"
+                value="login"
+            >Login with QGIS account</button>
+          </form>
         </div>
       </div>
     </div>

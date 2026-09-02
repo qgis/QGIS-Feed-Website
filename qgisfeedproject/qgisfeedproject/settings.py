@@ -62,6 +62,7 @@ INSTALLED_APPS = [
     "user_visit",
     # Webpack
     "webpack_loader",
+    "mozilla_django_oidc",  # OpenID Connect authentication
 ]
 
 # Useful debugging extensions
@@ -130,6 +131,11 @@ DATABASES = {
         "PORT": _db("DB_PORT", "QGISFEED_DOCKER_DBPORT", "5432"),
     }
 }
+
+AUTHENTICATION_BACKENDS = (
+    "mozilla_django_oidc.auth.OIDCAuthenticationBackend",
+    "django.contrib.auth.backends.ModelBackend",
+)
 
 
 # Password validation
@@ -242,6 +248,19 @@ BLUESKY_PASSWORD = os.environ.get("BLUESKY_PASSWORD", "")
 # Telegram
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
+
+# OpenID Connect authentication
+QGIS_AUTH_URL = os.environ.get("QGIS_AUTH_URL", "https://auth.qgis.org")
+OIDC_RP_CLIENT_ID = os.environ.get("OIDC_RP_CLIENT_ID", "feed-qgis-org")
+OIDC_RP_SIGN_ALGO = "RS256"
+OIDC_OP_AUTHORIZATION_ENDPOINT = (
+    f"{QGIS_AUTH_URL}/realms/qgis/protocol/openid-connect/auth"
+)
+OIDC_OP_TOKEN_ENDPOINT = f"{QGIS_AUTH_URL}/realms/qgis/protocol/openid-connect/token"
+OIDC_OP_USER_ENDPOINT = f"{QGIS_AUTH_URL}/realms/qgis/protocol/openid-connect/userinfo"
+OIDC_OP_JWKS_ENDPOINT = f"{QGIS_AUTH_URL}/realms/qgis/protocol/openid-connect/certs"
+# The real secret goes in settings_local.py. Empty still lets the backend load.
+OIDC_RP_CLIENT_SECRET = ""
 
 # Local settings overrides
 # Must be the last!
