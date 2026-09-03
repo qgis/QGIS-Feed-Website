@@ -1,0 +1,125 @@
+# coding=utf-8
+"""Shared logic for the account-migration commands.
+
+Kept out of the commands themselves so that the mapping decisions - what
+Keycloak username a Django user gets, which client roles their existing flags
+imply, and which accounts cannot be migrated unattended - are defined once and
+reported by ``sso_export_users`` in exactly the form the later commands act on.
+"""
+
+from collections import defaultdict
+from datetime import timedelta
+
+from django.conf import settings
+from django.contrib.auth.models import User
+from django.utils import timezone
+
+#: Roles on the feed client, most privileged first.
+ROLE_ADMIN = "admin"
+ROLE_WEB_MAINTAINER = "web-maintainer"
+ROLE_REVIEWER = "reviewer"
+ROLE_USERGROUP_AUTHOR = "usergroup-author"
+ROLE_AUTHOR = "author"
+
+APPROVER_GROUP = "qgisfeedentry_approver"
+AUTHORS_GROUP = "qgisfeedentry_authors"
+
+#: Actions Keycloak makes the user complete before their account is usable.
+#: Passkey enrolment is deliberately absent: requiring it would lock out
+#: anyone on a machine that cannot create one. It is offered afterwards.
+DEFAULT_REQUIRED_ACTIONS = ["VERIFY_EMAIL", "UPDATE_PASSWORD", "CONFIGURE_TOTP"]
+
+
+def required_actions():
+    return list(getattr(settings, "SSO_REQUIRED_ACTIONS", DEFAULT_REQUIRED_ACTIONS))
+
+
+def feed_client_id():
+    """The Keycloak client whose roles this site reads.
+
+    The same client id the login flow authenticates against, so that roles are
+    granted on the client they will later be read from.
+    """
+    return settings.OIDC_RP_CLIENT_ID
+
+
+def proposed_username(user):
+    """The Keycloak username this Django account should get.
+
+    Keycloak lowercases usernames and enforces uniqueness; Django does not
+    lowercase. Two Django accounts differing only in case therefore collide,
+    which is why every export flags the collisions for a human before any
+    account is created.
+    """
+    return user.username.strip().lower()
+
+
+def proposed_roles(user):
+    """Client roles implied by the account's existing Django permissions.
+
+    Derived from what the account can already do rather than invented, so the
+    migration grants no privilege that was not already held.
+    """
+    roles = []
+    group_names = {group.name for group in user.groups.all()}
+
+    if user.is_superuser:
+        roles.append(ROLE_ADMIN)
+    elif group_names & {APPROVER_GROUP} or user.has_perm(
+        "qgisfeed.publish_qgisfeedentry"
+    ):
+        roles.append(ROLE_REVIEWER)
+    elif user.is_staff or AUTHORS_GROUP in group_names:
+        roles.append(ROLE_AUTHOR)
+
+    return roles
+
+
+def dormant_cutoff(months):
+    """The datetime before which a last login counts as dormant."""
+    return timezone.now() - timedelta(days=int(months) * 30)
+
+
+def flag_users(users, dormant_months=12):
+    """Compute the per-user warnings the export report is built from.
+
+    Returns ``{user_id: [flag, ...]}``. Every flag means "a human has to
+    decide about this account"; the migration commands skip flagged accounts
+    unless told otherwise.
+    """
+    users = list(users)
+
+    by_lowercase = defaultdict(list)
+    by_email = defaultdict(list)
+    for user in users:
+        by_lowercase[proposed_username(user)].append(user)
+        if user.email:
+            by_email[user.email.strip().lower()].append(user)
+
+    cutoff = dormant_cutoff(dormant_months)
+    flags = defaultdict(list)
+
+    for user in users:
+        if not user.email:
+            # The setup link is emailed. No address means no migration path.
+            flags[user.pk].append("no-email")
+        elif len(by_email[user.email.strip().lower()]) > 1:
+            flags[user.pk].append("duplicate-email")
+
+        if len(by_lowercase[proposed_username(user)]) > 1:
+            flags[user.pk].append("username-case-collision")
+
+        if user.last_login is None:
+            flags[user.pk].append("never-logged-in")
+        elif user.last_login < cutoff:
+            flags[user.pk].append("dormant")
+
+        if not user.is_active:
+            flags[user.pk].append("inactive")
+
+    return flags
+
+
+def migratable_users():
+    """Users the migration considers at all, with related data prefetched."""
+    return User.objects.all().prefetch_related("groups").order_by("username")

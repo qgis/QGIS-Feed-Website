@@ -13,6 +13,7 @@
           <h3 class="title">Login</h3>
           <hr class="login-hr" />
           <p class="subtitle">Log in with your credentials.</p>
+          {% if LOCAL_LOGIN_ENABLED %}
           <div>
             <form method="POST">
               {% csrf_token %}
@@ -69,6 +70,7 @@
             </form>
           </div>
           <hr class="login-hr" />
+          {% endif %}
           <form method="get" action="{% url 'oidc_authentication_init' %}">
             <button
                 class="button is-success is-large is-fullwidth"

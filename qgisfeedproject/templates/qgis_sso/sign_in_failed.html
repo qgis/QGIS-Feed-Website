@@ -1,0 +1,54 @@
+{% extends 'layouts/base-fullscreen.html' %}
+{% load i18n %}
+
+{% comment %}
+Shown instead of a traceback when authentication does not complete. By far the
+most common cause is a valid QGIS account with no account on this site, so
+that case is named; anything else gets a generic message rather than a reason
+we cannot actually establish.
+{% endcomment %}
+
+{% block content %}
+<div class="columns is-centered">
+  <div class="column is-6">
+    {% if rate_limited %}
+      <h1 class="title">{% translate "Too many sign-in attempts" %}</h1>
+      <p>
+        {% blocktranslate %}Too many sign-in attempts have come from your address in a short time. Please wait a few minutes and try again.{% endblocktranslate %}
+      </p>
+    {% elif no_permission %}
+      <h1 class="title">{% translate "You do not have access to that page" %}</h1>
+      <p>
+        {% blocktranslate %}You are signed in, but your account does not carry the permission that page needs.{% endblocktranslate %}
+      </p>
+      <p>
+        {% blocktranslate %}Permissions come from the roles on your QGIS account, and are refreshed every time you sign in. If you expected access, ask a feed maintainer to check your roles, then sign out and in again.{% endblocktranslate %}
+      </p>
+    {% elif no_account %}
+      <h1 class="title">{% translate "You need an invitation" %}</h1>
+      <p>
+        {% blocktranslate %}Your QGIS account signed in successfully, but it has no account on the QGIS Feed site. Accounts here are created by invitation rather than by self-registration, so having a QGIS account is not by itself enough.{% endblocktranslate %}
+      </p>
+      <p>
+        {% blocktranslate %}If you expected to have access, ask a feed maintainer to invite you, and mention the QGIS account name you signed in with.{% endblocktranslate %}
+      </p>
+    {% else %}
+      <h1 class="title">{% translate "We could not sign you in" %}</h1>
+      <p>
+        {% blocktranslate %}Something went wrong while completing your sign-in. This is usually temporary.{% endblocktranslate %}
+      </p>
+    {% endif %}
+
+    <div class="buttons mt-5">
+      <a class="button is-success" href="{% url 'login' %}">
+        {% translate "Try again" %}
+      </a>
+      {% if support_url %}
+      <a class="button is-light" href="{{ support_url }}">
+        {% translate "Get help" %}
+      </a>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock content %}
