@@ -1,60 +1,30 @@
 # coding=utf-8
-"""The migration commands, with the email allowlist front and centre.
+"""The mapping from a Django account to a Keycloak one.
 
-``sso_send_setup_links`` is the one command in the migration whose mistakes
-cannot be undone, so its guard is tested as behaviour rather than trusted as
-a convention.
+Which username it gets, which client roles its existing permissions imply,
+which accounts a human has to decide about first, and when its local password
+may be taken away. The admin actions are thin wrappers over these, so the
+rules are tested here rather than through the interface.
 """
 
-import io
-
 from django.contrib.auth.models import Group, User
-from django.core.management import call_command
-from django.core.management.base import CommandError
-from django.test import TestCase, override_settings
+from django.test import TestCase
+from django.utils import timezone
 
-from ..management.commands.sso_send_setup_links import is_allowed
-from ..migration import flag_users, proposed_roles, proposed_username
-from ..models import KeycloakIdentity, LinkMethod
-
-
-class AllowlistTest(TestCase):
-
-    def test_empty_allowlist_matches_nothing(self):
-        """Fails closed. An unset allowlist must send nothing, not everything -
-        a staging database restored from production holds every contributor's
-        real address."""
-        self.assertFalse(is_allowed("alice@example.org", []))
-
-    def test_exact_address_matches(self):
-        self.assertTrue(is_allowed("alice@example.org", ["alice@example.org"]))
-
-    def test_glob_matches_a_domain(self):
-        self.assertTrue(is_allowed("alice@kartoza.com", ["*@kartoza.com"]))
-
-    def test_non_matching_address_is_refused(self):
-        self.assertFalse(is_allowed("alice@example.org", ["*@kartoza.com"]))
-
-    def test_blank_address_is_refused(self):
-        self.assertFalse(is_allowed("", ["*"]))
-
-    def test_matching_is_case_insensitive(self):
-        self.assertTrue(is_allowed("Alice@Example.ORG", ["alice@example.org"]))
-
-    @override_settings(SSO_SETUP_EMAIL_ALLOWLIST=[])
-    def test_command_refuses_to_run_with_an_empty_allowlist(self):
-        user = User.objects.create_user("alice", "alice@example.org", "x")
-        KeycloakIdentity.objects.create(
-            user=user,
-            sub="sub-1",
-            issuer="https://auth.example.org/realms/qgis",
-            link_method=LinkMethod.PRE_SSO_MIGRATION,
-        )
-
-        with self.assertRaises(CommandError) as caught:
-            call_command("sso_send_setup_links", stdout=io.StringIO())
-
-        self.assertIn("SSO_SETUP_EMAIL_ALLOWLIST", str(caught.exception))
+from ..migration import (
+    REPORT_FIELDS,
+    flag_users,
+    proposed_roles,
+    proposed_username,
+    report_row,
+)
+from ..models import KeycloakIdentity, LinkMethod, SsoAuditEvent
+from ..provisioning import (
+    ALREADY_DISABLED,
+    DISABLED,
+    NOT_YET_PROVEN,
+    disable_local_password,
+)
 
 
 class ProposedMappingTest(TestCase):
@@ -129,21 +99,27 @@ class FlaggingTest(TestCase):
         self.assertIn("inactive", flag_users([user])[user.pk])
 
 
-class ExportCommandTest(TestCase):
+class ReportRowTest(TestCase):
+    """The row the CSV export writes, and what provisioning then acts on."""
 
-    def test_export_writes_a_row_per_user_and_changes_nothing(self):
-        User.objects.create_user("alice", "alice@example.org", "x")
-        before = User.objects.count()
-        out = io.StringIO()
+    def test_row_carries_the_proposal_and_the_flags(self):
+        user = User.objects.create_superuser("Root", "root@example.org", "x")
 
-        call_command("sso_export_users", stdout=out, stderr=io.StringIO())
+        row = report_row(user, flags=flag_users([user])[user.pk], linked_ids=set())
 
-        self.assertIn("alice", out.getvalue())
-        self.assertEqual(User.objects.count(), before)
-        self.assertEqual(KeycloakIdentity.objects.count(), 0)
+        self.assertEqual(row["proposed_keycloak_username"], "root")
+        self.assertEqual(row["proposed_client_roles"], "admin")
+        self.assertIn("never-logged-in", row["flags"])
+        self.assertFalse(row["already_linked"])
+
+    def test_every_declared_column_is_present(self):
+        """The export writes with a DictWriter, so a missing key is an error."""
+        user = User.objects.create_user("alice", "alice@example.org", "x")
+
+        self.assertEqual(set(report_row(user)), set(REPORT_FIELDS))
 
 
-class DisableLocalPasswordsTest(TestCase):
+class DisableLocalPasswordTest(TestCase):
 
     def setUp(self):
         self.user = User.objects.create_user("alice", "alice@example.org", "x")
@@ -156,30 +132,42 @@ class DisableLocalPasswordsTest(TestCase):
 
     def test_provisioned_but_never_signed_in_is_left_alone(self):
         """Taking the password before SSO is proven to work for this person is
-        how people get locked out."""
-        call_command("sso_disable_local_passwords", "--commit", stdout=io.StringIO())
+        how people get locked out - and a passkey account has no reset."""
+        self.assertEqual(disable_local_password(self.identity), NOT_YET_PROVEN)
 
         self.user.refresh_from_db()
         self.assertTrue(self.user.has_usable_password())
 
     def test_password_is_disabled_after_a_recorded_sso_login(self):
-        from django.utils import timezone
-
         self.identity.first_sso_login_at = timezone.now()
         self.identity.save()
 
-        call_command("sso_disable_local_passwords", "--commit", stdout=io.StringIO())
+        self.assertEqual(disable_local_password(self.identity), DISABLED)
 
         self.user.refresh_from_db()
         self.assertFalse(self.user.has_usable_password())
+        self.assertIsNotNone(self.identity.local_password_disabled_at)
 
-    def test_dry_run_changes_nothing(self):
-        from django.utils import timezone
+    def test_an_account_that_already_had_none_is_recorded_not_repeated(self):
+        self.identity.first_sso_login_at = timezone.now()
+        self.identity.save()
+        self.user.set_unusable_password()
+        self.user.save(update_fields=["password"])
 
+        self.assertEqual(disable_local_password(self.identity), ALREADY_DISABLED)
+
+        self.identity.refresh_from_db()
+        self.assertIsNotNone(self.identity.local_password_disabled_at)
+
+    def test_disabling_is_audited(self):
         self.identity.first_sso_login_at = timezone.now()
         self.identity.save()
 
-        call_command("sso_disable_local_passwords", stdout=io.StringIO())
+        disable_local_password(self.identity)
 
-        self.user.refresh_from_db()
-        self.assertTrue(self.user.has_usable_password())
+        self.assertTrue(
+            SsoAuditEvent.objects.filter(
+                action=SsoAuditEvent.Action.LOCAL_PASSWORD_DISABLED,
+                user=self.user,
+            ).exists()
+        )

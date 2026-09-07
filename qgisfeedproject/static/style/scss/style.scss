@@ -414,3 +414,19 @@ h5:hover > a.heading-anchor,
 h6:hover > a.heading-anchor {
   visibility: visible;
 }
+
+
+// Logging out is a POST, so it is a <button> where the menu's other entries
+// are <a>. Strip the button chrome so it renders as the navbar-item it is.
+.navbar-dropdown form {
+  margin: 0;
+}
+
+.navbar-item.logout-item {
+  background: none;
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  width: 100%;
+}

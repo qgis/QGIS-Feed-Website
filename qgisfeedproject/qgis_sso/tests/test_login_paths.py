@@ -6,6 +6,7 @@ together. Gating only the form would leave the fallback wider than it looks,
 which is exactly the failure the migration plan is guarding against.
 """
 
+from django.conf import settings
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
@@ -16,6 +17,12 @@ WITH_LOCAL = OIDC_ONLY + ["django.contrib.auth.backends.ModelBackend"]
 
 
 class LoginPageTest(TestCase):
+    """force_login here deliberately leaves the OIDC backend in the session.
+
+    That is what SessionRefresh looks at, so these also pin the login page
+    being exempt from it: without the exemption every case below is a 302 to
+    Keycloak instead of the page under test.
+    """
 
     def setUp(self):
         from django.contrib.auth.models import User
@@ -49,13 +56,19 @@ class LoginPageTest(TestCase):
         self.assertContains(response, "do not have access", status_code=403)
 
     @override_settings(LOCAL_LOGIN_ENABLED=True, AUTHENTICATION_BACKENDS=WITH_LOCAL)
-    def test_signed_in_user_visiting_the_page_directly_still_sees_it(self):
-        """Without a ``next`` there is no failed permission check to explain."""
+    def test_signed_in_user_visiting_the_page_directly_is_sent_on(self):
+        """Keycloak returns a newly enrolled user here already signed in.
+
+        Showing them the form again looks like a failure and costs a second
+        round trip through the provider before anything happens.
+        """
         self.client.force_login(self.user)
 
         response = self.client.get(reverse("login"))
 
-        self.assertEqual(response.status_code, 200)
+        self.assertRedirects(
+            response, settings.LOGIN_REDIRECT_URL, fetch_redirect_response=False
+        )
 
     @override_settings(LOCAL_LOGIN_ENABLED=False, AUTHENTICATION_BACKENDS=OIDC_ONLY)
     def test_local_password_is_refused_when_disabled(self):

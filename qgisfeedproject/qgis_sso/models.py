@@ -95,9 +95,9 @@ class KeycloakIdentity(models.Model):
     def has_logged_in_via_sso(self):
         """True once this identity has completed at least one SSO login.
 
-        ``sso_disable_local_passwords`` gates on this: provisioning an account
-        in Keycloak proves nothing about whether the person can actually reach
-        it, and taking their password away before they can is how people get
+        Disabling a local password gates on this: provisioning an account in
+        Keycloak proves nothing about whether the person can actually reach it,
+        and taking their password away before they can is how people get
         locked out.
         """
         return self.first_sso_login_at is not None

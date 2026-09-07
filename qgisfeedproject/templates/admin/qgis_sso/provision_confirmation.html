@@ -1,0 +1,91 @@
+{% extends "admin/base_site.html" %}
+{% load i18n admin_urls %}
+
+{% block breadcrumbs %}
+  <div class="breadcrumbs">
+    <a href="{% url 'admin:index' %}">{% translate "Home" %}</a>
+    &rsaquo; <a href="{% url opts|admin_urlname:'changelist' %}">{{ opts.verbose_name_plural|capfirst }}</a>
+    &rsaquo; {% translate "Provision accounts in Keycloak" %}
+  </div>
+{% endblock %}
+
+{% block content %}
+  <p>
+    {% blocktranslate trimmed %}
+      Each account below is created in the Keycloak realm with no credentials.
+      Nobody is emailed and nobody can sign in yet: to invite them, select the
+      new records under Keycloak identities and send the account-setup email.
+    {% endblocktranslate %}
+  </p>
+  <p>
+    {% blocktranslate trimmed %}
+      Through that email the person verifies their address and enrols a
+      passkey — Touch ID, Windows Hello, a phone or a hardware key. No password
+      and no one-time code is involved at any point, so make sure they can
+      reach a device that creates passkeys.
+    {% endblocktranslate %}
+  </p>
+
+  <table>
+    <caption>{% translate "Accounts to be provisioned" %}</caption>
+    <thead>
+      <tr>
+        <th scope="col">{% translate "Django user" %}</th>
+        <th scope="col">{% translate "Keycloak username" %}</th>
+        <th scope="col">{% translate "Email" %}</th>
+        <th scope="col">{% translate "Roles" %}</th>
+        <th scope="col">{% translate "Outcome" %}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for decision in decisions %}
+        <tr>
+          <th scope="row">{{ decision.user.username }}</th>
+          <td>{{ decision.username }}</td>
+          <td>{{ decision.email|default:"—" }}</td>
+          <td>{{ decision.roles|join:", "|default:"—" }}</td>
+          <td>
+            {% if decision.actionable %}
+              {% translate "Will be created" %}
+            {% elif decision.is_error %}
+              <strong>{% translate "Error" %}:</strong> {{ decision.reason }}
+            {% else %}
+              {% translate "Skipped" %}: {{ decision.reason }}
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <form method="post">
+    {% csrf_token %}
+    {% for pk in selected %}
+      <input type="hidden" name="{{ action_checkbox_name }}" value="{{ pk }}">
+    {% endfor %}
+    <input type="hidden" name="action" value="provision_in_keycloak">
+
+    <p>
+      <label>
+        <input type="checkbox" name="include_flagged" value="yes"
+               {% if include_flagged %}checked{% endif %}>
+        {% translate "Include accounts flagged for review, such as dormant accounts or username collisions" %}
+      </label>
+    </p>
+
+    <div class="submit-row">
+      {% if actionable %}
+        <button type="submit" name="confirm" value="yes" class="default">
+          {% blocktranslate count counter=actionable|length trimmed %}
+            Create {{ counter }} Keycloak account
+          {% plural %}
+            Create {{ counter }} Keycloak accounts
+          {% endblocktranslate %}
+        </button>
+      {% else %}
+        <p>{% translate "Nothing here can be provisioned. Adjust the selection and try again." %}</p>
+      {% endif %}
+      <a href="{% url opts|admin_urlname:'changelist' %}" class="button cancel-link">{% translate "Cancel" %}</a>
+    </div>
+  </form>
+{% endblock %}

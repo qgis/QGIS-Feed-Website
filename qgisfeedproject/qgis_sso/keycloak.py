@@ -1,11 +1,11 @@
 # coding=utf-8
-"""A small Keycloak admin API client for the migration commands.
+"""A small Keycloak admin API client for provisioning.
 
-Deliberately narrow: it does what ``sso_provision_keycloak`` and
-``sso_send_setup_links`` need and nothing more. The credentials it uses belong
-to a dedicated service-account client holding only ``view-users`` and
-``manage-users``; the web application's own client must never hold them,
-because a compromise of the site would otherwise be a compromise of the realm.
+Deliberately narrow: it does what :mod:`qgis_sso.provisioning` needs and
+nothing more. The credentials it uses belong to a dedicated service-account
+client holding only ``view-users``, ``manage-users`` and ``view-clients``; the
+web application's own client must never hold them, because a compromise of the
+site would otherwise be a compromise of the realm.
 """
 
 import logging

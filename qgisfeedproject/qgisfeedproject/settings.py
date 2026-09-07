@@ -282,6 +282,16 @@ OIDC_OP_JWKS_ENDPOINT = f"{QGIS_AUTH_URL}/realms/qgis/protocol/openid-connect/ce
 SSO_KEYCLOAK_REALM = os.environ.get("SSO_KEYCLOAK_REALM", "qgis")
 SSO_ISSUER = f"{QGIS_AUTH_URL}/realms/{SSO_KEYCLOAK_REALM}"
 
+# Where a signed-in user manages their own passkeys and profile.
+SSO_ACCOUNT_URL = f"{SSO_ISSUER}/account/"
+
+# Retire the local password the first time an account signs in through
+# Keycloak. That sign-in is the proof the account is reachable, so waiting
+# longer only keeps a second way in open.
+SSO_RETIRE_PASSWORD_ON_LOGIN = os.environ.get(
+    "SSO_RETIRE_PASSWORD_ON_LOGIN", "True"
+).strip().lower() in ("1", "true", "yes")
+
 # feed-roles is a client scope provisioned on the realm specifically so that
 # the client role claim reaches the *userinfo* endpoint. Keycloak's built-in
 # 'roles' scope puts resource_access on the access token only, which
@@ -307,6 +317,16 @@ OIDC_USE_NONCE = True
 # completes with no prompt, which looks like logout having failed.
 OIDC_STORE_ID_TOKEN = True
 OIDC_OP_LOGOUT_URL_METHOD = "qgis_sso.auth.provider_logout"
+
+# Pages SessionRefresh must leave alone. They are the ones a user reaches
+# *because* their session is in doubt, so bouncing them to Keycloak to renew
+# a token turns each of them into a round trip they did not ask for - and on
+# the login page, into a loop.
+OIDC_EXEMPT_URLS = [
+    "login",
+    "admin_login_override",
+    "qgis_sso:sign_in_failed",
+]
 
 # Where mozilla-django-oidc sends a failed authentication. Almost always a
 # realm user with no account here, so the page says so rather than showing a
@@ -357,7 +377,7 @@ SSO_ROLE_MAP = {
 # created by hand for an unrelated purpose survives a sign-in.
 SSO_MANAGED_GROUPS = ["qgisfeedentry_authors", "qgisfeedentry_approver"]
 
-# --- account migration (management commands only) ---------------------------
+# --- account provisioning ---------------------------------------------------
 # None of this is read by the request path.
 SSO_KEYCLOAK_SERVER_URL = QGIS_AUTH_URL
 # A dedicated service-account client holding view-users and manage-users. The
@@ -368,26 +388,36 @@ SSO_PROVISIONER_CLIENT_ID = os.environ.get(
 )
 SSO_PROVISIONER_CLIENT_SECRET = ""
 
-# Recipients sso_send_setup_links is permitted to email, as shell globs.
-# Empty means nothing is sent - the guard fails closed on purpose. A staging
-# database restored from production holds every contributor's real address,
-# and the staging realm can send mail from noreply@qgis.org, so an unguarded
-# run there would email the whole community a link to a throwaway realm.
-SSO_SETUP_EMAIL_ALLOWLIST = []
-
+# Where Keycloak returns somebody who has just finished setting up. It starts
+# the OIDC flow rather than showing the login page: they have proved who they
+# are moments earlier, so Keycloak answers the authorisation request from the
+# session it just created and they arrive signed in.
 # Must also be a registered redirect URI on the feed-qgis-org client.
 SSO_SETUP_REDIRECT_URI = (
-    f"https://{os.environ.get("DOMAIN_NAME", "feed.qgis.org")}/accounts/login/"
+    f"https://{os.environ.get("DOMAIN_NAME", "feed.qgis.org")}/oidc/authenticate/"
 )
 
 # 14 days. Keycloak's default of 12 hours is far too short for a migration
 # wave; people are on holiday.
 SSO_SETUP_LINK_LIFESPAN = 1209600
 
-# Passkey enrolment is deliberately absent: as a required action it would
-# demand a passkey from users on machines that cannot create one and lock them
-# out. It is offered afterwards instead.
-SSO_REQUIRED_ACTIONS = ["VERIFY_EMAIL", "UPDATE_PASSWORD", "CONFIGURE_TOTP"]
+# Users the admin action will provision in one request. Each costs several
+# synchronous calls to Keycloak, and there is no task queue in this project.
+SSO_ADMIN_ACTION_MAX_USERS = int(os.environ.get("SSO_ADMIN_ACTION_MAX_USERS", "25"))
+
+# Deep link to a user in the Keycloak admin console. Keycloak's API cannot
+# hand back a setup link, so this is the fallback when email does not arrive.
+# The console itself lives in the master realm regardless of the target realm.
+SSO_KEYCLOAK_CONSOLE_REALM = os.environ.get("SSO_KEYCLOAK_CONSOLE_REALM", "master")
+SSO_KEYCLOAK_USER_CONSOLE_URL = (
+    f"{QGIS_AUTH_URL}/admin/{SSO_KEYCLOAK_CONSOLE_REALM}/console/"
+    f"#/{SSO_KEYCLOAK_REALM}/users/{{sub}}/credentials"
+)
+
+# Passkey only. No password is ever set on a provisioned account, so there is
+# none to phish or reuse, and no one-time code because a passkey already
+# combines something you have with something you are.
+SSO_REQUIRED_ACTIONS = ["VERIFY_EMAIL", "webauthn-register-passwordless"]
 
 # Shown on the sign-in failure page when set.
 SSO_SUPPORT_URL = os.environ.get("SSO_SUPPORT_URL", "")

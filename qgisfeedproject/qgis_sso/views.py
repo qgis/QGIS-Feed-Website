@@ -5,10 +5,11 @@ import logging
 from urllib.parse import urlencode
 
 from django.conf import settings
+from django.contrib.auth import SESSION_KEY
 from django.contrib.auth.views import LoginView
 from django.core.cache import cache
 from django.http import HttpResponseRedirect
-from django.shortcuts import render
+from django.shortcuts import render, resolve_url
 from django.urls import reverse
 from django.utils.http import url_has_allowed_host_and_scheme
 from mozilla_django_oidc.views import OIDCAuthenticationCallbackView
@@ -50,17 +51,30 @@ def site_login(request, *args, **kwargs):
     authors group. It is ordinary now: roles are mirrored from Keycloak at
     every sign-in, so an account with no feed role legitimately ends up signed
     in with no permissions. Say that, rather than showing the form again.
+
+    Without a ``next`` there is no failed check to explain and the caller is
+    simply somewhere they no longer need to be - most often straight after
+    enrolling a passkey, where Keycloak returns them here already signed in.
+    Rendering the form there reads as the sign-in having failed and invites a
+    second, pointless round trip through the provider.
+
+    Whether anyone is signed in is read from the session, not ``request.user``:
+    ``QgisFeedUserVisitMiddleware`` substitutes a shared ``qgis_user`` account
+    on anonymous requests, so ``request.user.is_authenticated`` is true even
+    for a visitor who has never logged in.
     """
-    if request.user.is_authenticated and request.GET.get("next"):
-        return render(
-            request,
-            "qgis_sso/sign_in_failed.html",
-            {
-                "no_permission": True,
-                "support_url": getattr(settings, "SSO_SUPPORT_URL", ""),
-            },
-            status=403,
-        )
+    if request.session.get(SESSION_KEY):
+        if request.GET.get("next"):
+            return render(
+                request,
+                "qgis_sso/sign_in_failed.html",
+                {
+                    "no_permission": True,
+                    "support_url": getattr(settings, "SSO_SUPPORT_URL", ""),
+                },
+                status=403,
+            )
+        return HttpResponseRedirect(resolve_url(settings.LOGIN_REDIRECT_URL))
     return LoginView.as_view()(request, *args, **kwargs)
 
 

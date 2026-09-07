@@ -1,10 +1,10 @@
 # coding=utf-8
-"""Shared logic for the account-migration commands.
+"""What a Django account would become in Keycloak.
 
-Kept out of the commands themselves so that the mapping decisions - what
-Keycloak username a Django user gets, which client roles their existing flags
-imply, and which accounts cannot be migrated unattended - are defined once and
-reported by ``sso_export_users`` in exactly the form the later commands act on.
+The mapping decisions - what Keycloak username a Django user gets, which
+client roles their existing flags imply, and which accounts cannot be migrated
+unattended - are defined once here, so that the exported report describes
+exactly what provisioning will then do.
 """
 
 from collections import defaultdict
@@ -25,9 +25,12 @@ APPROVER_GROUP = "qgisfeedentry_approver"
 AUTHORS_GROUP = "qgisfeedentry_authors"
 
 #: Actions Keycloak makes the user complete before their account is usable.
-#: Passkey enrolment is deliberately absent: requiring it would lock out
-#: anyone on a machine that cannot create one. It is offered afterwards.
-DEFAULT_REQUIRED_ACTIONS = ["VERIFY_EMAIL", "UPDATE_PASSWORD", "CONFIGURE_TOTP"]
+#: A passkey and nothing else: no password is ever set, so there is no
+#: password to phish, reuse or rotate, and no separate one-time code because a
+#: passkey already combines something you have with something you are.
+#: The cost is that enrolment needs a device that can create one - see the
+#: recovery note in docs/sso.md.
+DEFAULT_REQUIRED_ACTIONS = ["VERIFY_EMAIL", "webauthn-register-passwordless"]
 
 
 def required_actions():
@@ -123,3 +126,40 @@ def flag_users(users, dormant_months=12):
 def migratable_users():
     """Users the migration considers at all, with related data prefetched."""
     return User.objects.all().prefetch_related("groups").order_by("username")
+
+
+#: Columns of the migration report, in order.
+REPORT_FIELDS = [
+    "id",
+    "username",
+    "email",
+    "is_active",
+    "is_staff",
+    "is_superuser",
+    "groups",
+    "last_login",
+    "date_joined",
+    "already_linked",
+    "proposed_keycloak_username",
+    "proposed_client_roles",
+    "flags",
+]
+
+
+def report_row(user, flags=(), linked_ids=()):
+    """One row of the migration report: what provisioning would do, and why not."""
+    return {
+        "id": user.pk,
+        "username": user.username,
+        "email": user.email,
+        "is_active": user.is_active,
+        "is_staff": user.is_staff,
+        "is_superuser": user.is_superuser,
+        "groups": "|".join(sorted(group.name for group in user.groups.all())),
+        "last_login": user.last_login.isoformat() if user.last_login else "",
+        "date_joined": user.date_joined.isoformat() if user.date_joined else "",
+        "already_linked": user.pk in linked_ids,
+        "proposed_keycloak_username": proposed_username(user),
+        "proposed_client_roles": "|".join(proposed_roles(user)),
+        "flags": "|".join(flags),
+    }

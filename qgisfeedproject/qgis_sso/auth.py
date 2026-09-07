@@ -21,6 +21,7 @@ from django.utils import timezone
 from mozilla_django_oidc.auth import OIDCAuthenticationBackend
 
 from .models import KeycloakIdentity, LinkMethod, SsoAuditEvent
+from .provisioning import disable_local_password
 from .roles import mirror_roles
 
 logger = logging.getLogger(__name__)
@@ -284,6 +285,13 @@ class QGISOIDCAuthenticationBackend(OIDCAuthenticationBackend):
                 "first_sso_login_at",
             ]
         )
+
+        # This sign-in is the proof the account is reachable through Keycloak,
+        # which is the exact condition for retiring its password. Doing it here
+        # closes the window in which both a password and SSO work for the same
+        # account, rather than leaving it open until somebody runs a batch.
+        if getattr(settings, "SSO_RETIRE_PASSWORD_ON_LOGIN", True):
+            disable_local_password(identity)
 
         if changed.keys() - {"roles"}:
             SsoAuditEvent.record(

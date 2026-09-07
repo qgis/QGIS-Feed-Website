@@ -7,29 +7,29 @@
 ### Signing in
 
 Go to `/accounts/login/` and use **Sign in with your QGIS account**. You will be
-sent to `auth.qgis.org`, where you sign in with either
+sent to `auth.qgis.org`, where you sign in with your **passkey** — Touch ID,
+Windows Hello, a phone, or a hardware key.
 
-- a **passkey** — Touch ID, Windows Hello, a phone, or a hardware key; or
-- a **password plus a one-time code** from an authenticator app.
-
-Both end up in the same place. The passkey route has no separate code step
-because a passkey already combines something you have with something you are.
+There is no password and no one-time code. A passkey already combines something
+you have with something you are, so there is nothing else to type, nothing to
+remember, and nothing that can be phished out of you.
 
 ### Setting your account up for the first time
 
 You will receive an email from `noreply@qgis.org` with a setup link that is
-valid for **14 days**. It walks you through verifying your address, choosing a
-password and enrolling an authenticator app. All three are required.
+valid for **14 days**. It asks you to verify your address and enrol a passkey.
+Both are required, and once done you are returned to the feed site already
+signed in — no password is ever set on the account, and there is no second
+login to perform.
 
-If the link has expired, ask a feed maintainer to resend it.
+You need a device that can create a passkey. A passkey made on a phone or in
+iCloud Keychain, Google Password Manager or Bitwarden syncs across your
+devices, so it is not tied to the machine you enrolled on. Enrol a second one —
+a hardware key, or a passkey on another device — at
+`https://auth.qgis.org/realms/qgis/account/#/security/signing-in` under
+*Passwordless*, so that losing a device does not lock you out.
 
-### Adding a passkey
-
-Passkeys are optional, and strongly recommended — they are faster and cannot be
-phished. After completing the setup above, go to
-`https://auth.qgis.org/realms/qgis/account/#/security/signing-in` and add one
-under *Passwordless*. A passkey created there syncs through iCloud Keychain,
-Google Password Manager or Bitwarden, so it is not tied to one device.
+If the link has expired, or you have lost every passkey, ask a feed maintainer.
 
 ### "You need an invitation"
 
@@ -38,11 +38,12 @@ allow self-registration, and the realm is shared with the plugins and hub sites.
 If you see this page, your sign-in worked but no feed account is bound to it.
 Ask a feed maintainer, and tell them the QGIS account name you used.
 
-### Losing your authenticator
+### Losing every passkey
 
-Contact a feed administrator. Recovery is an administrator reset in Keycloak,
-and the administrator is expected to verify who you are through a channel other
-than the email address on the account.
+Contact a feed administrator, who can resend a setup link so you can enrol a
+new one. There is no password to fall back on, so the administrator is expected
+to verify who you are through a channel other than the email address on the
+account — enrolling a second passkey in advance is much less trouble.
 
 ---
 
@@ -80,76 +81,90 @@ by hand for some other purpose survives a sign-in untouched.
 | `SSO_MIGRATION_LINKING` | Enables binding a token to a pre-existing local account on an exact username **and** verified-email match. Off by default; on only during the cutover window. |
 | `OIDC_CREATE_USER` | Must stay `False`. The realm is LDAP-federatable, so auto-creation would grant feed accounts to the whole OSGeo directory. The backend refuses in `create_user` as well. |
 | `OIDC_RP_CLIENT_SECRET` | Confidential client secret. Goes in `settings_local`, **never** in the process environment — the deployment's environment is world-readable via the Nix store and `systemctl show`. |
-| `SSO_PROVISIONER_CLIENT_SECRET` | Service-account secret for the migration commands. Same rule. The web client must never hold `manage-users`. |
-| `SSO_SETUP_EMAIL_ALLOWLIST` | Shell globs of addresses `sso_send_setup_links` may email. **Empty means nothing is sent.** |
+| `SSO_PROVISIONER_CLIENT_SECRET` | Service-account secret used by provisioning. Same rule. The web client must never hold `manage-users`. |
+| `SSO_REQUIRED_ACTIONS` | What Keycloak makes a new user complete. `VERIFY_EMAIL` and `webauthn-register-passwordless`: a passkey and nothing else, so no password or TOTP secret is ever created. |
+| `SSO_ADMIN_ACTION_MAX_USERS` | Accounts the admin action will provision in one request (25). |
+| `SSO_SETUP_REDIRECT_URI` | Where Keycloak returns somebody who has finished setting up. Points at `/oidc/authenticate/` so they arrive signed in rather than at a login form, and **must be registered as a valid redirect URI on the `feed-qgis-org` client**. |
 
-### The migration commands
+### Everything happens in the admin
 
-Four commands, deliberately separate so that each is resumable, each can be
-reviewed between steps, and no single mistake is unbounded.
+There are no management commands and no reason to open a shell on the server.
+Four actions, all superuser-only and all audited, in the order you use them:
 
-```
-sso_export_users  →  sso_provision_keycloak  →  sso_send_setup_links  →  sso_disable_local_passwords
-   report only         creates realm users        sends setup email        after confirmed login
-```
+| Where | Action | What it does |
+|---|---|---|
+| Users | *Export the migration report for selected users* | Downloads a CSV. Changes nothing. |
+| Users | *Create the Keycloak account* | Creates realm accounts. Sends no email. |
+| Keycloak identities | *Send the account-setup email* | Invites them. Repeatable. |
+| Keycloak identities | *Disable the local Django password* | Retires the fallback, late. |
 
-Run them with `nix run .#manage -- <command>`.
+They are separate so that no step is a side effect of another: creating an
+account never emails anybody, and inviting somebody can be repeated without
+touching the account.
 
-**1. `sso_export_users`** — read-only. Writes a row per account with the
-Keycloak username and client roles it would get, and flags the ones that need a
-human decision: case collisions after lowercasing, duplicate or missing email
-addresses, dormant and never-used accounts, and — most importantly —
-`username-exists-in-realm`, which may mean the name belongs to somebody else.
+**1. Read the report first.** The CSV gives the Keycloak username and client
+roles each account would get, and flags the ones needing a human decision:
+case collisions after lowercasing, duplicate or missing email addresses,
+dormant and never-used accounts. Keep it as the migration record.
 
-```bash
-nix run .#manage -- sso_export_users --check-realm --output migration-report.csv
-```
+**2. Create the accounts.** A confirmation page lists the outcome per user
+before anything is written; it is the only preview there is. Capped at
+`SSO_ADMIN_ACTION_MAX_USERS` (25) per run — each account costs several
+synchronous calls to Keycloak inside one request and there is no task queue
+here, so migrate in waves. Flagged accounts are held back unless you tick the
+box. A realm name that already exists is never claimed, and an account already
+linked is never provisioned twice.
 
-Nothing else runs until a maintainer has read this. Commit the redacted report
-as the migration record.
+**3. Send the setup email.** Links last 14 days, and a passkey-only account has
+no password to fall back on, so use this again whenever somebody misses the
+window or loses every device. Each send is counted on the identity record.
 
-**2. `sso_provision_keycloak`** — dry run unless `--commit`. Creates realm users
-with no credentials and the required actions set, reads back the generated
-subject, and records a `KeycloakIdentity`. Flagged accounts are skipped unless
-`--include-flagged`. An existing realm user with the same name is never claimed.
-
-```bash
-nix run .#manage -- sso_provision_keycloak                    # dry run
-nix run .#manage -- sso_provision_keycloak --commit --limit 5
-```
-
-**3. `sso_send_setup_links`** — the one that sends real email.
+> **The setup link cannot be handed over manually.** Keycloak mints the action
+> token inside `execute-actions-email` and returns nothing; there is no API
+> that gives it back, so it only ever leaves by email. If mail is not arriving,
+> the identity's detail page links straight to that account in the Keycloak
+> admin console, where the credential state is visible and the send can be
+> retried against Keycloak's own SMTP settings — which are separate from
+> Django's. Check the realm's mail configuration there first.
 
 > ⚠ **Staging can email real contributors.** The staging database is restored
 > from production and holds every contributor's real address, and the staging
 > realm uses the real Resend credential and can send from `noreply@qgis.org`.
-> An unguarded run there emails the whole community a setup link pointing at a
-> realm that will later be discarded.
+> Check who you have selected. A setup link pointing at a throwaway realm
+> cannot be unsent.
 
-The allowlist is the guard, and it fails closed: with `SSO_SETUP_EMAIL_ALLOWLIST`
-empty the command refuses to send anything at all. Set it in `settings_local` to
-the addresses the current wave is meant to reach. In production it is also what
-makes "wave 1 is administrators only" a property of the code rather than of
-remembering the right `--limit`.
+Announce the migration on the mailing list, naming the exact sender address,
+*before* the first email goes out — an unexpected account-setup email reads as
+phishing.
 
-```bash
-nix run .#manage -- sso_send_setup_links                     # dry run
-nix run .#manage -- sso_send_setup_links --commit --limit 5
-nix run .#manage -- sso_send_setup_links --commit --resend --username alice
-```
+**4. Disable local passwords** — mostly automatic. An account's password is
+retired the moment it first signs in through Keycloak, because that sign-in is
+the proof it is reachable; `SSO_RETIRE_PASSWORD_ON_LOGIN = False` turns that
+off if a cutover needs both doors open. The action is there to backfill
+accounts that signed in before this was automatic, and to check the state of a
+batch.
 
-Links last 14 days. Announce the migration on the mailing list, naming the exact
-sender address, *before* the first email goes out — an unexpected account-setup
-email reads as phishing.
+Only accounts with a **recorded successful SSO login** are ever touched; the
+rest are reported and left alone, because taking the password from somebody
+who has not yet signed in through Keycloak locks them out of an account they
+cannot recover. Accounts that linked themselves through the migration-linking
+path already had this done at link time.
 
-**4. `sso_disable_local_passwords`** — run late. Only touches accounts with a
-**recorded successful SSO login**, not merely provisioned ones. Accounts that
-linked themselves through the migration-linking path already had this done at
-link time.
+### The account menu
 
-**`sso_local_login_report`** — run weekly. Counts local-password sign-ins and
-reports how many recently-active accounts still lack a Keycloak identity, which
-is condition (a) of the exit criterion for retiring local login.
+The site header shows the signed-in username as a dropdown: **Profile**, which
+opens that person's account page at `auth.qgis.org` where they manage their own
+passkeys, and **Log out**. Profile appears only for an SSO-linked account,
+since a local-only account has nothing to manage there.
+
+### Tracking progress
+
+The user list has an **SSO account** filter. Combined with the *last login*
+filter it answers the question retiring local login is gated on: which accounts
+still in use have nobody behind them in the realm yet.
+
+Local-password sign-ins are recorded as audit events — filter **SSO audit
+events** by action to count them.
 
 ### Before retiring local login
 

@@ -24,21 +24,32 @@
                     {% endif %}
                 </div>
                 <div class="navbar-end">
+                    {% if user.is_authenticated and not user.username == 'qgis_user' %}
+                    <div class="navbar-item has-dropdown is-hoverable p-0">
+                        <a href="{% if user.keycloak_identity %}{{ SSO_ACCOUNT_URL }}{% else %}#{% endif %}"
+                            class="navbar-link has-text-weight-semibold is-size-7">
+                            <i class="fas fa-user mr-3"></i>
+                            {{ user.get_full_name|default:user.username }}
+                        </a>
+                        <div class="navbar-dropdown">
+                            {% if user.keycloak_identity %}
+                            <a href="{{ SSO_ACCOUNT_URL }}"
+                                class="navbar-item has-text-weight-semibold is-size-7"
+                                target="_blank" rel="noopener noreferrer">
+                                {% trans "Profile" %}
+                            </a>
+                            {% endif %}
+                            <form method="POST" action="{% url 'oidc_logout' %}">
+                                {% csrf_token %}
+                                <button type="submit"
+                                    class="navbar-item has-text-weight-semibold is-size-7 logout-item">
+                                    {% trans "Log Out" %}
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                    {% else %}
                     <div class="navbar-item">
-                        {% if user.is_authenticated and not user.username == 'qgis_user' %}
-                        <form method="POST" action="{% url 'oidc_logout' %}">
-                            {% csrf_token %}
-
-                            <button class="button is-warning is-small is-fullwidth">
-                                <span class="icon">
-                                    <i class="fas fa-sign-out-alt"></i>
-                                </span>
-                                <span>
-                                    {% trans "Logout" %}
-                                </span>
-                            </button>
-                        </form>
-                        {% else %}
                         <a class="button is-info is-small" href="{% url "login" %}">
                             <span class="icon">
                                 <i class="fas fa-sign-in-alt"></i>
@@ -47,8 +58,8 @@
                                 {% trans "Login" %}
                             </span>
                         </a>
-                        {% endif %}
                     </div>
+                    {% endif %}
                 </div>
             </div>
         </nav>
