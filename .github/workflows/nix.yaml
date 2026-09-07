@@ -1,0 +1,94 @@
+name: nix-checks
+
+# The only test workflow: the deployment closure the QGIS infrastructure
+# consumes, and the contracts in nix/checks.nix that guard it. The Django unit
+# suite runs inside the integration check, against PostGIS in the build sandbox.
+on:
+  pull_request:
+    branches:
+      - master
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+# A new push supersedes the run in flight; the integration check is slow and
+# there is no point paying for a result nobody will read.
+concurrency:
+  group: nix-checks-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # Every check gets its own job rather than a single `nix flake check`, which
+  # stops at the first failure: a formatting slip would otherwise hide whether
+  # the application still imports, migrates and serves.
+  fast:
+    name: ${{ matrix.check }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        check:
+          - shellcheck
+          - nixfmt
+          - passthru-contract
+          - settings-contract
+          - migration-drift
+          - uwsgi-app-load
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          # Authenticated flake-input fetches, so the run does not fail on the
+          # anonymous GitHub API rate limit.
+          extra_nix_config: |
+            access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build check
+        run: nix build .#checks.x86_64-linux.${{ matrix.check }} -L --no-link
+
+  # Starts a PostGIS cluster in the build sandbox and runs the Django suite,
+  # so it takes minutes where the checks above take seconds.
+  integration:
+    name: integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build check
+        run: nix build .#checks.x86_64-linux.integration -L --no-link
+
+  # The deployable closure has to build on its own, independently of whether a
+  # check happens to pull it in.
+  package:
+    name: package
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build the application package
+        run: nix build .#qgisfeed -L --no-link

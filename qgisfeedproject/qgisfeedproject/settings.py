@@ -23,12 +23,33 @@ SITE_ROOT = os.path.dirname(os.path.realpath(__file__))
 # See https://docs.djangoproject.com/en/2.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = "w*x1d0%17@hd6lx8gq#45#8w(w&a-!vupt41%#^ryyxs3l%hz9"
+# This value is committed and therefore public: anything still using it can
+# have its sessions and password reset tokens forged. It is named so that a
+# deployment can assert it has been replaced - compare SECRET_KEY against
+# INSECURE_DEFAULT_SECRET_KEY in the local settings override.
+INSECURE_DEFAULT_SECRET_KEY = "w*x1d0%17@hd6lx8gq#45#8w(w&a-!vupt41%#^ryyxs3l%hz9"
+SECRET_KEY = INSECURE_DEFAULT_SECRET_KEY
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+# The default stays True so a plain checkout is usable for development. The
+# deployment sets DEBUG=False in the application environment; with debug on,
+# any error page exposes the settings and the environment, including secrets.
+DEBUG = os.environ.get("DEBUG", "True").strip().lower() in ("1", "true", "yes")
 
-ALLOWED_HOSTS = [os.environ.get("QGIS_FEED_PROD_URL", "")]
+# Public hostname(s), comma separated. DOMAIN_NAME is what the NixOS
+# infrastructure passes; QGIS_FEED_PROD_URL is the name the docker compose
+# stack uses, kept as a fallback so both paths work unchanged.
+#
+# An empty result leaves ALLOWED_HOSTS empty, which Django treats as
+# "localhost only" while DEBUG is on - more useful for development than the
+# [""] this produced before, which rejected every request including localhost.
+_domains = os.environ.get("DOMAIN_NAME") or os.environ.get("QGIS_FEED_PROD_URL", "")
+ALLOWED_HOSTS = [host.strip() for host in _domains.split(",") if host.strip()]
+
+# Required by Django for any POST over HTTPS behind a TLS-terminating proxy.
+# Derived from the same hostnames so a deployment does not have to repeat them.
+CSRF_TRUSTED_ORIGINS = [f"https://{host}" for host in ALLOWED_HOSTS]
+CORS_ORIGIN_WHITELIST = CSRF_TRUSTED_ORIGINS
 
 
 # Application definition
@@ -50,6 +71,7 @@ INSTALLED_APPS = [
     "user_visit",
     # Webpack
     "webpack_loader",
+    "mozilla_django_oidc",  # OpenID Connect authentication
 ]
 
 # Useful debugging extensions
@@ -96,16 +118,36 @@ WSGI_APPLICATION = "qgisfeedproject.wsgi.application"
 # Database
 # https://docs.djangoproject.com/en/2.2/ref/settings/#databases
 
+
+def _db(name, legacy, default):
+    """Read a database setting, preferring the current name.
+
+    The QGISFEED_DOCKER_* spelling predates the move off docker and is still
+    what the compose files pass, so it is accepted as a fallback rather than
+    broken.
+    """
+    return os.getenv(name) or os.getenv(legacy) or default
+
+
+# Defaults target a local PostgreSQL reached over its unix socket, which is
+# how the application is deployed: libpq treats a path as a socket directory,
+# and peer or trust authentication then needs no password. The compose files
+# pass the docker values explicitly.
 DATABASES = {
     "default": {
         "ENGINE": "django.contrib.gis.db.backends.postgis",
-        "NAME": os.getenv("QGISFEED_DOCKER_DBNAME", "qgisfeed"),
-        "USER": os.getenv("QGISFEED_DOCKER_DBUSER", "docker"),
-        "PASSWORD": os.getenv("QGISFEED_DOCKER_DBPASSWORD", "docker"),
-        "HOST": os.getenv("QGISFEED_DOCKER_DBHOST", "postgis"),
-        "PORT": "5432",
+        "NAME": _db("DB_NAME", "QGISFEED_DOCKER_DBNAME", "qgisfeed"),
+        "USER": _db("DB_USER", "QGISFEED_DOCKER_DBUSER", "qgisfeed"),
+        "PASSWORD": _db("DB_PASSWORD", "QGISFEED_DOCKER_DBPASSWORD", ""),
+        "HOST": _db("DB_HOST", "QGISFEED_DOCKER_DBHOST", "/var/run/postgresql"),
+        "PORT": _db("DB_PORT", "QGISFEED_DOCKER_DBPORT", "5432"),
     }
 }
+
+AUTHENTICATION_BACKENDS = (
+    "mozilla_django_oidc.auth.OIDCAuthenticationBackend",
+    "django.contrib.auth.backends.ModelBackend",
+)
 
 
 # Password validation
@@ -136,8 +178,6 @@ TIME_ZONE = "UTC"
 
 USE_I18N = True
 
-USE_L10N = True
-
 USE_TZ = False
 
 
@@ -150,10 +190,33 @@ STATICFILES_DIRS = [
     os.path.join(BASE_DIR, "static"),
 ]
 
-MEDIA_ROOT = os.path.join(BASE_DIR, "media")
+# Destination for collectstatic. Deliberately outside STATICFILES_DIRS, which
+# Django refuses to overlap with. The deployment points this at the directory
+# the web server serves from.
+STATIC_ROOT = os.environ.get("STATIC_ROOT", os.path.join(BASE_DIR, "static_collected"))
+
+# Uploaded files. The default keeps them in the checkout, where the repository
+# ships the test fixture images; the deployment points it at persistent storage.
+MEDIA_ROOT = os.environ.get("MEDIA_ROOT", os.path.join(BASE_DIR, "media"))
 MEDIA_URL = "/media/"
 
-GEOIP_PATH = "/var/opt/maxmind/"
+# Directory holding GeoLite2-City.mmdb. MaxMind licensed, so it is not shipped
+# with the application and has to be provisioned separately; without it the
+# geofence feature resolves no location. The default is the docker image
+# layout, so any other deployment sets GEOIP_PATH.
+GEOIP_PATH = os.environ.get("GEOIP_PATH", "/var/opt/maxmind/")
+
+# GeoDjango loads libgdal and libgeos with ctypes at import time, and reads
+# their locations as Django settings rather than environment variables (see
+# django/contrib/gis/gdal/libgdal.py). Under Nix the libraries live in the
+# store, where ctypes.util.find_library cannot find them, so the package
+# wrappers and the devShell export the paths and they are promoted here.
+#
+# Left as None when unset, which is what Django expects: it then falls back to
+# searching the usual library names, which is correct for the docker images and
+# for a system-wide install.
+GDAL_LIBRARY_PATH = os.environ.get("GDAL_LIBRARY_PATH")
+GEOS_LIBRARY_PATH = os.environ.get("GEOS_LIBRARY_PATH")
 
 # This can be specified in settings_local
 MAIN_WEBSITE_URL = "https://qgis.org"
@@ -213,32 +276,59 @@ BLUESKY_PASSWORD = os.environ.get("BLUESKY_PASSWORD", "")
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 
+# OpenID Connect authentication
+QGIS_AUTH_URL = os.environ.get("QGIS_AUTH_URL", "https://auth.qgis.org")
+OIDC_RP_CLIENT_ID = os.environ.get("OIDC_RP_CLIENT_ID", "feed-qgis-org")
+OIDC_RP_SIGN_ALGO = "RS256"
+OIDC_OP_AUTHORIZATION_ENDPOINT = (
+    f"{QGIS_AUTH_URL}/realms/qgis/protocol/openid-connect/auth"
+)
+OIDC_OP_TOKEN_ENDPOINT = f"{QGIS_AUTH_URL}/realms/qgis/protocol/openid-connect/token"
+OIDC_OP_USER_ENDPOINT = f"{QGIS_AUTH_URL}/realms/qgis/protocol/openid-connect/userinfo"
+OIDC_OP_JWKS_ENDPOINT = f"{QGIS_AUTH_URL}/realms/qgis/protocol/openid-connect/certs"
+
 # Local settings overrides
 # Must be the last!
 DJANGO_LOCAL_SETTINGS = os.environ.get(
     "DJANGO_LOCAL_SETTINGS", "settings_local_override.py"
 )
 
-try:
-    from pathlib import Path
-    print(f"Looking for local settings override in {DJANGO_LOCAL_SETTINGS}")
 
-    local_settings_path = Path(__file__).parent / DJANGO_LOCAL_SETTINGS
-    if local_settings_path.exists():
-        import importlib.util
+def apply_local_settings_override(namespace):
+    """Copy every upper-case name from the local override file into namespace.
 
-        spec = importlib.util.spec_from_file_location(
-            "settings_local_override", local_settings_path
-        )
-        settings_local_override = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(settings_local_override)
-        for setting in dir(settings_local_override):
-            if setting.isupper():
-                globals()[setting] = getattr(settings_local_override, setting)
-        print(f"Loaded local settings override from {DJANGO_LOCAL_SETTINGS}")
-    else:
+    DJANGO_LOCAL_SETTINGS may be a bare filename, resolved next to this module,
+    or an absolute path - which is how a declarative deployment points at a
+    file provisioned outside the source tree.
+
+    Returns True if an override file was found and applied. A settings module
+    that assigns values after importing this one can call it again at its end,
+    so that the site override keeps the last word.
+    """
+    try:
+        from pathlib import Path
+
+        print(f"Looking for local settings override in {DJANGO_LOCAL_SETTINGS}")
+
+        local_settings_path = Path(__file__).parent / DJANGO_LOCAL_SETTINGS
+        if local_settings_path.exists():
+            import importlib.util
+
+            spec = importlib.util.spec_from_file_location(
+                "settings_local_override", local_settings_path
+            )
+            settings_local_override = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(settings_local_override)
+            for setting in dir(settings_local_override):
+                if setting.isupper():
+                    namespace[setting] = getattr(settings_local_override, setting)
+            print(f"Loaded local settings override from {DJANGO_LOCAL_SETTINGS}")
+            return True
         raise ImportError(
             f"Local settings file {DJANGO_LOCAL_SETTINGS} does not exist."
         )
-except ImportError:
-    pass
+    except ImportError:
+        return False
+
+
+apply_local_settings_override(globals())

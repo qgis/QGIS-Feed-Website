@@ -53,6 +53,9 @@ services:
       context: .
       dockerfile: Dockerfile.production
     environment:
+      # The app defaults to a local unix socket; inside compose the database is
+      # a separate service, so the hostname has to be explicit.
+      QGISFEED_DOCKER_DBHOST: ${QGISFEED_DOCKER_DBHOST:-postgis}
       QGISFEED_DOCKER_DBNAME: ${QGISFEED_DOCKER_DBNAME}
       QGISFEED_DOCKER_DBUSER: ${QGISFEED_DOCKER_DBUSER}
       QGISFEED_DOCKER_DBPASSWORD: ${QGISFEED_DOCKER_DBPASSWORD}
