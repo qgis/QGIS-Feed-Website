@@ -73,6 +73,14 @@ class KeycloakIdentity(models.Model):
     setup_email_send_count = models.PositiveIntegerField(
         default=0, verbose_name=_("setup emails sent")
     )
+    # When a link was handed over instead of emailed. The link itself is never
+    # stored: it is a bearer credential for the account.
+    setup_link_issued_at = models.DateTimeField(
+        null=True, blank=True, verbose_name=_("setup link last issued at")
+    )
+    setup_link_issue_count = models.PositiveIntegerField(
+        default=0, verbose_name=_("setup links issued")
+    )
     first_sso_login_at = models.DateTimeField(
         null=True, blank=True, verbose_name=_("first SSO login at")
     )
@@ -119,6 +127,9 @@ class SsoAuditEvent(models.Model):
         ROLES_MIRRORED = "roles-mirrored", _("Roles mirrored from Keycloak")
         PROVISIONED = "provisioned", _("Provisioned in Keycloak")
         SETUP_EMAIL_SENT = "setup-email-sent", _("Setup email sent")
+        SETUP_LINK_ISSUED = "setup-link-issued", _(
+            "Setup link issued to an administrator"
+        )
         LOCAL_PASSWORD_DISABLED = "local-password-disabled", _(
             "Local password made unusable"
         )

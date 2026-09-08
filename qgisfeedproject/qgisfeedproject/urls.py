@@ -30,6 +30,9 @@ urlpatterns = [
     path("admin/login/", admin_login, name="admin_login_override"),
     path("admin/", admin.site.urls),
     re_path(r"^tinymce/", include("tinymce.urls")),
+    # Before the feed's own URLs, which are mounted at the root and own the
+    # rest of /manage/.
+    path("manage/sso/", include("qgis_sso.urls_manage")),
     path("", include("qgisfeed.urls")),
     path("accounts/login/", site_login, name="login"),
     path("accounts/logout/", LogoutView.as_view(), name="logout"),

@@ -196,6 +196,47 @@ class Provisioner:
             send_count=identity.setup_email_send_count,
         )
 
+    def issue_setup_link(self, identity, redirect_uri, lifespan=None):
+        """Return one user's sign-in link for an administrator to hand over.
+
+        Following it signs that person in, at which point Keycloak presents
+        whichever required actions are still outstanding on the account - the
+        email verification and the passkey enrolment that provisioning set. So
+        it reaches the same place the emailed link does, by a different route.
+
+        It is returned and never stored: anyone holding it can sign in as that
+        person, which is why the audit event below records that a link was
+        issued and not the link.
+
+        Raises :class:`~qgis_sso.keycloak.KeycloakError`.
+        """
+        username = identity.preferred_username or proposed_username(identity.user)
+        user_id, link = self.client.magic_link(
+            username,
+            client_id=self.client_id,
+            redirect_uri=redirect_uri,
+            lifespan=lifespan or setup_link_lifespan(),
+        )
+        if user_id != identity.sub:
+            # The endpoint is keyed on the username; everything else here is
+            # keyed on the subject. A username that resolved to somebody else
+            # would sign the wrong person into this account.
+            raise KeycloakError(
+                f"Refusing the link: the realm answered for subject {user_id!r}, "
+                f"not the one bound to {identity.user.username!r}."
+            )
+        identity.setup_link_issued_at = timezone.now()
+        identity.setup_link_issue_count += 1
+        identity.save(update_fields=["setup_link_issued_at", "setup_link_issue_count"])
+        SsoAuditEvent.record(
+            SsoAuditEvent.Action.SETUP_LINK_ISSUED,
+            user=identity.user,
+            sub=identity.sub,
+            lifespan=lifespan,
+            issue_count=identity.setup_link_issue_count,
+        )
+        return link
+
     @staticmethod
     def _skip(decision, reason):
         decision.verdict = SKIP

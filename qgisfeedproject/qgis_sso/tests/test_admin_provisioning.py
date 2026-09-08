@@ -14,9 +14,9 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from ..keycloak import KeycloakError
 from ..models import KeycloakIdentity, SsoAuditEvent
 from ..provisioning import Provisioner
+from .base import FakeRealm
 
 CHANGELIST = reverse("admin:auth_user_changelist")
 
@@ -34,49 +34,6 @@ ADMIN_SETTINGS = {
         "django.contrib.auth.backends.ModelBackend",
     ],
 }
-
-
-class FakeRealm:
-    """A Keycloak realm that records what was asked of it.
-
-    Stands in for :class:`~qgis_sso.keycloak.KeycloakAdminClient` so the tests
-    assert on intent - who was created, who was emailed - without HTTP.
-    """
-
-    server_url = "https://auth.example.org"
-    realm = "qgis"
-
-    def __init__(self, existing_usernames=(), fail_on=()):
-        self.existing = set(existing_usernames)
-        self.fail_on = set(fail_on)
-        self.created = []
-        self.emailed = []
-        self.assigned = []
-
-    def client_uuid(self, client_id):
-        return "client-uuid"
-
-    def client_roles(self, client_uuid):
-        return {
-            "admin": {"id": "r-admin", "name": "admin"},
-            "reviewer": {"id": "r-reviewer", "name": "reviewer"},
-            "author": {"id": "r-author", "name": "author"},
-        }
-
-    def find_user_by_username(self, username):
-        return {"id": "existing"} if username in self.existing else None
-
-    def create_user(self, payload):
-        if payload["username"] in self.fail_on:
-            raise KeycloakError("create failed")
-        self.created.append(payload)
-        return f"sub-{payload['username']}"
-
-    def assign_client_roles(self, user_id, client_uuid, roles):
-        self.assigned.append((user_id, [role["name"] for role in roles]))
-
-    def execute_actions_email(self, sub, actions, **kwargs):
-        self.emailed.append(sub)
 
 
 @override_settings(**ADMIN_SETTINGS)

@@ -13,6 +13,7 @@ from django.contrib.auth.models import Group, Permission, User
 from django.test import TestCase
 
 from ..auth import QGISOIDCAuthenticationBackend
+from ..keycloak import KeycloakError
 
 ISSUER = "https://auth.example.org/realms/qgis"
 CLIENT_ID = "feed-qgis-org"
@@ -64,6 +65,68 @@ def userinfo(sub="sub-1", **overrides):
     }
     claims.update(overrides)
     return claims
+
+
+class FakeRealm:
+    """A Keycloak realm that records what was asked of it.
+
+    Stands in for :class:`~qgis_sso.keycloak.KeycloakAdminClient` so the tests
+    assert on intent - who was created, who was emailed, whose link was handed
+    over - without HTTP. Shared by the admin-action and enrolment-page suites,
+    which exercise the same engine through different doors.
+    """
+
+    server_url = "https://auth.example.org"
+    realm = "qgis"
+
+    def __init__(self, existing_usernames=(), fail_on=()):
+        self.existing = set(existing_usernames)
+        self.fail_on = set(fail_on)
+        self.created = []
+        self.emailed = []
+        self.linked = []
+        self.link_payloads = []
+        self.assigned = []
+        #: Set to answer a magic-link request with a different subject, the
+        #: case where a username has resolved to somebody else in the realm.
+        self.answer_with_subject = None
+
+    def client_uuid(self, client_id):
+        return "client-uuid"
+
+    def client_roles(self, client_uuid):
+        return {
+            "admin": {"id": "r-admin", "name": "admin"},
+            "reviewer": {"id": "r-reviewer", "name": "reviewer"},
+            "author": {"id": "r-author", "name": "author"},
+        }
+
+    def find_user_by_username(self, username):
+        return {"id": "existing"} if username in self.existing else None
+
+    def create_user(self, payload):
+        if payload["username"] in self.fail_on:
+            raise KeycloakError("create failed")
+        self.created.append(payload)
+        return f"sub-{payload['username']}"
+
+    def assign_client_roles(self, user_id, client_uuid, roles):
+        self.assigned.append((user_id, [role["name"] for role in roles]))
+
+    def execute_actions_email(self, sub, actions, **kwargs):
+        self.emailed.append(sub)
+
+    def magic_link(self, username, **kwargs):
+        """Stand in for PhaseTwo's magic-link endpoint, keyed on the username."""
+        if username in self.fail_on:
+            raise KeycloakError("no link for you")
+        self.linked.append(username)
+        self.link_payloads.append(dict(kwargs, username=username))
+        sub = self.answer_with_subject or f"sub-{username}"
+        return (
+            sub,
+            f"https://auth.example.org/realms/qgis/login-actions/token?key={sub}",
+        )
 
 
 class SsoTestCase(TestCase):

@@ -21,6 +21,14 @@ from django.utils import timezone
 from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
 
+from .actions import is_sso_administrator as user_is_sso_administrator
+from .actions import (
+    max_users_per_action,
+    plan_provisioning,
+    retire_passwords,
+    run_provisioning,
+    send_setup_emails,
+)
 from .keycloak import KeycloakError
 from .migration import REPORT_FIELDS, flag_users, report_row
 from .models import KeycloakIdentity, SsoAuditEvent
@@ -29,17 +37,8 @@ from .provisioning import (
     DISABLED,
     NOT_YET_PROVEN,
     Provisioner,
-    disable_local_password,
     setup_redirect_uri,
 )
-
-#: Each user costs several synchronous round trips to Keycloak, inside one
-#: request. Provision in waves of this size; there is no task queue here.
-DEFAULT_MAX_USERS_PER_ACTION = 25
-
-
-def max_users_per_action():
-    return getattr(settings, "SSO_ADMIN_ACTION_MAX_USERS", DEFAULT_MAX_USERS_PER_ACTION)
 
 
 class SsoLinkedFilter(admin.SimpleListFilter):
@@ -65,13 +64,8 @@ class SsoLinkedFilter(admin.SimpleListFilter):
 
 
 def is_sso_administrator(request):
-    """Who may write to the shared realm or retire a login method.
-
-    Superusers only. The service account these actions use can create realm
-    users and assign client roles, so anyone able to trigger them can grant
-    privileges on this site.
-    """
-    return request.user.is_active and request.user.is_superuser
+    """Superuser-only, defined once in :mod:`qgis_sso.actions`."""
+    return user_is_sso_administrator(request.user)
 
 
 @admin.register(KeycloakIdentity)
@@ -163,23 +157,21 @@ class KeycloakIdentityAdmin(admin.ModelAdmin):
             )
             return
 
-        sent = 0
-        for identity in queryset.select_related("user"):
-            try:
-                provisioner.send_setup_link(identity, redirect_uri)
-            except KeycloakError as error:
-                self.message_user(
-                    request,
-                    _("%(username)s: %(error)s")
-                    % {"username": identity.user.username, "error": error},
-                    messages.ERROR,
-                )
-                continue
-            sent += 1
-
-        if sent:
+        run = send_setup_emails(
+            provisioner, queryset.select_related("user"), redirect_uri
+        )
+        for outcome in run.problems:
             self.message_user(
-                request, _("Sent %d setup email(s).") % sent, messages.SUCCESS
+                request,
+                _("%(username)s: %(error)s")
+                % {"username": outcome.username, "error": outcome.message},
+                messages.ERROR,
+            )
+        if run.succeeded:
+            self.message_user(
+                request,
+                _("Sent %d setup email(s).") % len(run.succeeded),
+                messages.SUCCESS,
             )
 
     @admin.action(description=_("Disable the local Django password"))
@@ -199,9 +191,7 @@ class KeycloakIdentityAdmin(admin.ModelAdmin):
             )
             return
 
-        counts = {DISABLED: 0, ALREADY_DISABLED: 0, NOT_YET_PROVEN: 0}
-        for identity in queryset.select_related("user"):
-            counts[disable_local_password(identity)] += 1
+        _run, counts = retire_passwords(queryset.select_related("user"))
 
         if counts[DISABLED] or counts[ALREADY_DISABLED]:
             self.message_user(
@@ -332,8 +322,9 @@ class SsoAwareUserAdmin(BaseUserAdmin):
             )
             return None
 
+        include_flagged = request.POST.get("include_flagged") == "yes"
         try:
-            provisioner = Provisioner()
+            provisioner, decisions = plan_provisioning(users, include_flagged)
         except KeycloakError as error:
             self.message_user(
                 request,
@@ -341,23 +332,6 @@ class SsoAwareUserAdmin(BaseUserAdmin):
                 messages.ERROR,
             )
             return None
-
-        # Flags are computed against the whole population, not the selection:
-        # a username case collision is only visible when the other account is
-        # in view too.
-        flags = flag_users(User.objects.all().prefetch_related("groups"))
-        linked = set(KeycloakIdentity.objects.values_list("user_id", flat=True))
-        include_flagged = request.POST.get("include_flagged") == "yes"
-
-        decisions = [
-            provisioner.inspect(
-                user,
-                flags=flags.get(user.pk, []),
-                include_flagged=include_flagged,
-                linked_ids=linked,
-            )
-            for user in users
-        ]
 
         if request.POST.get("confirm") != "yes":
             return render(
@@ -376,31 +350,19 @@ class SsoAwareUserAdmin(BaseUserAdmin):
                 },
             )
 
-        provisioned = failed = 0
-        for decision in decisions:
-            if not decision.actionable:
-                # Name the account and the reason. Being told only that there
-                # was nothing to do leaves no way to see which account was
-                # held back, or for what, without previewing again.
-                self.message_user(
-                    request,
-                    _("%(username)s: %(reason)s")
-                    % {"username": decision.user.username, "reason": decision.reason},
-                    messages.ERROR if decision.is_error else messages.WARNING,
-                )
-                continue
-            try:
-                provisioner.provision(decision)
-            except KeycloakError as error:
-                failed += 1
-                self.message_user(
-                    request,
-                    _("%(username)s: could not be created: %(error)s")
-                    % {"username": decision.username, "error": error},
-                    messages.ERROR,
-                )
-                continue
-            provisioned += 1
+        run = run_provisioning(provisioner, decisions)
+        for outcome in run.problems:
+            # Name the account and the reason. Being told only that there was
+            # nothing to do leaves no way to see which account was held back,
+            # or for what, without previewing again.
+            self.message_user(
+                request,
+                _("%(username)s: %(reason)s")
+                % {"username": outcome.username, "reason": outcome.message},
+                messages.ERROR if outcome.failed else messages.WARNING,
+            )
+        provisioned = len(run.succeeded)
+        failed = len([outcome for outcome in run.problems if outcome.failed])
 
         if provisioned:
             self.message_user(

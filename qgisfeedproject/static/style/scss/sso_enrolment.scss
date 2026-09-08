@@ -1,0 +1,39 @@
+// The SSO enrolment pages under /manage/sso/.
+
+// The confirmation panel interrupts the page deliberately: it is the last
+// chance to stop. A left rule marks it as an aside without borrowing the
+// notification colours the messages above it already use.
+.sso-confirm {
+  border-left: 4px solid $primary1;
+}
+
+.sso-issued {
+  // A link is long and has to be selectable in one go, so it is never wrapped
+  // and never shrunk to the point of being unreadable when read aloud.
+  .input {
+    font-size: 0.85rem;
+  }
+}
+
+// Two small buttons in one table cell, kept off each other without a wrapper
+// element per button.
+.sso-row-actions {
+  gap: 0.5rem;
+  justify-content: center;
+}
+
+// Header and body centred together. Only the account column stays left: names
+// and addresses are read, not compared, and ragged left is harder to scan.
+// Bulma leaves th left-aligned and td top-aligned, and a cell holding two lines
+// beside one holding a tag needs both overridden.
+.sso-table {
+  th,
+  td {
+    text-align: center;
+    vertical-align: middle;
+  }
+
+  .sso-account {
+    text-align: left;
+  }
+}

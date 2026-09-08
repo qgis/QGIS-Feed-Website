@@ -40,10 +40,12 @@ Ask a feed maintainer, and tell them the QGIS account name you used.
 
 ### Losing every passkey
 
-Contact a feed administrator, who can resend a setup link so you can enrol a
-new one. There is no password to fall back on, so the administrator is expected
-to verify who you are through a channel other than the email address on the
-account — enrolling a second passkey in advance is much less trouble.
+Contact a feed administrator, who can resend a setup link **to your address** so
+you can enrol a new one. They cannot read it out to you: once an account has
+signed in, a link handed to somebody else would sign *them* in as you. There is
+no password to fall back on, so the administrator is expected to verify who you
+are through a channel other than the email address on the account — enrolling a
+second passkey in advance is much less trouble.
 
 ---
 
@@ -85,11 +87,52 @@ by hand for some other purpose survives a sign-in untouched.
 | `SSO_REQUIRED_ACTIONS` | What Keycloak makes a new user complete. `VERIFY_EMAIL` and `webauthn-register-passwordless`: a passkey and nothing else, so no password or TOTP secret is ever created. |
 | `SSO_ADMIN_ACTION_MAX_USERS` | Accounts the admin action will provision in one request (25). |
 | `SSO_SETUP_REDIRECT_URI` | Where Keycloak returns somebody who has finished setting up. Points at `/oidc/authenticate/` so they arrive signed in rather than at a login form, and **must be registered as a valid redirect URI on the `feed-qgis-org` client**. |
+| `SSO_MAGIC_LINK_URL` | Derived from `QGIS_AUTH_URL`, like the OIDC endpoints. Answered by PhaseTwo's magic-link extension; see *Handing over a link*. |
 
-### Everything happens in the admin
+### The enrolment pages
 
-There are no management commands and no reason to open a shell on the server.
-Four actions, all superuser-only and all audited, in the order you use them:
+Two of them, linked from the site header for superusers, because they are two
+jobs.
+
+**`/manage/sso/` — accounts that exist in the realm.** Every account with a
+Keycloak identity, and where it has got to: *account created*, *invited*,
+*signed in*, *migrated*. Ten rows a page, filtered by state or searched by
+name. Each row acts on itself:
+
+- **Send email** — the account-setup email, after one confirmation. It reaches a
+  real contributor and cannot be unsent.
+- **Get the link** — see *Handing over a link* below. No confirmation: nothing
+  leaves the building until you pass it on.
+
+**`/manage/sso/create/` — accounts that do not.** Reached from the *Create
+Keycloak accounts* button. Users on this site with nobody behind them in the
+realm, tick the ones you want and confirm; the confirmation lists the Keycloak
+username, the roles and the outcome for each before anything is written. Capped
+at `SSO_ADMIN_ACTION_MAX_USERS` (25) per run, which is about how many
+synchronous calls to Keycloak fit in one request. Deliberately **not
+paginated** — a selection cannot be lost by paging if there is no paging — so
+use the search box on a long list.
+
+Accounts that no invitation could reach — no email address, or deactivated —
+are left off and counted in a line under the table. They are not work in
+progress, and the admin user list with its **SSO account** filter is the place
+to deal with them. Dormant and never-used accounts *are* offered, with the flag
+shown beside them: they can be enrolled, somebody just has to decide to.
+
+Both pages read state from this site's own database, so neither waits on
+Keycloak to render. The realm is contacted only when you press something.
+
+Selecting a whole wave and acting on it in one go is still the Django admin's
+job — see below. All of it runs through the same code, so the rules and the
+wording are identical wherever you start.
+
+### The same steps in the admin
+
+The admin actions remain, and are where a whole wave gets done at once: filter
+the changelist, select, act. They and the pages call the same code, so the rules
+and the wording are identical. Retiring local passwords lives only here, since
+it is a one-off backfill rather than part of enrolment. All superuser-only and
+all audited:
 
 | Where | Action | What it does |
 |---|---|---|
@@ -119,13 +162,53 @@ linked is never provisioned twice.
 no password to fall back on, so use this again whenever somebody misses the
 window or loses every device. Each send is counted on the identity record.
 
-> **The setup link cannot be handed over manually.** Keycloak mints the action
-> token inside `execute-actions-email` and returns nothing; there is no API
-> that gives it back, so it only ever leaves by email. If mail is not arriving,
-> the identity's detail page links straight to that account in the Keycloak
-> admin console, where the credential state is visible and the send can be
-> retried against Keycloak's own SMTP settings — which are separate from
-> Django's. Check the realm's mail configuration there first.
+> **Handing the link over needs an extension.** Keycloak mints the action token
+> inside `execute-actions-email` and returns nothing; its own API has no way to
+> give it back. With the extension below deployed, the enrolment page can fetch
+> the same link and show it to you. Without it, the identity's detail page
+> links straight to that account in the Keycloak admin console, where the
+> credential state is visible and the send can be retried against Keycloak's
+> own SMTP settings — which are separate from Django's. Check the realm's mail
+> configuration there first.
+
+#### Handing over a link
+
+When somebody is on a call and their email is not arriving, *Get the link* on
+their row fetches a link and shows it once, with a copy button. It is never
+stored, never logged and never put through the messages framework; the audit
+trail records that a link was issued and for whom, not the token. Reload the
+page and it is gone.
+
+Keycloak has no endpoint that hands back a setup link, so this needs PhaseTwo's
+[magic-link extension](https://github.com/p2-inc/keycloak-magic-link) deployed
+into `/opt/keycloak/providers/`. It authorises with `manage-users`, which the
+provisioner service account already holds; without it the button reports a 404.
+Check its licence and record the Keycloak version it was validated against.
+
+**A magic link signs the person in — it is not an action token.** Enrolment
+still happens because the required actions set at provisioning are outstanding
+on the account, and Keycloak presents them straight after authenticating.
+
+> ⚠ **Verify that on a throwaway realm before relying on it.** Follow a link
+> all the way through. If the required actions do not fire, the person lands
+> signed in with no passkey, which is worse than the email path.
+
+**Only for accounts that have not signed in yet.** After the first sign-in
+those actions are spent, so the link authenticates straight through with no
+passkey and opens a session across the whole realm, hub and plugins included.
+The button disappears once an account has signed in and the view refuses the
+request anyway. Somebody who has lost every device gets *Send email*: the same
+link, delivered to their own address rather than to the administrator asking
+for it.
+
+Two details in the request are load-bearing. `reusable` and `force_create` both
+default the wrong way for us — a reusable link is a standing credential, and
+`force_create` would have this site creating realm accounts as a side effect of
+asking for a link — so both are sent false. And the endpoint is keyed on the
+**username** where the rest of this app is keyed on `sub`, so the returned
+`user_id` is checked against the identity and the link discarded if they
+differ; a username that has come to point at somebody else would otherwise sign
+that person into this account.
 
 > ⚠ **Staging can email real contributors.** The staging database is restored
 > from production and holds every contributor's real address, and the staging

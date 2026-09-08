@@ -59,6 +59,23 @@ class HeaderAccountMenuTest(TestCase):
         self.assertContains(response, ACCOUNT_URL)
         self.assertContains(response, "Profile")
 
+    def test_the_enrolment_page_is_offered_to_superusers_only(self):
+        """It writes to a realm shared with hub and plugins, so staff is not
+        enough - the same rule the view itself applies."""
+        enrolment = reverse("qgis_sso_manage:enrolment")
+
+        self.user.is_staff = True
+        self.user.save(update_fields=["is_staff"])
+        self.client.force_login(self.user, backend=LOCAL_BACKEND)
+        self.assertNotContains(self.home(), enrolment)
+
+        self.user.is_superuser = True
+        self.user.save(update_fields=["is_superuser"])
+        self.assertContains(self.home(), enrolment)
+
+    def test_an_anonymous_visitor_is_not_offered_it(self):
+        self.assertNotContains(self.home(), reverse("qgis_sso_manage:enrolment"))
+
     def test_logging_out_is_a_post(self):
         """A GET logout can be triggered by any image tag on any other site."""
         self.client.force_login(self.user, backend=LOCAL_BACKEND)

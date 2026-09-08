@@ -56,6 +56,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Passkey-only accounts.** Provisioned users verify their address and enrol
   a passkey; no password and no TOTP secret is ever set, so there is no
   password to phish or reuse. `SSO_REQUIRED_ACTIONS` carries this.
+- **Enrolment pages under `/manage/sso/`**, superuser-only and linked from the
+  site header.
+  - The list holds the accounts that exist in the realm and where each has got
+    to — created, invited, signed in, migrated — ten a page, filtered and
+    searchable. Each row acts on itself: send the setup email, after one
+    confirmation, or get the link. No checkbox selection, because one cannot
+    survive paging.
+  - *Create Keycloak accounts* opens a second page of candidates — users with
+    nobody behind them in the realm — where a wave is ticked and confirmed
+    against a preview of what each account would become. Not paginated, so the
+    selection cannot be lost; searchable instead.
+  - Accounts no invitation could reach — no address, or deactivated — are left
+    off both and counted, since the admin user list is where those are dealt
+    with.
+  - State is read from this site's own database, so neither page waits on
+    Keycloak to render; the realm is contacted only when something is pressed.
+  - The existing admin actions stay and remain the way to act on a whole wave.
+    All of them now call one shared engine rather than several that could drift.
+- **An enrolment link can be handed over instead of emailed**, for somebody on a
+  call whose email is not arriving. Shown once with a copy button, never stored,
+  never logged and never put through the messages framework; the audit trail
+  records that a link was issued and for whom, never the token. Needs PhaseTwo's
+  magic-link extension on the realm. The link *signs the holder in*, after which
+  Keycloak presents the outstanding verify-email and passkey enrolment, so it arrives
+  where the email does. It is requested non-reusable and never creates a realm
+  account, and a link answered for a subject other than the expected one is
+  thrown away rather than handed over. It is offered **only for accounts that
+  have not signed in yet**: after the first sign-in the required actions are
+  spent, so a link would authenticate with no passkey at all and open a session
+  across the whole realm. Somebody who has lost every device gets the email
+  instead, which reaches them rather than the administrator asking for it.
 - `docs/sso.md` — contributor and maintainer documentation.
 
 ### Changed
@@ -87,6 +118,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and leaves SSO-linked accounts alone. It previously swept every staff user on
   *any* user save, which undid role revocations — including via the
   `last_login` write that happens immediately after authentication.
+- **The feed list's pager moved into `layouts/pagination.html`** so the SSO pages
+  use the same one rather than a copy of it. Same appearance; it now carries the
+  current filters through with Django's `{% querystring %}` instead of a
+  hand-built query string that dropped any parameter nobody remembered to add,
+  and it is anchors rather than buttons driving `window.location`, so paging
+  works with JavaScript off and from the keyboard.
 - `tests` in the dev shell and the `django-tests` flake check run `qgis_sso`
   alongside `qgisfeed`.
 
@@ -100,3 +137,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   world-readable through the Nix store and `systemctl show`.
 - Local-password sign-ins are logged at `WARNING` and audited, so the exit
   condition for retiring the fallback can be measured rather than assumed.
+- **Flash messages are no longer rendered with `|safe`.** Every message on the
+  site was passed through unescaped. None of them carried HTML, but the new
+  enrolment page reports on accounts by name and quotes the identity provider's
+  error text, either of which would have been an injection point.

@@ -57,20 +57,25 @@ def proposed_username(user):
     return user.username.strip().lower()
 
 
-def proposed_roles(user):
+def proposed_roles(user, can_publish=None):
     """Client roles implied by the account's existing Django permissions.
 
     Derived from what the account can already do rather than invented, so the
     migration grants no privilege that was not already held.
+
+    ``can_publish`` lets a caller listing many accounts resolve the permission
+    for all of them in one query. ``user.has_perm`` cannot be prefetched - it
+    issues two queries per user however the queryset was built - which is two
+    hundred queries for a page of a hundred people.
     """
     roles = []
     group_names = {group.name for group in user.groups.all()}
+    if can_publish is None:
+        can_publish = user.has_perm("qgisfeed.publish_qgisfeedentry")
 
     if user.is_superuser:
         roles.append(ROLE_ADMIN)
-    elif group_names & {APPROVER_GROUP} or user.has_perm(
-        "qgisfeed.publish_qgisfeedentry"
-    ):
+    elif group_names & {APPROVER_GROUP} or can_publish:
         roles.append(ROLE_REVIEWER)
     elif user.is_staff or AUTHORS_GROUP in group_names:
         roles.append(ROLE_AUTHOR)

@@ -1,10 +1,10 @@
 # coding=utf-8
-"""Initial identity and audit tables.
+"""Tables for Keycloak identities and the SSO audit trail.
 
-Purely additive: it creates two new tables and touches nothing that exists, so
-the reverse migration is a clean drop of both. Rolling back before any account
-has been linked loses nothing; rolling back afterwards discards the bindings
-and the audit trail, so take a dump first.
+Purely additive: it creates new tables and touches nothing that exists, so
+the reverse migration drops them. Rolling back before any account has been
+linked loses nothing. Rolling back afterwards discards the bindings and the
+audit trail, so take a dump first.
 """
 
 import django.db.models.deletion
@@ -99,6 +99,18 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 (
+                    "setup_link_issued_at",
+                    models.DateTimeField(
+                        blank=True, null=True, verbose_name="setup link last issued at"
+                    ),
+                ),
+                (
+                    "setup_link_issue_count",
+                    models.PositiveIntegerField(
+                        default=0, verbose_name="setup links issued"
+                    ),
+                ),
+                (
                     "first_sso_login_at",
                     models.DateTimeField(
                         blank=True, null=True, verbose_name="first SSO login at"
@@ -157,9 +169,10 @@ class Migration(migrations.Migration):
                             ("provisioned", "Provisioned in Keycloak"),
                             ("setup-email-sent", "Setup email sent"),
                             (
-                                "local-password-disabled",
-                                "Local password made unusable",
+                                "setup-link-issued",
+                                "Setup link issued to an administrator",
                             ),
+                            ("local-password-disabled", "Local password made unusable"),
                         ],
                         db_index=True,
                         max_length=32,
@@ -183,12 +196,12 @@ class Migration(migrations.Migration):
                 "verbose_name": "SSO audit event",
                 "verbose_name_plural": "SSO audit events",
                 "ordering": ("-created_at",),
+                "indexes": [
+                    models.Index(
+                        fields=["action", "created_at"],
+                        name="qgis_sso_ss_action_528fa0_idx",
+                    )
+                ],
             },
-        ),
-        migrations.AddIndex(
-            model_name="ssoauditevent",
-            index=models.Index(
-                fields=["action", "created_at"], name="qgis_sso_ss_action_528fa0_idx"
-            ),
         ),
     ]

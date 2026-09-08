@@ -414,6 +414,10 @@ SSO_KEYCLOAK_USER_CONSOLE_URL = (
     f"#/{SSO_KEYCLOAK_REALM}/users/{{sub}}/credentials"
 )
 
+# Returns a sign-in link instead of emailing one. Added to the realm by
+# PhaseTwo's magic-link extension; not part of Keycloak.
+SSO_MAGIC_LINK_URL = f"{QGIS_AUTH_URL}/realms/{SSO_KEYCLOAK_REALM}/magic-link"
+
 # Passkey only. No password is ever set on a provisioned account, so there is
 # none to phish or reuse, and no one-time code because a passkey already
 # combines something you have with something you are.
