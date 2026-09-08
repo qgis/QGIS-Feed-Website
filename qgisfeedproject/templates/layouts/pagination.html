@@ -1,0 +1,71 @@
+{% load i18n %}
+
+{% comment %}
+Pager for any Django Page object. Include with:
+
+    {% include 'layouts/pagination.html' with page=feeds_entry count=count %}
+
+`count` is optional; without it the paginator's own total is used.
+
+Anchors rather than buttons carrying window.location, so paging works with
+JavaScript off and is reachable from the keyboard. {% querystring %} carries the
+current filters through, which a hand-built ?page=…&sort_by=… cannot do without
+somebody remembering to add each new parameter.
+{% endcomment %}
+
+<div class="columns">
+  <nav class="field has-addons column is-6" role="navigation" aria-label="{% trans 'pagination' %}">
+    <p class="control">
+      {% if page.has_previous %}
+        <a class="button" href="{% querystring page=1 %}">
+      {% else %}
+        <a class="button" aria-disabled="true" disabled>
+      {% endif %}
+        <span class="icon is-small"><i class="fas fa-backward-fast"></i></span>
+        <span>{% trans "First" %}</span>
+      </a>
+    </p>
+    <p class="control">
+      {% if page.has_previous %}
+        <a class="button" href="{% querystring page=page.previous_page_number %}">
+      {% else %}
+        <a class="button" aria-disabled="true" disabled>
+      {% endif %}
+        <span class="icon is-small"><i class="fas fa-backward-step"></i></span>
+        <span>{% trans "Prev" %}</span>
+      </a>
+    </p>
+    <p class="control">
+      <a class="button" aria-current="page" aria-disabled="true" disabled>
+        <span>{{ page.number }}</span>
+      </a>
+    </p>
+    <p class="control">
+      {% if page.has_next %}
+        <a class="button" href="{% querystring page=page.next_page_number %}">
+      {% else %}
+        <a class="button" aria-disabled="true" disabled>
+      {% endif %}
+        <span>{% trans "Next" %}</span>
+        <span class="icon is-small"><i class="fas fa-forward-step"></i></span>
+      </a>
+    </p>
+    <p class="control">
+      {% if page.has_next %}
+        <a class="button" href="{% querystring page=page.paginator.num_pages %}">
+      {% else %}
+        <a class="button" aria-disabled="true" disabled>
+      {% endif %}
+        <span>{% trans "Last" %}</span>
+        <span class="icon is-small"><i class="fas fa-forward-fast"></i></span>
+      </a>
+    </p>
+  </nav>
+  <div class="column is-6 is-flex is-align-items-center is-justify-content-end">
+    <p class="is-small">
+      {% blocktrans trimmed with total=count|default:page.paginator.count %}
+        <strong>{{ total }}</strong> records found
+      {% endblocktrans %}
+    </p>
+  </div>
+</div>
