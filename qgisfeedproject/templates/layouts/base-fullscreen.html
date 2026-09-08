@@ -12,7 +12,7 @@
     </title>
 
     <link rel="icon" type="image/png" href="{% static "images/favicon.ico" %}" />
-    
+
     <!-- Icons -->
     <link rel="stylesheet" href="{% static 'font-awesome/css/all.min.css' %}" type="text/css">
 
@@ -38,7 +38,7 @@
     ></qg-top-nav>
     {% include 'layouts/header.html' %}
     {% block pagetitle %}{% endblock %}
-    
+
     <section class="section">
         <div class="container content">
             {% if messages %}
@@ -53,7 +53,8 @@
                         {% endif %}
                     ">
                         <button class="delete"></button>
-                        <p{% if message.tags %} class="{{ message.tags }}"{% endif %}>{{ message|safe }}</p>
+                        {# Not |safe: messages carry usernames and provider error text. #}
+                        <p{% if message.tags %} class="{{ message.tags }}"{% endif %}>{{ message }}</p>
                     </div>
                 {% endfor %}
             {% endif %}
