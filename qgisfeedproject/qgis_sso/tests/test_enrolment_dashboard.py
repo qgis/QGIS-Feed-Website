@@ -1,5 +1,5 @@
 # coding=utf-8
-"""The two enrolment pages under ``/manage/sso/``.
+"""The two enrolment pages under ``/sso/manage/``.
 
 They answer one question the admin changelists could not: where has each account
 got to. The list is about accounts that exist in the realm and acts on one row
@@ -21,8 +21,8 @@ from ..models import KeycloakIdentity, SsoAuditEvent
 from ..provisioning import Provisioner
 from .base import FakeRealm
 
-PAGE = reverse("qgis_sso_manage:enrolment")
-CREATE = reverse("qgis_sso_manage:create")
+PAGE = reverse("qgis_sso:enrolment")
+CREATE = reverse("qgis_sso:create")
 
 # force_login picks the first configured backend, which is the OIDC one, and
 # SessionRefresh would then bounce every GET to Keycloak to renew a token these

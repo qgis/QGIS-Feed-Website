@@ -8,173 +8,175 @@ no paging. The search box is how a long list gets narrowed.
 {% endcomment %}
 
 {% block content %}
-<div class="is-flex is-justify-content-space-between is-align-items-center mb-4">
-  <div>
-    <h1 class="title is-4">{% trans "Create Keycloak accounts" %}</h1>
-    <p class="subtitle is-6">
-      {% blocktrans trimmed %}
-        Accounts on this site with nobody behind them at auth.qgis.org yet.
-        Creating one sends nothing: inviting is a separate step.
-      {% endblocktrans %}
-    </p>
+<div class="box-content">
+  <div class="is-flex is-justify-content-space-between is-align-items-center mb-4">
+    <div>
+      <h1 class="title is-4">{% trans "Create Keycloak accounts" %}</h1>
+      <p class="subtitle is-6">
+        {% blocktrans trimmed %}
+          Accounts on this site with nobody behind them at auth.qgis.org yet.
+          Creating one sends nothing: inviting is a separate step.
+        {% endblocktrans %}
+      </p>
+    </div>
+    <a class="button is-light" href="{% url 'qgis_sso:enrolment' %}">
+      {% trans "Back to enrolment" %}
+    </a>
   </div>
-  <a class="button is-light" href="{% url 'qgis_sso_manage:enrolment' %}">
-    {% trans "Back to enrolment" %}
-  </a>
-</div>
 
-{% if confirming %}
-  <div class="box-content sso-confirm mb-4">
-    <h2 class="title is-5">{% trans "Create these Keycloak accounts?" %}</h2>
-    <table class="table is-fullwidth sso-table">
+  {% if confirming %}
+    <div class="box-content sso-confirm mb-4">
+      <h2 class="title is-5">{% trans "Create these Keycloak accounts?" %}</h2>
+      <table class="table is-fullwidth sso-table">
+        <thead>
+          <tr>
+            <th scope="col" class="sso-account">{% trans "Account" %}</th>
+            <th scope="col">{% trans "Keycloak username" %}</th>
+            <th scope="col">{% trans "Roles" %}</th>
+            <th scope="col">{% trans "Outcome" %}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for decision in decisions %}
+            <tr>
+              <td class="sso-account">{{ decision.user.username }}<br><small>{{ decision.email }}</small></td>
+              <td>{{ decision.username }}</td>
+              <td>{{ decision.roles|join:", "|default:"—" }}</td>
+              <td>
+                {% if decision.actionable %}
+                  <span class="tag is-success">{% trans "Will be created" %}</span>
+                {% else %}
+                  <span class="tag {% if decision.is_error %}is-danger{% else %}is-warning{% endif %}">
+                    {{ decision.reason }}
+                  </span>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+
+      <form method="post" action="">
+        {% csrf_token %}
+        <input type="hidden" name="confirm" value="yes">
+        {% for pk in selected %}
+          <input type="hidden" name="selected" value="{{ pk }}">
+        {% endfor %}
+        <label class="checkbox mb-4">
+          <input type="checkbox" name="include_flagged" value="yes"
+                 {% if include_flagged %}checked{% endif %}>
+          {% trans "Include accounts held back by a flag" %}
+        </label>
+        <div class="buttons">
+          <button class="button is-primary1" type="submit">{% trans "Yes, create them" %}</button>
+          <a class="button is-light" href="{% url 'qgis_sso:create' %}">
+            {% trans "Cancel" %}
+          </a>
+        </div>
+      </form>
+    </div>
+  {% endif %}
+
+  <form method="get" action="" class="mb-4">
+    <div class="field has-addons">
+      <div class="control">
+        <label class="is-sr-only" for="q">{% trans "Search by username or email" %}</label>
+        <input class="input" type="search" id="q" name="q" value="{{ search }}"
+               placeholder="{% trans 'Username or email' %}">
+      </div>
+      <div class="control">
+        <button class="button is-primary1" type="submit">{% trans "Search" %}</button>
+      </div>
+    </div>
+  </form>
+
+  <form method="post" action="">
+    {% csrf_token %}
+    <table class="table is-fullwidth is-hoverable sso-table">
       <thead>
         <tr>
+          <th scope="col">
+            <label class="is-sr-only" for="select-all">
+              {% trans "Select every account listed" %}
+            </label>
+            <input type="checkbox" id="select-all">
+          </th>
           <th scope="col" class="sso-account">{% trans "Account" %}</th>
           <th scope="col">{% trans "Keycloak username" %}</th>
-          <th scope="col">{% trans "Roles" %}</th>
-          <th scope="col">{% trans "Outcome" %}</th>
+          <th scope="col">{% trans "Roles it would get" %}</th>
+          <th scope="col">{% trans "Warnings" %}</th>
         </tr>
       </thead>
       <tbody>
-        {% for decision in decisions %}
+        {% for row in rows %}
           <tr>
-            <td class="sso-account">{{ decision.user.username }}<br><small>{{ decision.email }}</small></td>
-            <td>{{ decision.username }}</td>
-            <td>{{ decision.roles|join:", "|default:"—" }}</td>
             <td>
-              {% if decision.actionable %}
-                <span class="tag is-success">{% trans "Will be created" %}</span>
-              {% else %}
-                <span class="tag {% if decision.is_error %}is-danger{% else %}is-warning{% endif %}">
-                  {{ decision.reason }}
-                </span>
-              {% endif %}
+              <label class="is-sr-only" for="select-{{ row.user.pk }}">
+                {% blocktrans trimmed with username=row.user.username %}
+                  Select {{ username }}
+                {% endblocktrans %}
+              </label>
+              <input type="checkbox" name="selected" id="select-{{ row.user.pk }}"
+                     class="sso-row-select" value="{{ row.user.pk }}">
+            </td>
+            <td class="sso-account">{{ row.user.username }}<br><small>{{ row.user.email }}</small></td>
+            <td>{{ row.proposed_username }}</td>
+            <td>{{ row.proposed_roles|join:", "|default:"—" }}</td>
+            <td>
+              {% if row.flags %}
+                <span class="tag is-warning">{{ row.flags|join:", " }}</span>
+              {% else %}—{% endif %}
+            </td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="5">
+              {% blocktrans trimmed %}
+                No candidates. Everybody who can be given a Keycloak account has
+                one.
+              {% endblocktrans %}
             </td>
           </tr>
         {% endfor %}
       </tbody>
     </table>
 
-    <form method="post" action="">
-      {% csrf_token %}
-      <input type="hidden" name="confirm" value="yes">
-      {% for pk in selected %}
-        <input type="hidden" name="selected" value="{{ pk }}">
-      {% endfor %}
-      <label class="checkbox mb-4">
-        <input type="checkbox" name="include_flagged" value="yes"
-               {% if include_flagged %}checked{% endif %}>
-        {% trans "Include accounts held back by a flag" %}
-      </label>
-      <div class="buttons">
-        <button class="button is-primary1" type="submit">{% trans "Yes, create them" %}</button>
-        <a class="button is-light" href="{% url 'qgis_sso_manage:create' %}">
-          {% trans "Cancel" %}
-        </a>
-      </div>
-    </form>
-  </div>
-{% endif %}
-
-<form method="get" action="" class="mb-4">
-  <div class="field has-addons">
-    <div class="control">
-      <label class="is-sr-only" for="q">{% trans "Search by username or email" %}</label>
-      <input class="input" type="search" id="q" name="q" value="{{ search }}"
-             placeholder="{% trans 'Username or email' %}">
+    <div class="buttons">
+      <button class="button is-primary1" type="submit">
+        {% trans "Create the selected accounts" %}
+      </button>
     </div>
-    <div class="control">
-      <button class="button is-primary1" type="submit">{% trans "Search" %}</button>
-    </div>
-  </div>
-</form>
-
-<form method="post" action="">
-  {% csrf_token %}
-  <table class="table is-fullwidth is-hoverable sso-table">
-    <thead>
-      <tr>
-        <th scope="col">
-          <label class="is-sr-only" for="select-all">
-            {% trans "Select every account listed" %}
-          </label>
-          <input type="checkbox" id="select-all">
-        </th>
-        <th scope="col" class="sso-account">{% trans "Account" %}</th>
-        <th scope="col">{% trans "Keycloak username" %}</th>
-        <th scope="col">{% trans "Roles it would get" %}</th>
-        <th scope="col">{% trans "Warnings" %}</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for row in rows %}
-        <tr>
-          <td>
-            <label class="is-sr-only" for="select-{{ row.user.pk }}">
-              {% blocktrans trimmed with username=row.user.username %}
-                Select {{ username }}
-              {% endblocktrans %}
-            </label>
-            <input type="checkbox" name="selected" id="select-{{ row.user.pk }}"
-                   class="sso-row-select" value="{{ row.user.pk }}">
-          </td>
-          <td class="sso-account">{{ row.user.username }}<br><small>{{ row.user.email }}</small></td>
-          <td>{{ row.proposed_username }}</td>
-          <td>{{ row.proposed_roles|join:", "|default:"—" }}</td>
-          <td>
-            {% if row.flags %}
-              <span class="tag is-warning">{{ row.flags|join:", " }}</span>
-            {% else %}—{% endif %}
-          </td>
-        </tr>
-      {% empty %}
-        <tr>
-          <td colspan="5">
-            {% blocktrans trimmed %}
-              No candidates. Everybody who can be given a Keycloak account has
-              one.
-            {% endblocktrans %}
-          </td>
-        </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-
-  <div class="buttons">
-    <button class="button is-primary1" type="submit">
-      {% trans "Create the selected accounts" %}
-    </button>
-  </div>
-  <p class="help">
-    {% blocktrans trimmed with limit=max_users count counter=total %}
-      One candidate. Up to {{ limit }} at a time: each account costs several
-      calls to Keycloak and a larger wave would time out part-way through.
-    {% plural %}
-      {{ counter }} candidates. Up to {{ limit }} at a time: each account costs
-      several calls to Keycloak and a larger wave would time out part-way
-      through.
-    {% endblocktrans %}
-    {% if hidden %}
-      {% blocktrans trimmed count counter=hidden %}
-        One more is not shown: it has no email address, or it is deactivated, so
-        no invitation could reach it. Manage it from the admin user list.
+    <p class="help">
+      {% blocktrans trimmed with limit=max_users count counter=total %}
+        One candidate. Up to {{ limit }} at a time: each account costs several
+        calls to Keycloak and a larger wave would time out part-way through.
       {% plural %}
-        {{ counter }} more are not shown: they have no email address, or they
-        are deactivated, so no invitation could reach them. Manage them from the
-        admin user list.
+        {{ counter }} candidates. Up to {{ limit }} at a time: each account costs
+        several calls to Keycloak and a larger wave would time out part-way
+        through.
       {% endblocktrans %}
-    {% endif %}
-  </p>
-</form>
+      {% if hidden %}
+        {% blocktrans trimmed count counter=hidden %}
+          One more is not shown: it has no email address, or it is deactivated, so
+          no invitation could reach it. Manage it from the admin user list.
+        {% plural %}
+          {{ counter }} more are not shown: they have no email address, or they
+          are deactivated, so no invitation could reach them. Manage them from the
+          admin user list.
+        {% endblocktrans %}
+      {% endif %}
+    </p>
+  </form>
+</div>
 {% endblock content %}
 
-{% block javascripts %}
-<script>
-  // The only script on the page; every other control is a plain form control.
-  document.getElementById('select-all')?.addEventListener('change', function () {
-    document.querySelectorAll('.sso-row-select').forEach((box) => {
-      box.checked = this.checked;
+  {% block javascripts %}
+  <script>
+    // The only script on the page; every other control is a plain form control.
+    document.getElementById('select-all')?.addEventListener('change', function () {
+      document.querySelectorAll('.sso-row-select').forEach((box) => {
+        box.checked = this.checked;
+      });
     });
-  });
-</script>
-{% endblock javascripts %}
+  </script>
+  {% endblock javascripts %}

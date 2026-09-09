@@ -1,4 +1,11 @@
-// The SSO enrolment pages under /manage/sso/.
+// The SSO pages under /sso/.
+
+// One person's own account, so it is a column rather than a full-width table:
+// nothing on it benefits from the width, and long lines are harder to read.
+.sso-profile {
+  max-width: 800px;
+  margin: auto;
+}
 
 // The confirmation panel interrupts the page deliberately: it is the last
 // chance to stop. A left rule marks it as an aside without borrowing the

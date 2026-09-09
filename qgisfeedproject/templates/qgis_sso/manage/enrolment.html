@@ -7,196 +7,199 @@ cannot survive paging, and a whole wave is what the Django admin is for.
 {% endcomment %}
 
 {% block content %}
-<div class="is-flex is-justify-content-space-between is-align-items-center mb-4">
-  <div>
-    <h1 class="title is-4">{% trans "SSO enrolment" %}</h1>
-    <p class="subtitle is-6">
-      {% blocktrans trimmed %}
-        Accounts that exist at auth.qgis.org, and where each of them has got to.
-      {% endblocktrans %}
-    </p>
-  </div>
-  <a class="button is-primary1" href="{% url 'qgis_sso_manage:create' %}">
-    {% trans "Create Keycloak accounts" %}
-  </a>
-</div>
+<div class="box-content">
 
-{% if issued %}
-  {# Shown once. Reloading loses it: the link is never stored anywhere. #}
-  <div class="notification is-warning sso-issued">
-    <h2 class="is-size-5 has-text-weight-semibold">
-      {% blocktrans trimmed with username=issued.username %}
-        Enrolment link for {{ username }}
-      {% endblocktrans %}
-    </h2>
-    <p>
-      {% blocktrans trimmed %}
-        Copy it now — it is not stored anywhere and will not be shown again. It
-        signs its holder in as that person, who is then asked to verify their
-        address and enrol a passkey, so pass it on the same way you would a
-        password and to that person only. It can be used once.
-      {% endblocktrans %}
-    </p>
-    <div class="field has-addons mt-3">
-      <div class="control is-expanded">
-        <label class="is-sr-only" for="issued-link">{% trans "Enrolment link" %}</label>
-        <input class="input is-family-monospace" id="issued-link" type="text"
-               readonly value="{{ issued.link }}">
+  <div class="is-flex is-justify-content-space-between is-align-items-center mb-4">
+    <div>
+      <h1 class="title is-4">{% trans "SSO enrolment" %}</h1>
+      <p class="subtitle is-6">
+        {% blocktrans trimmed %}
+          Accounts that exist at auth.qgis.org, and where each of them has got to.
+        {% endblocktrans %}
+      </p>
+    </div>
+    <a class="button is-primary1" href="{% url 'qgis_sso:create' %}">
+      {% trans "Create Keycloak accounts" %}
+    </a>
+  </div>
+
+  {% if issued %}
+    {# Shown once. Reloading loses it: the link is never stored anywhere. #}
+    <div class="notification is-warning sso-issued">
+      <h2 class="is-size-5 has-text-weight-semibold">
+        {% blocktrans trimmed with username=issued.username %}
+          Enrolment link for {{ username }}
+        {% endblocktrans %}
+      </h2>
+      <p>
+        {% blocktrans trimmed %}
+          Copy it now — it is not stored anywhere and will not be shown again. It
+          signs its holder in as that person, who is then asked to verify their
+          address and enrol a passkey, so pass it on the same way you would a
+          password and to that person only. It can be used once.
+        {% endblocktrans %}
+      </p>
+      <div class="field has-addons mt-3">
+        <div class="control is-expanded">
+          <label class="is-sr-only" for="issued-link">{% trans "Enrolment link" %}</label>
+          <input class="input is-family-monospace" id="issued-link" type="text"
+                 readonly value="{{ issued.link }}">
+        </div>
+        <div class="control">
+          <button class="button is-primary1" type="button" id="copy-link"
+                  data-copied="{% trans 'Copied' %}">
+            <span class="icon is-small"><i class="fas fa-copy"></i></span>
+            <span>{% trans "Copy" %}</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  {% endif %}
+
+  {% if confirming %}
+    <div class="box-content sso-confirm mb-4">
+      <h2 class="title is-5">{% trans "Send the account-setup email?" %}</h2>
+      <div class="notification is-warning">
+        {% blocktrans trimmed with username=subject.user.username email=subject.user.email %}
+          This emails {{ username }} at {{ email }}. A staging database restored
+          from production holds every contributor's real address, and a setup link
+          that has gone out cannot be unsent.
+        {% endblocktrans %}
+      </div>
+      <form method="post" action="">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="send-email">
+        <input type="hidden" name="identity" value="{{ subject.pk }}">
+        <input type="hidden" name="confirm" value="yes">
+        <div class="buttons">
+          <button class="button is-primary1" type="submit">{% trans "Yes, send it" %}</button>
+          <a class="button is-light" href="{% url 'qgis_sso:enrolment' %}">
+            {% trans "Cancel" %}
+          </a>
+        </div>
+      </form>
+    </div>
+  {% endif %}
+
+  <form method="get" action="" class="mb-4">
+    <div class="field has-addons">
+      <div class="control">
+        <label class="is-sr-only" for="q">{% trans "Search by username or email" %}</label>
+        <input class="input" type="search" id="q" name="q" value="{{ search }}"
+               placeholder="{% trans 'Username or email' %}">
       </div>
       <div class="control">
-        <button class="button is-primary1" type="button" id="copy-link"
-                data-copied="{% trans 'Copied' %}">
-          <span class="icon is-small"><i class="fas fa-copy"></i></span>
-          <span>{% trans "Copy" %}</span>
-        </button>
+        <label class="is-sr-only" for="state">{% trans "Filter by state" %}</label>
+        <div class="select">
+          <select id="state" name="state">
+            <option value="">{% trans "All states" %}</option>
+            {% for key, label, count in totals %}
+              <option value="{{ key }}" {% if state == key %}selected{% endif %}>
+                {{ label }} ({{ count }})
+              </option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      <div class="control">
+        <button class="button is-primary1" type="submit">{% trans "Filter" %}</button>
       </div>
     </div>
-  </div>
-{% endif %}
+  </form>
 
-{% if confirming %}
-  <div class="box-content sso-confirm mb-4">
-    <h2 class="title is-5">{% trans "Send the account-setup email?" %}</h2>
-    <div class="notification is-warning">
-      {% blocktrans trimmed with username=subject.user.username email=subject.user.email %}
-        This emails {{ username }} at {{ email }}. A staging database restored
-        from production holds every contributor's real address, and a setup link
-        that has gone out cannot be unsent.
-      {% endblocktrans %}
-    </div>
-    <form method="post" action="">
-      {% csrf_token %}
-      <input type="hidden" name="action" value="send-email">
-      <input type="hidden" name="identity" value="{{ subject.pk }}">
-      <input type="hidden" name="confirm" value="yes">
-      <div class="buttons">
-        <button class="button is-primary1" type="submit">{% trans "Yes, send it" %}</button>
-        <a class="button is-light" href="{% url 'qgis_sso_manage:enrolment' %}">
-          {% trans "Cancel" %}
-        </a>
-      </div>
-    </form>
-  </div>
-{% endif %}
-
-<form method="get" action="" class="mb-4">
-  <div class="field has-addons">
-    <div class="control">
-      <label class="is-sr-only" for="q">{% trans "Search by username or email" %}</label>
-      <input class="input" type="search" id="q" name="q" value="{{ search }}"
-             placeholder="{% trans 'Username or email' %}">
-    </div>
-    <div class="control">
-      <label class="is-sr-only" for="state">{% trans "Filter by state" %}</label>
-      <div class="select">
-        <select id="state" name="state">
-          <option value="">{% trans "All states" %}</option>
-          {% for key, label, count in totals %}
-            <option value="{{ key }}" {% if state == key %}selected{% endif %}>
-              {{ label }} ({{ count }})
-            </option>
-          {% endfor %}
-        </select>
-      </div>
-    </div>
-    <div class="control">
-      <button class="button is-primary1" type="submit">{% trans "Filter" %}</button>
-    </div>
-  </div>
-</form>
-
-<table class="table is-fullwidth is-hoverable sso-table">
-  <thead>
-    <tr>
-      <th scope="col" class="sso-account">{% trans "Account" %}</th>
-      <th scope="col">{% trans "State" %}</th>
-      <th scope="col">{% trans "Roles" %}</th>
-      <th scope="col">{% trans "Last step" %}</th>
-      <th scope="col">{% trans "Invite" %}</th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for row in rows %}
+  <table class="table is-fullwidth is-hoverable sso-table">
+    <thead>
       <tr>
-        <td class="sso-account">
-          {{ row.user.username }}<br>
-          <small>{{ row.user.email }}</small>
-        </td>
-        <td>
-          <span class="tag {{ row.css_class }}">{{ row.label }}</span>
-          {% if row.flags %}
-            <br><small>{{ row.flags|join:", " }}</small>
-          {% endif %}
-        </td>
-        <td>{{ row.proposed_roles|join:", "|default:"—" }}</td>
-        <td>
-          {% if row.identity.local_password_disabled_at %}
-            {% trans "Password retired" %} {{ row.identity.local_password_disabled_at|date:"Y-m-d" }}
-          {% elif row.identity.first_sso_login_at %}
-            {% trans "Signed in" %} {{ row.identity.first_sso_login_at|date:"Y-m-d" }}
-          {% elif row.identity.setup_link_issued_at %}
-            {% trans "Link issued" %} {{ row.identity.setup_link_issued_at|date:"Y-m-d" }}
-          {% elif row.identity.setup_email_sent_at %}
-            {% trans "Emailed" %} {{ row.identity.setup_email_sent_at|date:"Y-m-d" }}
-          {% else %}
-            {% trans "Created" %} {{ row.identity.linked_at|date:"Y-m-d" }}
-          {% endif %}
-        </td>
-        <td>
-          {# Icon buttons, so aria-label carries the name the icon only hints at. #}
-          <form method="post" action="" class="is-flex sso-row-actions">
-            {% csrf_token %}
-            <input type="hidden" name="identity" value="{{ row.identity.pk }}">
-            {% blocktrans trimmed asvar send_label with username=row.user.username %}
-              Email the account-setup link to {{ username }}
-            {% endblocktrans %}
-            <button class="button is-small is-primary1 is-outlined" type="submit"
-                    name="action" value="send-email"
-                    title="{{ send_label }}" aria-label="{{ send_label }}">
-              <span class="icon is-small"><i class="fas fa-envelope"></i></span>
-            </button>
-            {# Not once signed in: a link would then authenticate with no passkey. #}
-            {% if not row.identity.has_logged_in_via_sso %}
-              {% blocktrans trimmed asvar link_label with username=row.user.username %}
-                Get the enrolment link for {{ username }}
+        <th scope="col" class="sso-account">{% trans "Account" %}</th>
+        <th scope="col">{% trans "State" %}</th>
+        <th scope="col">{% trans "Roles" %}</th>
+        <th scope="col">{% trans "Last step" %}</th>
+        <th scope="col">{% trans "Invite" %}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+        <tr>
+          <td class="sso-account">
+            {{ row.user.username }}<br>
+            <small>{{ row.user.email }}</small>
+          </td>
+          <td>
+            <span class="tag {{ row.css_class }}">{{ row.label }}</span>
+            {% if row.flags %}
+              <br><small>{{ row.flags|join:", " }}</small>
+            {% endif %}
+          </td>
+          <td>{{ row.proposed_roles|join:", "|default:"—" }}</td>
+          <td>
+            {% if row.identity.local_password_disabled_at %}
+              {% trans "Password retired" %} {{ row.identity.local_password_disabled_at|date:"Y-m-d" }}
+            {% elif row.identity.first_sso_login_at %}
+              {% trans "Signed in" %} {{ row.identity.first_sso_login_at|date:"Y-m-d" }}
+            {% elif row.identity.setup_link_issued_at %}
+              {% trans "Link issued" %} {{ row.identity.setup_link_issued_at|date:"Y-m-d" }}
+            {% elif row.identity.setup_email_sent_at %}
+              {% trans "Emailed" %} {{ row.identity.setup_email_sent_at|date:"Y-m-d" }}
+            {% else %}
+              {% trans "Created" %} {{ row.identity.linked_at|date:"Y-m-d" }}
+            {% endif %}
+          </td>
+          <td>
+            {# Icon buttons, so aria-label carries the name the icon only hints at. #}
+            <form method="post" action="" class="is-flex sso-row-actions">
+              {% csrf_token %}
+              <input type="hidden" name="identity" value="{{ row.identity.pk }}">
+              {% blocktrans trimmed asvar send_label with username=row.user.username %}
+                Email the account-setup link to {{ username }}
               {% endblocktrans %}
               <button class="button is-small is-primary1 is-outlined" type="submit"
-                      name="action" value="issue-link"
-                      title="{{ link_label }}" aria-label="{{ link_label }}">
-                <span class="icon is-small"><i class="fas fa-link"></i></span>
+                      name="action" value="send-email"
+                      title="{{ send_label }}" aria-label="{{ send_label }}">
+                <span class="icon is-small"><i class="fas fa-envelope"></i></span>
               </button>
-            {% endif %}
-          </form>
-        </td>
-      </tr>
-    {% empty %}
-      <tr>
-        <td colspan="5">
-          {% blocktrans trimmed %}
-            No accounts match. Nobody has a Keycloak account yet, or the filter
-            is too narrow.
-          {% endblocktrans %}
-        </td>
-      </tr>
-    {% endfor %}
-  </tbody>
-</table>
+              {# Not once signed in: a link would then authenticate with no passkey. #}
+              {% if not row.identity.has_logged_in_via_sso %}
+                {% blocktrans trimmed asvar link_label with username=row.user.username %}
+                  Get the enrolment link for {{ username }}
+                {% endblocktrans %}
+                <button class="button is-small is-primary1 is-outlined" type="submit"
+                        name="action" value="issue-link"
+                        title="{{ link_label }}" aria-label="{{ link_label }}">
+                  <span class="icon is-small"><i class="fas fa-link"></i></span>
+                </button>
+              {% endif %}
+            </form>
+          </td>
+        </tr>
+      {% empty %}
+        <tr>
+          <td colspan="5">
+            {% blocktrans trimmed %}
+              No accounts match. Nobody has a Keycloak account yet, or the filter
+              is too narrow.
+            {% endblocktrans %}
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
 
-{% include 'layouts/pagination.html' with page=page %}
+  {% include 'layouts/pagination.html' with page=page %}
 
+</div>
 {% endblock content %}
 
-{% block javascripts %}
-<script>
-  // The only script on the page. Without it the link is still selectable in the
-  // field beside the button.
-  document.getElementById('copy-link')?.addEventListener('click', function () {
-    const field = document.getElementById('issued-link');
-    const done = this.querySelector('span:last-child');
-    field.select();
-    navigator.clipboard?.writeText(field.value).then(() => {
-      done.textContent = this.dataset.copied;
+  {% block javascripts %}
+  <script>
+    // The only script on the page. Without it the link is still selectable in the
+    // field beside the button.
+    document.getElementById('copy-link')?.addEventListener('click', function () {
+      const field = document.getElementById('issued-link');
+      const done = this.querySelector('span:last-child');
+      field.select();
+      navigator.clipboard?.writeText(field.value).then(() => {
+        done.textContent = this.dataset.copied;
+      });
     });
-  });
-</script>
-{% endblock javascripts %}
+  </script>
+  {% endblock javascripts %}

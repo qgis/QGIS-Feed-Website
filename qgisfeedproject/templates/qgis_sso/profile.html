@@ -1,0 +1,140 @@
+{% extends 'layouts/base-fullscreen.html' %}
+{% load i18n %}
+
+{% comment %}
+Somebody's own account. The passkey buttons do not register anything here: they
+start a sign-in that asks Keycloak to run the action, because a passkey belongs
+to auth.qgis.org and no other site can create or delete one.
+{% endcomment %}
+
+{% block content %}
+<div class="sso-profile">
+  <h1 class="title is-4">{% trans "Your account" %}</h1>
+    <div class="box-content mb-5">
+      {% if identity %}
+      <div class="is-flex is-justify-content-end">
+        <a class="button is-light" href="{{ SSO_ACCOUNT_URL }}"
+            target="_blank" rel="noopener noreferrer">
+            <span class="icon is-small"><i class="fas fa-pencil"></i></span>
+            <span>{% trans "Edit profile" %}</span>
+        </a>
+      </div>
+      {% endif %}
+      <table class="table is-fullwidth sso-table">
+        <tbody>
+          <tr>
+            <th scope="row" class="sso-account">{% trans "Username" %}</th>
+            <td class="sso-account">{{ user.username }}</td>
+          </tr>
+          <tr>
+            <th scope="row" class="sso-account">{% trans "Email" %}</th>
+            <td class="sso-account">{{ user.email|default:"—" }}</td>
+          </tr>
+          <tr>
+            <th scope="row" class="sso-account">{% trans "Permissions" %}</th>
+            <td class="sso-account">
+              {% for group in groups %}
+                <span class="tag is-info">{{ group.name }}</span>
+              {% empty %}
+                {% trans "None" %}
+              {% endfor %}
+              {% if identity %}
+                <p class="help">
+                  {% blocktrans trimmed %}
+                    These follow the roles on your QGIS account and are refreshed
+                    every time you sign in. Ask a feed maintainer to change them.
+                  {% endblocktrans %}
+                </p>
+              {% endif %}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+  {% if not identity %}
+    <div class="notification is-info">
+      {% blocktrans trimmed %}
+        This account does not sign in through auth.qgis.org, so it has no
+        passkeys to manage.
+      {% endblocktrans %}
+    </div>
+  {% else %}
+    <h2 class="title is-5">{% trans "Passkeys" %}</h2>
+    <div class="notification is-primary3 is-light">
+      {% blocktrans trimmed %}
+        Your passkeys live at auth.qgis.org, so adding or removing one takes you
+        there and brings you back. Keep at least two — a phone and a hardware
+        key, say — so that losing one device does not lock you out.
+      {% endblocktrans %}
+    </div>
+
+    {% if unreachable %}
+      <div class="notification is-warning">
+        {% blocktrans trimmed %}
+          auth.qgis.org could not be reached, so your passkeys are not listed.
+          Try again shortly.
+        {% endblocktrans %}
+      </div>
+    {% else %}
+    <div class="box-content">
+    <form method="post" action="">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="add-passkey">
+      <div class="is-flex is-justify-content-end mb-3">
+        <button class="button is-primary1" type="submit">
+          <span class="icon is-small"><i class="fas fa-key"></i></span>
+          <span>{% trans "Add a passkey" %}</span>
+        </button>
+      </div>
+    </form>
+      <table class="table is-fullwidth is-hoverable sso-table">
+        <thead>
+          <tr>
+            <th scope="col" class="sso-account">{% trans "Passkey" %}</th>
+            <th scope="col">{% trans "Enrolled" %}</th>
+            <th scope="col">{% trans "Remove" %}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for passkey in passkeys %}
+            <tr>
+              <td class="sso-account">{{ passkey.label }}</td>
+              <td>{{ passkey.created_at|date:"Y-m-d"|default:"—" }}</td>
+              <td>
+                {% if passkeys|length > 1 %}
+                  {% blocktrans trimmed asvar remove_label with label=passkey.label %}
+                    Remove {{ label }}
+                  {% endblocktrans %}
+                  <form method="post" action="">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="remove-passkey">
+                    <input type="hidden" name="credential" value="{{ passkey.id }}">
+                    <button class="button is-small is-danger is-outlined" type="submit"
+                            title="{{ remove_label }}" aria-label="{{ remove_label }}">
+                      <span class="icon is-small"><i class="fas fa-trash"></i></span>
+                    </button>
+                  </form>
+                {% else %}
+                  <span class="help">{% trans "Your only one" %}</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="3">
+                {% blocktrans trimmed %}
+                  No passkeys yet. Add one, or you will not be able to sign in
+                  again once your setup link expires.
+                {% endblocktrans %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+
+    </div>
+        {% endif %}
+        {% endif %}
+</div>
+{% endblock content %}

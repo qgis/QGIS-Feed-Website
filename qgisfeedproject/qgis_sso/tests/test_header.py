@@ -11,8 +11,6 @@ from django.contrib.auth.models import User
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
-from ..models import KeycloakIdentity
-
 ACCOUNT_URL = "https://auth.example.org/realms/qgis/account/"
 
 # force_login picks the first configured backend, which is the OIDC one, and
@@ -45,24 +43,25 @@ class HeaderAccountMenuTest(TestCase):
         self.assertContains(response, "alice")
         self.assertContains(response, "Log Out")
 
-    def test_profile_is_offered_only_to_an_sso_linked_account(self):
-        """A local-only account has nothing to manage at auth.qgis.org."""
+    def test_profile_points_at_this_site_not_the_provider(self):
+        """The page is here even though the passkeys are not.
+
+        It was a link straight out to auth.qgis.org, which meant leaving the
+        site to answer "what am I signed in as". A local-only account gets the
+        page too; it explains there is nothing to manage there.
+        """
         self.client.force_login(self.user, backend=LOCAL_BACKEND)
 
-        self.assertNotContains(self.home(), ACCOUNT_URL)
-
-        KeycloakIdentity.objects.create(
-            user=self.user, sub="sub-1", issuer="https://auth.example.org"
-        )
-
         response = self.home()
-        self.assertContains(response, ACCOUNT_URL)
+
+        self.assertContains(response, reverse("qgis_sso:profile"))
         self.assertContains(response, "Profile")
+        self.assertNotContains(response, ACCOUNT_URL)
 
     def test_the_enrolment_page_is_offered_to_superusers_only(self):
         """It writes to a realm shared with hub and plugins, so staff is not
         enough - the same rule the view itself applies."""
-        enrolment = reverse("qgis_sso_manage:enrolment")
+        enrolment = reverse("qgis_sso:enrolment")
 
         self.user.is_staff = True
         self.user.save(update_fields=["is_staff"])
@@ -74,7 +73,7 @@ class HeaderAccountMenuTest(TestCase):
         self.assertContains(self.home(), enrolment)
 
     def test_an_anonymous_visitor_is_not_offered_it(self):
-        self.assertNotContains(self.home(), reverse("qgis_sso_manage:enrolment"))
+        self.assertNotContains(self.home(), reverse("qgis_sso:enrolment"))
 
     def test_logging_out_is_a_post(self):
         """A GET logout can be triggered by any image tag on any other site."""

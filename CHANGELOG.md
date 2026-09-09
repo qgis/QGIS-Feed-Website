@@ -51,12 +51,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   login, closing the window in which both ways in worked. Controlled by
   `SSO_RETIRE_PASSWORD_ON_LOGIN`.
 - **Account menu in the site header** — the username opens a dropdown with
-  *Profile*, linking to the person's own account page at `auth.qgis.org`, and
-  *Log out*. Profile is shown only for SSO-linked accounts.
+  *Profile* and *Log out*.
+- **Profile page at `/sso/profile/`** — the account as this site sees it, and
+  the person's passkeys with the date each was enrolled. *Add a passkey* and
+  *Remove* start a sign-in carrying `kc_action`, so Keycloak runs the action and
+  returns them here: WebAuthn binds a credential to the relying party that
+  created it, so no other site can register or delete one, and this site
+  therefore never changes a credential itself — it reads the list and nothing
+  more. The action is put in the session by a view that has already checked it,
+  so a crafted link cannot choose one. Removing the last passkey is refused,
+  because these accounts have no password and the setup link an administrator
+  could send is refused for anybody who has already signed in.
 - **Passkey-only accounts.** Provisioned users verify their address and enrol
   a passkey; no password and no TOTP secret is ever set, so there is no
   password to phish or reuse. `SSO_REQUIRED_ACTIONS` carries this.
-- **Enrolment pages under `/manage/sso/`**, superuser-only and linked from the
+- **Enrolment pages under `/sso/manage/`**, superuser-only and linked from the
   site header.
   - The list holds the accounts that exist in the realm and where each has got
     to — created, invited, signed in, migrated — ten a page, filtered and

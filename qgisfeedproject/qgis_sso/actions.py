@@ -2,7 +2,7 @@
 """Running an enrolment step over a selection of accounts.
 
 Both callers - the Django admin actions and the enrolment page at
-``/manage/sso/`` - need the same guards, the same order of operations and the
+``/sso/manage/`` - need the same guards, the same order of operations and the
 same words for what happened. Keeping that here means there is one set of rules
 rather than two that drift, and it stays testable without a browser.
 

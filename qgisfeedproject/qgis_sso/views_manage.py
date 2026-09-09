@@ -1,5 +1,5 @@
 # coding=utf-8
-"""The enrolment pages under ``/manage/sso/``.
+"""The enrolment pages under ``/sso/manage/``.
 
 Two of them, because they are two jobs. The list is about accounts that already
 exist in the realm and where each of them has got to; the create page is about
@@ -190,7 +190,7 @@ class EnrolmentView(View):
             for key in ("state", "q", "page")
             if request.GET.get(key)
         }
-        url = reverse("qgis_sso_manage:enrolment")
+        url = reverse("qgis_sso:enrolment")
         if query:
             url = f"{url}?{urlencode(query)}"
         return HttpResponseRedirect(url)
@@ -318,7 +318,7 @@ class CreateAccountsView(View):
                     "account."
                 ),
             )
-        return HttpResponseRedirect(reverse("qgis_sso_manage:create"))
+        return HttpResponseRedirect(reverse("qgis_sso:create"))
 
     def page_context(self, request):
         search = request.GET.get("q", "").strip()

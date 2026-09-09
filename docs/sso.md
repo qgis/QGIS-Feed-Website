@@ -94,7 +94,7 @@ by hand for some other purpose survives a sign-in untouched.
 Two of them, linked from the site header for superusers, because they are two
 jobs.
 
-**`/manage/sso/` — accounts that exist in the realm.** Every account with a
+**`/sso/manage/` — accounts that exist in the realm.** Every account with a
 Keycloak identity, and where it has got to: *account created*, *invited*,
 *signed in*, *migrated*. Ten rows a page, filtered by state or searched by
 name. Each row acts on itself:
@@ -104,7 +104,7 @@ name. Each row acts on itself:
 - **Get the link** — see *Handing over a link* below. No confirmation: nothing
   leaves the building until you pass it on.
 
-**`/manage/sso/create/` — accounts that do not.** Reached from the *Create
+**`/sso/manage/create/` — accounts that do not.** Reached from the *Create
 Keycloak accounts* button. Users on this site with nobody behind them in the
 realm, tick the ones you want and confirm; the confirmation lists the Keycloak
 username, the roles and the outcome for each before anything is written. Capped
@@ -233,12 +233,36 @@ who has not yet signed in through Keycloak locks them out of an account they
 cannot recover. Accounts that linked themselves through the migration-linking
 path already had this done at link time.
 
-### The account menu
+### The account menu and the profile page
 
-The site header shows the signed-in username as a dropdown: **Profile**, which
-opens that person's account page at `auth.qgis.org` where they manage their own
-passkeys, and **Log out**. Profile appears only for an SSO-linked account,
-since a local-only account has nothing to manage there.
+The site header shows the signed-in username as a dropdown: **Profile** and
+**Log out**.
+
+Profile is `/sso/profile/` on this site. It shows the account — username,
+address, the groups the Keycloak roles have granted — and lists that person's
+passkeys with the date each was enrolled.
+
+**Adding or removing one happens at `auth.qgis.org`, and has to.** WebAuthn
+binds a credential to the relying party that created it, so no other site can
+register or delete a passkey for the realm; a browser will refuse. Pressing
+*Add a passkey* therefore starts an ordinary sign-in carrying `kc_action`, an
+[application-initiated action](https://www.keycloak.org/docs/latest/server_admin/#con-aia_server_administration_guide):
+Keycloak runs the action, then returns the user to the profile page.
+
+Two consequences worth knowing:
+
+- **This site never changes a credential.** It reads the list through the
+  provisioner service account and nothing more; every change is authorised by
+  the user at Keycloak. The action is put in the session by a view that has
+  already checked it, so a crafted link cannot ask Keycloak to run an action of
+  its own choosing.
+- **The last passkey cannot be removed from here.** These accounts have no
+  password, and the setup link an administrator could send is refused for
+  anybody who has already signed in, so removing the only one is a lockout with
+  no way back. Enrol the replacement first.
+
+A local-only account gets the page too, and is told it has no passkeys to
+manage. *Everything else, at auth.qgis.org* links to the full account console.
 
 ### Tracking progress
 

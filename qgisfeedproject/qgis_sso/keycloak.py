@@ -130,6 +130,14 @@ class KeycloakAdminClient:
             raise KeycloakError(f"More than one realm user named {username!r}")
         return users[0]
 
+    def user_credentials(self, user_id):
+        """Every credential on one realm account.
+
+        Read-only. Credentials are never changed from here: the user does that
+        themselves at Keycloak, through an application-initiated action.
+        """
+        return self.request("GET", f"users/{quote(user_id)}/credentials").json()
+
     def create_user(self, payload):
         """Create a realm user and return the generated subject.
 

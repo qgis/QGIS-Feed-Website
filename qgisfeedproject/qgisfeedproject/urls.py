@@ -20,6 +20,7 @@ from django.contrib import admin
 from django.contrib.auth.views import LogoutView
 from django.urls import include, path, re_path
 from qgis_sso.views import RateLimitedCallbackView, admin_login, site_login
+from qgis_sso.views_profile import ActionAuthenticationRequestView
 
 urlpatterns = [
     # Before admin.site.urls so it wins: Django admin ships its own login view
@@ -30,9 +31,6 @@ urlpatterns = [
     path("admin/login/", admin_login, name="admin_login_override"),
     path("admin/", admin.site.urls),
     re_path(r"^tinymce/", include("tinymce.urls")),
-    # Before the feed's own URLs, which are mounted at the root and own the
-    # rest of /manage/.
-    path("manage/sso/", include("qgis_sso.urls_manage")),
     path("", include("qgisfeed.urls")),
     path("accounts/login/", site_login, name="login"),
     path("accounts/logout/", LogoutView.as_view(), name="logout"),
@@ -45,6 +43,13 @@ urlpatterns = [
         "oidc/callback/",
         RateLimitedCallbackView.as_view(),
         name="oidc_authentication_callback",
+    ),
+    # Likewise: same URL, declared first so the subclass that can carry a
+    # kc_action wins.
+    path(
+        "oidc/authenticate/",
+        ActionAuthenticationRequestView.as_view(),
+        name="oidc_authentication_init",
     ),
     path("oidc/", include("mozilla_django_oidc.urls")),
 ]
