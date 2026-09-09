@@ -1,0 +1,124 @@
+{% extends 'layouts/base-fullscreen.html' %}
+{% load i18n %}
+
+{% comment %}
+Withdrawing trust. Everybody the cascade reaches is listed by name rather than
+counted: a cascade larger than expected is the one mistake here that cannot be
+walked back casually.
+{% endcomment %}
+
+{% block content %}
+<div class="sso-profile">
+  <div class="is-flex is-justify-content-space-between is-align-items-center mb-4">
+    <div>
+      <h1 class="title is-4">
+        {% blocktrans trimmed with username=blast.target.user.username %}
+          Withdraw trust from {{ username }}?
+        {% endblocktrans %}
+      </h1>
+      <p class="subtitle is-6">{{ blast.target.user.email }}</p>
+    </div>
+    <a class="button is-light" href="{% url 'qgis_sso:enrolment' %}">
+      {% trans "Back" %}
+    </a>
+  </div>
+
+  <div class="box-content sso-confirm">
+    <div class="notification is-danger is-light">
+      {% blocktrans trimmed with username=blast.target.user.username %}
+        {{ username }} will lose every role, be signed out everywhere, and be
+        unable to sign in again. This happens at auth.qgis.org, so it holds
+        across every QGIS site, not only this one.
+      {% endblocktrans %}
+    </div>
+
+    <h2 class="title is-6">{% trans "Who else this reaches" %}</h2>
+    {% if blast.descendants %}
+      <p class="mb-3">
+        {% blocktrans trimmed count counter=blast.descendants|length with username=blast.target.user.username %}
+          One account {{ username }} vouched for will be suspended. They can
+          still sign in and will be told why, but can change nothing until this
+          is reversed.
+        {% plural %}
+          {{ counter }} accounts {{ username }} vouched for will be suspended.
+          They can still sign in and will be told why, but can change nothing
+          until this is reversed.
+        {% endblocktrans %}
+      </p>
+      <table class="table is-fullwidth sso-table">
+        <thead>
+          <tr>
+            <th scope="col" class="sso-account">{% trans "Account" %}</th>
+            <th scope="col">{% trans "Vouched for by" %}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for node in blast.descendants %}
+            <tr>
+              <td class="sso-account">
+                {{ node.user.username }}<br>
+                <small>{{ node.user.email }}</small>
+              </td>
+              <td>{{ node.sponsor.username|default:"—" }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="mb-3">{% trans "Nobody else. This account vouched for no one." %}</p>
+    {% endif %}
+
+    <p class="mb-4">
+      {% blocktrans trimmed %}
+        Their entries, reviews and revisions are kept and stay attributed to
+        them. Anything of theirs waiting to be published goes back to draft, so
+        it cannot be published by somebody who has not heard.
+      {% endblocktrans %}
+    </p>
+
+    <form method="post" action="">
+      {% csrf_token %}
+      <div class="field">
+        <label class="label" for="reason">{% trans "Reason" %}</label>
+        <div class="control">
+          <textarea class="textarea" id="reason" name="reason" rows="3"
+                    required>{{ reason }}</textarea>
+        </div>
+        <p class="help">
+          {% if reason_missing %}
+            <span class="has-text-danger">
+              {% trans "A reason is required. It goes in the audit trail." %}
+            </span>
+          {% else %}
+            {% trans "Goes in the audit trail, and is visible to maintainers." %}
+          {% endif %}
+        </p>
+      </div>
+      <div class="buttons">
+        <button class="button is-danger" type="submit">
+          <span class="icon is-small"><i class="fas fa-user-slash"></i></span>
+          <span>
+            {% if blast.descendants %}
+              {% blocktrans trimmed count counter=blast.descendants|length %}
+                Withdraw trust and suspend one other
+              {% plural %}
+                Withdraw trust and suspend {{ counter }} others
+              {% endblocktrans %}
+            {% else %}
+              {% trans "Withdraw trust" %}
+            {% endif %}
+          </span>
+        </button>
+        <a class="button is-light" href="{% url 'qgis_sso:enrolment' %}">
+          {% trans "Cancel" %}
+        </a>
+      </div>
+      <p class="help">
+        {% blocktrans trimmed with days=grace_days %}
+          Reversible in one action for {{ days }} days, subtree included.
+        {% endblocktrans %}
+      </p>
+    </form>
+  </div>
+</div>
+{% endblock content %}

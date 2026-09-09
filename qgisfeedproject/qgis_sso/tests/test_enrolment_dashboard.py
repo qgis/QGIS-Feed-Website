@@ -22,7 +22,7 @@ from ..provisioning import Provisioner
 from .base import FakeRealm
 
 PAGE = reverse("qgis_sso:enrolment")
-CREATE = reverse("qgis_sso:create")
+CREATE = reverse("qgis_sso:invite_existing")
 
 # force_login picks the first configured backend, which is the OIDC one, and
 # SessionRefresh would then bounce every GET to Keycloak to renew a token these
@@ -101,34 +101,33 @@ class EnrolmentStateTest(TestCase):
 
         self.assertEqual(self.state(), enrolment.PROVISIONED)
 
-    def test_an_emailed_account_is_invited(self):
+    def test_an_emailed_account_has_had_its_link_sent(self):
         link(self.user, setup_email_sent_at=timezone.now())
 
-        self.assertEqual(self.state(), enrolment.INVITED)
+        self.assertEqual(self.state(), enrolment.LINK_SENT)
 
-    def test_an_account_whose_link_was_handed_over_is_invited(self):
-        """A link issued counts as an invitation exactly as an email does.
-
-        Otherwise somebody invited on a call still reads as untouched, and gets
-        invited a second time by whoever looks next.
-        """
+    def test_a_handed_over_link_counts_the_same_as_an_emailed_one(self):
+        """Otherwise somebody invited on a call still reads as untouched, and
+        gets invited a second time by whoever looks next."""
         link(self.user, setup_link_issued_at=timezone.now())
 
-        self.assertEqual(self.state(), enrolment.INVITED)
+        self.assertEqual(self.state(), enrolment.LINK_SENT)
 
-    def test_a_signed_in_account_is_enrolled(self):
+    def test_a_signed_in_account_is_active(self):
         link(self.user, first_sso_login_at=timezone.now())
 
-        self.assertEqual(self.state(), enrolment.ENROLLED)
+        self.assertEqual(self.state(), enrolment.ACTIVE)
 
-    def test_an_account_with_no_local_password_is_migrated(self):
+    def test_retiring_a_local_password_is_not_a_state(self):
+        """It only ever happens to a grandfathered account and says nothing
+        about how far that account has got, so it is a marker on the row."""
         link(
             self.user,
             first_sso_login_at=timezone.now(),
             local_password_disabled_at=timezone.now(),
         )
 
-        self.assertEqual(self.state(), enrolment.MIGRATED)
+        self.assertEqual(self.state(), enrolment.ACTIVE)
 
     def test_building_rows_does_not_query_per_account(self):
         """The page is a list; an N+1 here is felt at the first migration wave.
@@ -176,15 +175,16 @@ class AccessTest(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertIn(reverse("login"), response["Location"])
 
-    def test_a_staff_user_is_not_enough(self):
-        """The service account behind these buttons can grant roles on this
-        site, in a realm shared with hub and plugins."""
+    def test_the_list_is_open_but_inviting_an_existing_user_is_not(self):
+        """The list scopes what each person sees rather than turning them away.
+        Grafting an existing account reaches the whole user list, so that stays
+        superuser-only."""
         staff = User.objects.create_user(
             "bob", "bob@example.org", "x", is_staff=True, is_superuser=False
         )
         self.client.force_login(staff, backend=LOCAL_BACKEND)
 
-        self.assertEqual(self.client.get(PAGE).status_code, 302)
+        self.assertEqual(self.client.get(PAGE).status_code, 200)
         self.assertEqual(self.client.get(CREATE).status_code, 302)
 
 

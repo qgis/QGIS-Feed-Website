@@ -17,7 +17,7 @@ from django.db.models import Q
 from django.utils.translation import gettext_lazy as _
 
 from .migration import flag_users, proposed_roles, proposed_username
-from .models import KeycloakIdentity
+from .models import KeycloakIdentity, TrustState
 
 #: The permission that makes somebody a reviewer in Keycloak. Matched on the
 #: app label too, so a same-named permission in another app cannot grant it.
@@ -27,26 +27,34 @@ PUBLISH_PERMISSION = "publish_qgisfeedentry"
 BLOCKED = "blocked"
 NOT_PROVISIONED = "not-provisioned"
 PROVISIONED = "provisioned"
-INVITED = "invited"
-ENROLLED = "enrolled"
-MIGRATED = "migrated"
+LINK_SENT = "link-sent"
+ACTIVE = "active"
+SUSPENDED = "suspended"
+REVOKED = "revoked"
 
 #: Label and Bulma modifier per state. The label carries the meaning; the
 #: colour only repeats it, so the table stays readable without it.
+#:
+#: These say where an account has got to, and nothing about how it arrived -
+#: that is the sponsor column. There used to be a "Migrated" state, which
+#: conflated the two: it meant "local password retired", which can only ever
+#: happen to a grandfathered account and says nothing about progress. It is a
+#: marker on the row now.
 STATES = {
     BLOCKED: (_("Needs a decision"), "is-danger"),
     NOT_PROVISIONED: (_("No realm account"), "is-light"),
-    PROVISIONED: (_("Account created"), "is-info"),
-    INVITED: (_("Invited"), "is-warning"),
-    ENROLLED: (_("Signed in"), "is-success"),
-    MIGRATED: (_("Migrated"), "is-success"),
+    PROVISIONED: (_("Created"), "is-info"),
+    LINK_SENT: (_("Link sent"), "is-warning"),
+    ACTIVE: (_("Active"), "is-success"),
+    SUSPENDED: (_("Suspended"), "is-warning"),
+    REVOKED: (_("Revoked"), "is-danger"),
 }
 
 #: The states an account with a realm identity can be in, in the order it
 #: passes through them, which is also the order the filter offers. ``BLOCKED``
 #: and ``NOT_PROVISIONED`` describe accounts that have no identity yet; those
-#: live on the create page, which does not filter by state.
-LINKED_STATES = [PROVISIONED, INVITED, ENROLLED, MIGRATED]
+#: live on the invite page, which does not filter by state.
+LINKED_STATES = [PROVISIONED, LINK_SENT, ACTIVE, SUSPENDED, REVOKED]
 
 #: Flags that put an account beyond enrolment altogether. Without an address
 #: there is nowhere to send the invitation, and a deactivated account is one
@@ -79,6 +87,15 @@ class Row:
         return STATES[self.state][1]
 
     @property
+    def sponsor(self):
+        return getattr(self.identity, "sponsor", None)
+
+    @property
+    def password_retired(self):
+        """Only ever true of a grandfathered account, and orthogonal to state."""
+        return bool(getattr(self.identity, "local_password_disabled_at", None))
+
+    @property
     def enrollable(self):
         """False for an account no invitation could ever reach."""
         return not HIDDEN_FLAGS.intersection(self.flags)
@@ -93,12 +110,16 @@ def state_of(identity, flags):
     """
     if identity is None:
         return BLOCKED if flags else NOT_PROVISIONED
-    if identity.local_password_disabled_at is not None:
-        return MIGRATED
+    # Trust overrides progress: somebody revoked has not got anywhere, whatever
+    # they had reached before.
+    if identity.trust_state == TrustState.REVOKED:
+        return REVOKED
+    if identity.trust_state == TrustState.SUSPENDED:
+        return SUSPENDED
     if identity.first_sso_login_at is not None:
-        return ENROLLED
+        return ACTIVE
     if identity.setup_email_sent_at or identity.setup_link_issued_at:
-        return INVITED
+        return LINK_SENT
     return PROVISIONED
 
 
@@ -116,7 +137,8 @@ def rows(users, flags=None):
     # Every identity in one query rather than an IN clause over the whole user
     # table: there is at most one per user and usually far fewer.
     identities = {
-        identity.user_id: identity for identity in KeycloakIdentity.objects.all()
+        identity.user_id: identity
+        for identity in KeycloakIdentity.objects.select_related("sponsor")
     }
     can_publish = publishers()
 
@@ -137,13 +159,19 @@ def rows(users, flags=None):
     return built
 
 
-def linked_rows():
+def linked_rows(sponsored_by=None):
     """Accounts that exist in the realm, for the enrolment list.
 
     These are the ones with somewhere still to go: created, invited, signed in,
     migrated. Ordered by username so paging is stable.
+
+    ``sponsored_by`` narrows the list to the accounts one person vouched for,
+    which is what everybody who is not a superuser sees.
     """
-    linked = set(KeycloakIdentity.objects.values_list("user_id", flat=True))
+    identities = KeycloakIdentity.objects.all()
+    if sponsored_by is not None:
+        identities = identities.filter(sponsor=sponsored_by)
+    linked = set(identities.values_list("user_id", flat=True))
     population = list(all_candidates().order_by("username"))
     flags = flag_users(population)
     return [row for row in rows(population, flags=flags) if row.user.pk in linked]

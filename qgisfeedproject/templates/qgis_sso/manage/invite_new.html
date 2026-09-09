@@ -1,0 +1,114 @@
+{% extends 'layouts/base-fullscreen.html' %}
+{% load i18n %}
+
+{% comment %}
+Bringing in somebody with no account here. The role list offers only what the
+inviter's own tier allows; the view checks that again, because a form is only a
+suggestion.
+{% endcomment %}
+
+{% block content %}
+<div class="sso-profile">
+  <div class="is-flex is-justify-content-space-between is-align-items-center mb-4">
+    <div>
+      <h1 class="title is-4">{% trans "Invite a new user" %}</h1>
+      <p class="subtitle is-6">
+        {% blocktrans trimmed %}
+          Somebody with no QGIS account yet. Their account is created straight
+          away; nothing is sent until you send it.
+        {% endblocktrans %}
+      </p>
+    </div>
+    <a class="button is-light" href="{% url 'qgis_sso:enrolment' %}">
+      {% trans "Back" %}
+    </a>
+  </div>
+
+  <div class="box-content">
+    {% if error %}
+      <div class="notification is-danger">{{ error }}</div>
+    {% endif %}
+
+    {% if not roles %}
+      <div class="notification is-info">
+        {% blocktrans trimmed %}
+          Your account carries no role that can invite anybody. Ask whoever
+          vouched for you if you think it should.
+        {% endblocktrans %}
+      </div>
+    {% else %}
+      <form method="post" action="">
+        {% csrf_token %}
+        <div class="field">
+          <label class="label" for="username">{% trans "Username" %}</label>
+          <div class="control">
+            <input class="input" type="text" id="username" name="username"
+                   required value="{{ form.username|default:"" }}">
+          </div>
+          <p class="help">{% trans "What their entries will be credited to." %}</p>
+        </div>
+        <div class="field">
+          <label class="label" for="email">{% trans "Email" %}</label>
+          <div class="control">
+            <input class="input" type="email" id="email" name="email"
+                   required value="{{ form.email|default:"" }}">
+          </div>
+          <p class="help">
+            {% trans "Where their setup link goes. They will need to reach it." %}
+          </p>
+        </div>
+        <div class="field">
+          <label class="label" for="first_name">{% trans "First name" %}</label>
+          <div class="control">
+            <input class="input" type="text" id="first_name" name="first_name"
+                   value="{{ form.first_name|default:"" }}">
+          </div>
+        </div>
+        <div class="field">
+          <label class="label" for="last_name">{% trans "Last name" %}</label>
+          <div class="control">
+            <input class="input" type="text" id="last_name" name="last_name"
+                   value="{{ form.last_name|default:"" }}">
+          </div>
+        </div>
+        <div class="field">
+          <label class="label" for="role">{% trans "Role" %}</label>
+          <div class="control">
+            <div class="select">
+              <select id="role" name="role">
+                {% for role in roles %}
+                  <option value="{{ role }}"
+                          {% if form.role == role %}selected{% endif %}>{{ role }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+          <p class="help">{% trans "You can only offer a role at or below your own." %}</p>
+        </div>
+
+        <div class="buttons">
+          <button class="button is-primary1" type="submit"
+                  {% if not unlimited and not remaining %}disabled{% endif %}>
+            {% trans "Create the account" %}
+          </button>
+        </div>
+        <p class="help">
+          {% if unlimited %}
+            {% trans "You may invite as many people as you need." %}
+          {% elif remaining %}
+            {% blocktrans trimmed count counter=remaining %}
+              One invitation left. Places free up as the people you have
+              invited sign in.
+            {% plural %}
+              {{ counter }} invitations left. Places free up as the people you
+              have invited sign in.
+            {% endblocktrans %}
+          {% else %}
+            {% trans "No invitations left. Places free up as the people you have invited sign in." %}
+          {% endif %}
+        </p>
+      </form>
+    {% endif %}
+  </div>
+</div>
+{% endblock content %}

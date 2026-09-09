@@ -36,8 +36,8 @@
                                 class="navbar-item has-text-weight-semibold is-size-7">
                                 {% trans "Profile" %}
                             </a>
-                            {# Superuser only, matching the view: these buttons write to a realm shared with hub and plugins. #}
-                            {% if user.is_superuser %}
+                            {# Everyone with a realm account: the page shows only what each may see. #}
+                            {% if user.keycloak_identity %}
                                 <a class="navbar-item has-text-weight-semibold is-size-7"
                                     href="{% url "qgis_sso:enrolment" %}">
                                     {% trans "SSO enrolment" %}

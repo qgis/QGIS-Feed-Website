@@ -1,4 +1,4 @@
-{% load static feed_utils %}
+{% load static feed_utils i18n %}
 
 <!DOCTYPE html>
 <html lang="en" class="has-navbar-fixed-top">
@@ -41,6 +41,16 @@
 
     <section class="section">
         <div class="container content">
+            {% if user.keycloak_identity.trust_state == 'suspended' %}
+                {# Every page, not only the ones somebody remembered to add it to. #}
+                <div class="notification is-warning">
+                    {% blocktrans trimmed %}
+                        Your account is suspended because the person who vouched
+                        for you had their access withdrawn. You can sign in, but
+                        you cannot make changes. A maintainer can restore it.
+                    {% endblocktrans %}
+                </div>
+            {% endif %}
             {% if messages %}
                 {% for message in messages %}
                     <div class="notification is-light

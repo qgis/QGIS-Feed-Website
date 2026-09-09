@@ -1,5 +1,5 @@
 # coding=utf-8
-"""Tables for Keycloak identities and the SSO audit trail.
+"""Tables for Keycloak identities, invitations and the SSO audit trail.
 
 Purely additive: it creates new tables and touches nothing that exists, so
 the reverse migration drops them. Rolling back before any account has been
@@ -82,8 +82,51 @@ class Migration(migrations.Migration):
                     models.JSONField(
                         blank=True,
                         default=list,
-                        help_text="Roles carried by the most recent token. Never authoritative.",
+                        help_text="Roles carried by the most recent token, and so the role set as of that sign-in. Permissions come from the Django groups; the invitation tier comes from here.",
                         verbose_name="last seen roles",
+                    ),
+                ),
+                (
+                    "is_root",
+                    models.BooleanField(
+                        default=False,
+                        help_text="Vouched for by nobody. There may be several, and they are peers.",
+                        verbose_name="root of a trust tree",
+                    ),
+                ),
+                (
+                    "trust_state",
+                    models.CharField(
+                        choices=[
+                            ("active", "Active"),
+                            ("revoked", "Revoked"),
+                            ("suspended", "Suspended"),
+                        ],
+                        db_index=True,
+                        default="active",
+                        max_length=16,
+                        verbose_name="trust",
+                    ),
+                ),
+                ("revoked_at", models.DateTimeField(blank=True, null=True)),
+                (
+                    "revocation_reason",
+                    models.TextField(blank=True, verbose_name="reason"),
+                ),
+                (
+                    "roles_at_revocation",
+                    models.JSONField(
+                        blank=True,
+                        default=list,
+                        help_text="The client roles held when trust was withdrawn.",
+                    ),
+                ),
+                (
+                    "revoked_directly",
+                    models.BooleanField(
+                        default=False,
+                        help_text="True for the account somebody acted on, false for one suspended because its sponsor was. US-5.2 keeps the two apart.",
+                        verbose_name="revoked directly",
                     ),
                 ),
                 (
@@ -129,6 +172,29 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 (
+                    "revoked_by",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="revocations_performed",
+                        to=settings.AUTH_USER_MODEL,
+                        verbose_name="revoked by",
+                    ),
+                ),
+                (
+                    "sponsor",
+                    models.ForeignKey(
+                        blank=True,
+                        help_text="Who vouched for this account. Null only for a root.",
+                        null=True,
+                        on_delete=django.db.models.deletion.PROTECT,
+                        related_name="vouched_for",
+                        to=settings.AUTH_USER_MODEL,
+                        verbose_name="sponsor",
+                    ),
+                ),
+                (
                     "user",
                     models.OneToOneField(
                         on_delete=django.db.models.deletion.PROTECT,
@@ -142,6 +208,17 @@ class Migration(migrations.Migration):
                 "verbose_name": "Keycloak identity",
                 "verbose_name_plural": "Keycloak identities",
                 "ordering": ("-linked_at",),
+                "constraints": [
+                    models.CheckConstraint(
+                        condition=models.Q(
+                            ("sponsor__isnull", False),
+                            ("is_root", True),
+                            ("link_method", "pre-sso-migration"),
+                            _connector="OR",
+                        ),
+                        name="identity_has_a_sponsor_or_is_a_root",
+                    )
+                ],
             },
         ),
         migrations.CreateModel(
@@ -172,6 +249,10 @@ class Migration(migrations.Migration):
                                 "setup-link-issued",
                                 "Setup link issued to an administrator",
                             ),
+                            ("invited", "Invited: account created for somebody new"),
+                            ("revoked-trust", "Trust withdrawn"),
+                            ("suspended", "Suspended: their sponsor was revoked"),
+                            ("restored", "Trust restored"),
                             ("local-password-disabled", "Local password made unusable"),
                         ],
                         db_index=True,

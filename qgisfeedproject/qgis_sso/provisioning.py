@@ -72,11 +72,17 @@ class Provisioner:
         self.client_uuid = self.client.client_uuid(self.client_id)
         self.available_roles = self.client.client_roles(self.client_uuid)
 
-    def inspect(self, user, flags=(), include_flagged=False, linked_ids=None):
+    def inspect(
+        self, user, flags=(), include_flagged=False, linked_ids=None, roles=None
+    ):
         """Decide about one user without writing anything.
 
         ``linked_ids`` lets a caller pass a precomputed set of already-linked
         user ids rather than issuing a query per user.
+
+        ``roles`` overrides what the account would get. Migration derives roles
+        from the Django groups an account already has; somebody arriving on an
+        invitation has none, and the invitation says what they were offered.
         """
         decision = Decision(
             user=user,
@@ -113,7 +119,7 @@ class Provisioner:
                 % {"username": decision.username},
             )
 
-        decision.roles = proposed_roles(user)
+        decision.roles = list(roles) if roles is not None else proposed_roles(user)
         unknown = [role for role in decision.roles if role not in self.available_roles]
         if unknown:
             return self._error(
@@ -126,8 +132,18 @@ class Provisioner:
 
         return decision
 
-    def provision(self, decision):
+    def provision(
+        self,
+        decision,
+        sponsor=None,
+        link_method=LinkMethod.PRE_SSO_MIGRATION,
+    ):
         """Create the realm account described by ``decision`` and record it.
+
+        ``sponsor`` and ``link_method`` are written in the same INSERT as the
+        rest, not set afterwards. The check constraint on the identity fires at
+        insert time, so an identity that acquires its sponsor a line later is
+        one the database has already refused.
 
         Raises :class:`~qgis_sso.keycloak.KeycloakError`. Callers handle that
         per user so that one failure does not abandon the rest of the run.
@@ -160,7 +176,8 @@ class Provisioner:
             issuer=f"{self.client.server_url}/realms/{self.client.realm}",
             preferred_username=decision.username,
             email_at_link=decision.email,
-            link_method=LinkMethod.PRE_SSO_MIGRATION,
+            link_method=link_method,
+            sponsor=sponsor,
         )
         SsoAuditEvent.record(
             SsoAuditEvent.Action.PROVISIONED,
@@ -168,6 +185,7 @@ class Provisioner:
             sub=sub,
             keycloak_username=decision.username,
             roles=decision.roles,
+            sponsor=getattr(sponsor, "username", None),
         )
         return identity
 

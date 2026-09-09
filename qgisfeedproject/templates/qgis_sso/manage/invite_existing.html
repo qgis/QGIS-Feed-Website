@@ -11,7 +11,7 @@ no paging. The search box is how a long list gets narrowed.
 <div class="box-content">
   <div class="is-flex is-justify-content-space-between is-align-items-center mb-4">
     <div>
-      <h1 class="title is-4">{% trans "Create Keycloak accounts" %}</h1>
+      <h1 class="title is-4">{% trans "Invite existing users" %}</h1>
       <p class="subtitle is-6">
         {% blocktrans trimmed %}
           Accounts on this site with nobody behind them at auth.qgis.org yet.
@@ -26,7 +26,7 @@ no paging. The search box is how a long list gets narrowed.
 
   {% if confirming %}
     <div class="box-content sso-confirm mb-4">
-      <h2 class="title is-5">{% trans "Create these Keycloak accounts?" %}</h2>
+      <h2 class="title is-5">{% trans "Invite these people?" %}</h2>
       <table class="table is-fullwidth sso-table">
         <thead>
           <tr>
@@ -69,7 +69,7 @@ no paging. The search box is how a long list gets narrowed.
         </label>
         <div class="buttons">
           <button class="button is-primary1" type="submit">{% trans "Yes, create them" %}</button>
-          <a class="button is-light" href="{% url 'qgis_sso:create' %}">
+          <a class="button is-light" href="{% url 'qgis_sso:invite_existing' %}">
             {% trans "Cancel" %}
           </a>
         </div>

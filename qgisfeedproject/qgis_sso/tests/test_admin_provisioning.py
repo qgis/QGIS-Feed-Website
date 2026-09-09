@@ -165,7 +165,10 @@ class ProvisionActionTest(TestCase):
 
     def test_an_already_linked_user_is_not_provisioned_twice(self):
         KeycloakIdentity.objects.create(
-            user=self.target, sub="sub-existing", issuer="https://auth.example.org"
+            user=self.target,
+            sub="sub-existing",
+            issuer="https://auth.example.org",
+            link_method="pre-sso-migration",
         )
 
         response = self._patched(
@@ -242,7 +245,10 @@ class SendSetupEmailActionTest(TestCase):
             "alice", "alice@example.org", "x", last_login=timezone.now()
         )
         self.identity = KeycloakIdentity.objects.create(
-            user=self.target, sub="sub-alice", issuer="https://auth.example.org"
+            user=self.target,
+            sub="sub-alice",
+            issuer="https://auth.example.org",
+            link_method="pre-sso-migration",
         )
         self.client.force_login(self.superuser, backend=LOCAL_BACKEND)
 

@@ -377,6 +377,33 @@ SSO_ROLE_MAP = {
 # created by hand for an unrelated purpose survives a sign-in.
 SSO_MANAGED_GROUPS = ["qgisfeedentry_authors", "qgisfeedentry_approver"]
 
+# --- the web of trust -------------------------------------------------------
+# Who may invite whom. The ladder is generic; these names and numbers are this
+# site's. Lower is more privileged, and an invitation can never offer a role
+# above the inviter's own tier.
+SSO_ROLE_TIERS = {
+    "admin": 0,
+    "web-maintainer": 1,
+    "reviewer": 2,
+    "usergroup-author": 3,
+    "author": 4,
+}
+
+# Invitations one account may have outstanding at a time, by tier. None is
+# unlimited. Somebody holding roles at two tiers gets the larger allowance, not
+# the sum of the two.
+SSO_TIER_QUOTAS = {0: None, 1: 25, 2: 10, 3: 10, 4: 3}
+
+# How long a revocation can be undone in one action, subtree included. After it
+# the record stays but the button goes: reversing months later is a
+# re-invitation, not an undo.
+SSO_REVOCATION_GRACE_DAYS = int(os.environ.get("SSO_REVOCATION_GRACE_DAYS", "7"))
+
+# What this site does about a revoked person's unpublished work. qgis_sso calls
+# it and knows nothing about entries or statuses, which is what keeps that app
+# portable to the other QGIS sites.
+SSO_ON_REVOKE = "qgisfeed.trust.on_revoke"
+
 # --- account provisioning ---------------------------------------------------
 # None of this is read by the request path.
 SSO_KEYCLOAK_SERVER_URL = QGIS_AUTH_URL

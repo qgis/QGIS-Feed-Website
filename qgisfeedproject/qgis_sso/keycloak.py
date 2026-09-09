@@ -130,6 +130,18 @@ class KeycloakAdminClient:
             raise KeycloakError(f"More than one realm user named {username!r}")
         return users[0]
 
+    def find_user_by_email(self, email):
+        """Return the realm user with exactly this address, or None.
+
+        ``exact=true`` for the same reason as the username search: without it
+        Keycloak matches on prefix.
+        """
+        response = self.request(
+            "GET", "users", params={"email": email, "exact": "true", "max": 2}
+        )
+        users = response.json()
+        return users[0] if users else None
+
     def user_credentials(self, user_id):
         """Every credential on one realm account.
 
@@ -234,3 +246,32 @@ class KeycloakAdminClient:
             f"users/{quote(user_id)}/role-mappings/clients/{quote(client_uuid)}",
             json=list(roles),
         )
+
+    def remove_client_roles(self, user_id, client_uuid, roles):
+        """Take client roles away. Idempotent on Keycloak's side."""
+        if not roles:
+            return
+        self.request(
+            "DELETE",
+            f"users/{quote(user_id)}/role-mappings/clients/{quote(client_uuid)}",
+            json=list(roles),
+        )
+
+    # -- withdrawing access --------------------------------------------------
+
+    def set_user_enabled(self, user_id, enabled):
+        """Turn a realm account on or off.
+
+        Disabling is what makes a revocation hold when this site is not
+        consulted: the account cannot authenticate anywhere in the realm,
+        including at hub and plugins.
+        """
+        self.request("PUT", f"users/{quote(user_id)}", json={"enabled": bool(enabled)})
+
+    def end_sessions(self, user_id):
+        """Sign a user out of the realm everywhere, immediately.
+
+        Without this, revocation only stops the *next* sign-in: an existing
+        session keeps working until its token expires.
+        """
+        self.request("POST", f"users/{quote(user_id)}/logout")

@@ -20,6 +20,9 @@ CLIENT_ID = "feed-qgis-org"
 
 SSO_SETTINGS = {
     "SSO_ISSUER": ISSUER,
+    # Pinned, not inherited. The deployment's .env turns this on, and a test
+    # about subject matching should not change its answer because of that.
+    "SSO_MIGRATION_LINKING": False,
     "OIDC_RP_CLIENT_ID": CLIENT_ID,
     "SSO_MANAGED_GROUPS": ["qgisfeedentry_authors", "qgisfeedentry_approver"],
     "SSO_ROLE_MAP": {
@@ -87,6 +90,10 @@ class FakeRealm:
         self.linked = []
         self.link_payloads = []
         self.assigned = []
+        self.removed = []
+        self.logged_out = []
+        self.disabled = []
+        self.enabled = []
         #: Set to answer a magic-link request with a different subject, the
         #: case where a username has resolved to somebody else in the realm.
         self.answer_with_subject = None
@@ -112,6 +119,15 @@ class FakeRealm:
 
     def assign_client_roles(self, user_id, client_uuid, roles):
         self.assigned.append((user_id, [role["name"] for role in roles]))
+
+    def remove_client_roles(self, user_id, client_uuid, roles):
+        self.removed.append((user_id, [role["name"] for role in roles]))
+
+    def end_sessions(self, user_id):
+        self.logged_out.append(user_id)
+
+    def set_user_enabled(self, user_id, enabled):
+        (self.enabled if enabled else self.disabled).append(user_id)
 
     def execute_actions_email(self, sub, actions, **kwargs):
         self.emailed.append(sub)

@@ -26,13 +26,34 @@ REMOVE_PASSKEY = "remove-passkey"
 
 
 def signed_in(request):
-    """Whether a real person is signed in.
+    """Whether a real person is signed in, right now.
 
-    Read from the session, not ``request.user``: ``QgisFeedUserVisitMiddleware``
-    substitutes a shared ``qgis_user`` account on anonymous requests, so being
-    authenticated proves nothing.
+    Neither half of this is enough on its own. ``request.user`` proves nothing,
+    because ``QgisFeedUserVisitMiddleware`` substitutes a shared ``qgis_user``
+    account on anonymous requests. And the session key outlives the account:
+    when a backend refuses to resolve it - a revoked user, say - Django leaves
+    the key in place, because it only flushes the session when the *auth hash*
+    fails, not when ``get_user`` returns None.
+
+    So the two have to agree. A revoked account leaves a key pointing at
+    nobody, ``request.user`` becomes the shared account, and the mismatch is
+    what catches it.
     """
-    return bool(request.session.get(SESSION_KEY))
+    user = getattr(request, "user", None)
+    if user is None or not user.is_authenticated or not user.is_active:
+        return False
+    return str(user.pk) == str(request.session.get(SESSION_KEY))
+
+
+def trusted(user):
+    """Whether this account may still change anything.
+
+    A suspended account stays active and can sign in, which US-5.2 asks for.
+    Nothing else about it should work, and each view remembering that on its
+    own is how one of them forgets.
+    """
+    identity = getattr(user, "keycloak_identity", None)
+    return identity is None or identity.trusted
 
 
 @method_decorator(never_cache, name="dispatch")

@@ -1,5 +1,5 @@
 # coding=utf-8
-"""Identity and audit models for Keycloak single sign-on."""
+"""Identity, trust and audit models for Keycloak single sign-on."""
 
 from django.conf import settings
 from django.db import models
@@ -16,6 +16,21 @@ class LinkMethod(models.TextChoices):
 
     PRE_SSO_MIGRATION = "pre-sso-migration", _("Pre-SSO migration")
     INVITATION = "invitation", _("Invitation")
+
+
+class TrustState(models.TextChoices):
+    """Whether this account's trust still stands.
+
+    Two ways of losing it, deliberately kept apart. ``REVOKED`` is what happens
+    to the person somebody acted on: their realm roles are gone, their sessions
+    ended and their realm account disabled. ``SUSPENDED`` is what happens to the
+    people they vouched for, who have done nothing wrong - they can still sign
+    in, and see why they can do nothing.
+    """
+
+    ACTIVE = "active", _("Active")
+    REVOKED = "revoked", _("Revoked")
+    SUSPENDED = "suspended", _("Suspended")
 
 
 class KeycloakIdentity(models.Model):
@@ -57,10 +72,68 @@ class KeycloakIdentity(models.Model):
         default=list,
         blank=True,
         verbose_name=_("last seen roles"),
-        # Diagnostics only. Permissions are reconciled onto Django groups and
-        # flags at login; reading them back from here would be reading a cache
-        # that nothing keeps fresh.
-        help_text=_("Roles carried by the most recent token. Never authoritative."),
+        # Not authoritative for permissions - those are reconciled onto Django
+        # groups and flags at login, and reading them back from here would be
+        # reading a cache nothing keeps fresh. It *is* what the trust tier is
+        # computed from, because Django's groups and flags cannot tell an
+        # administrator from a web maintainer: both are superusers here.
+        help_text=_(
+            "Roles carried by the most recent token, and so the role set as of "
+            "that sign-in. Permissions come from the Django groups; the "
+            "invitation tier comes from here."
+        ),
+    )
+
+    # --- the trust graph -------------------------------------------------
+    sponsor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        # PROTECT: an account with descendants cannot be deleted out from under
+        # them. Re-parent or revoke the subtree first.
+        on_delete=models.PROTECT,
+        related_name="vouched_for",
+        verbose_name=_("sponsor"),
+        help_text=_("Who vouched for this account. Null only for a root."),
+    )
+    is_root = models.BooleanField(
+        default=False,
+        verbose_name=_("root of a trust tree"),
+        help_text=_("Vouched for by nobody. There may be several, and they are peers."),
+    )
+
+    # --- withdrawing trust ------------------------------------------------
+    trust_state = models.CharField(
+        max_length=16,
+        choices=TrustState.choices,
+        default=TrustState.ACTIVE,
+        db_index=True,
+        verbose_name=_("trust"),
+    )
+    revoked_at = models.DateTimeField(null=True, blank=True)
+    revoked_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="revocations_performed",
+        verbose_name=_("revoked by"),
+    )
+    revocation_reason = models.TextField(blank=True, verbose_name=_("reason"))
+    roles_at_revocation = models.JSONField(
+        default=list,
+        blank=True,
+        # Removed from Keycloak on revocation, so without this a reversal has
+        # nothing to put back.
+        help_text=_("The client roles held when trust was withdrawn."),
+    )
+    revoked_directly = models.BooleanField(
+        default=False,
+        verbose_name=_("revoked directly"),
+        help_text=_(
+            "True for the account somebody acted on, false for one suspended "
+            "because its sponsor was. US-5.2 keeps the two apart."
+        ),
     )
 
     # --- migration bookkeeping (Phase 4) ---------------------------------
@@ -95,9 +168,32 @@ class KeycloakIdentity(models.Model):
         verbose_name = _("Keycloak identity")
         verbose_name_plural = _("Keycloak identities")
         ordering = ("-linked_at",)
+        constraints = [
+            # US-2.1 wants the single-sponsor rule in the database. A check
+            # constraint cannot ask Keycloak who is an administrator, so
+            # rootness is a flag it can see.
+            #
+            # Grandfathered accounts are exempt rather than parented onto an
+            # invented sponsor: US-9.4 asks for them to stay "an explicit
+            # untrusted-by-default cohort, distinguishable in every query from
+            # genuinely vouched accounts", and link_method is what distinguishes
+            # them. Nobody vouched for them, and the graph should not pretend
+            # somebody did.
+            models.CheckConstraint(
+                condition=models.Q(sponsor__isnull=False)
+                | models.Q(is_root=True)
+                | models.Q(link_method=LinkMethod.PRE_SSO_MIGRATION),
+                name="identity_has_a_sponsor_or_is_a_root",
+            )
+        ]
 
     def __str__(self):
         return f"{self.user} → {self.sub}"
+
+    @property
+    def trusted(self):
+        """Whether this account may hold any permission at all."""
+        return self.trust_state == TrustState.ACTIVE
 
     @property
     def has_logged_in_via_sso(self):
@@ -130,6 +226,10 @@ class SsoAuditEvent(models.Model):
         SETUP_LINK_ISSUED = "setup-link-issued", _(
             "Setup link issued to an administrator"
         )
+        INVITED = "invited", _("Invited: account created for somebody new")
+        REVOKED_TRUST = "revoked-trust", _("Trust withdrawn")
+        SUSPENDED = "suspended", _("Suspended: their sponsor was revoked")
+        RESTORED = "restored", _("Trust restored")
         LOCAL_PASSWORD_DISABLED = "local-password-disabled", _(
             "Local password made unusable"
         )

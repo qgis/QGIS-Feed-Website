@@ -73,7 +73,16 @@ def mirror_roles(user, roles):
     what makes the outcome stable against the ``last_login`` save that
     ``django.contrib.auth.login`` performs after authentication returns.
     """
-    groups, is_staff, is_superuser = target_state(roles)
+    # A suspended account is mirrored to nothing at all. This is what makes
+    # suspension hold: taking somebody's Django groups away achieves nothing on
+    # its own, because this function would hand them straight back from the
+    # token at the next sign-in. US-5.2 wants them able to sign in and see why,
+    # which is why they are not simply refused.
+    identity = getattr(user, "keycloak_identity", None)
+    if identity is not None and not identity.trusted:
+        groups, is_staff, is_superuser = set(), False, False
+    else:
+        groups, is_staff, is_superuser = target_state(roles)
 
     changed = {"roles": sorted(roles or [])}
 

@@ -58,18 +58,22 @@ class HeaderAccountMenuTest(TestCase):
         self.assertContains(response, "Profile")
         self.assertNotContains(response, ACCOUNT_URL)
 
-    def test_the_enrolment_page_is_offered_to_superusers_only(self):
-        """It writes to a realm shared with hub and plugins, so staff is not
-        enough - the same rule the view itself applies."""
-        enrolment = reverse("qgis_sso:enrolment")
+    def test_the_enrolment_page_is_offered_to_anybody_in_the_realm(self):
+        """The page shows each person only what they may see, so the link
+        follows having a realm account rather than being a superuser."""
+        from ..models import KeycloakIdentity
 
-        self.user.is_staff = True
-        self.user.save(update_fields=["is_staff"])
+        enrolment = reverse("qgis_sso:enrolment")
         self.client.force_login(self.user, backend=LOCAL_BACKEND)
+
         self.assertNotContains(self.home(), enrolment)
 
-        self.user.is_superuser = True
-        self.user.save(update_fields=["is_superuser"])
+        KeycloakIdentity.objects.create(
+            user=self.user,
+            sub="sub-1",
+            issuer="https://auth.example.org",
+            link_method="pre-sso-migration",
+        )
         self.assertContains(self.home(), enrolment)
 
     def test_an_anonymous_visitor_is_not_offered_it(self):

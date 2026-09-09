@@ -14,11 +14,14 @@ Nothing here decides anything. Deciding is :mod:`qgis_sso.provisioning`'s job,
 state is :mod:`qgis_sso.enrolment`'s, and this module renders and reports.
 """
 
+import logging
 from urllib.parse import urlencode
 
 from django.contrib import messages
 from django.contrib.auth.decorators import user_passes_test
+from django.contrib.auth.models import User
 from django.core.paginator import EmptyPage, PageNotAnInteger, Paginator
+from django.db import transaction
 from django.http import HttpResponseRedirect
 from django.shortcuts import render
 from django.urls import reverse
@@ -26,6 +29,7 @@ from django.utils.decorators import method_decorator
 from django.utils.translation import gettext as _
 from django.views import View
 
+from . import revocation
 from .actions import (
     is_sso_administrator,
     issue_setup_links,
@@ -36,11 +40,21 @@ from .actions import (
 )
 from .enrolment import LINKED_STATES, STATES, candidate_rows, linked_rows
 from .keycloak import KeycloakError
-from .models import KeycloakIdentity
+from .models import KeycloakIdentity, LinkMethod, SsoAuditEvent
 from .provisioning import Provisioner, setup_redirect_uri
+from .tiers import invitable_roles, may_invite, remaining
+from .views_profile import signed_in, trusted
+
+logger = logging.getLogger(__name__)
 
 SEND_EMAIL = "send-email"
 ISSUE_LINK = "issue-link"
+RESTORE = "restore"
+
+#: Where a freshly issued setup link waits for the page it is shown on. It
+#: cannot go through messages: that framework's fallback storage is a cookie,
+#: and this is a credential. Popped by the listing, so it appears exactly once.
+ISSUED_SESSION_KEY = "qgis_sso_issued_link"
 
 #: Rows a page on the list. Deliberately not the selection cap on the create
 #: page: that exists because each account costs several synchronous calls to
@@ -70,26 +84,39 @@ def report(request, run):
             messages.warning(request, text)
 
 
-@superuser_only
 class EnrolmentView(View):
     """Accounts that exist in the realm, one row at a time.
 
-    Superuser-only, not merely staff: the service account behind these buttons
-    can create realm users and grant client roles in a realm shared with hub and
-    plugins. A user who fails that test is sent to the login page with a
-    ``next``, which renders the "your account lacks the permission" page rather
-    than a login form they are already past.
+    Open to anybody with a realm account of their own, showing what each is
+    entitled to see: a superuser gets every identity, everybody else only the
+    accounts they vouched for. The scoping is applied again when a row is acted
+    on, because a listing that merely omits a row does not stop anybody posting
+    its id.
     """
 
     template_name = "qgis_sso/manage/enrolment.html"
+
+    def dispatch(self, request, *args, **kwargs):
+        if not signed_in(request):
+            return HttpResponseRedirect(
+                f"{reverse('login')}?next={reverse('qgis_sso:enrolment')}"
+            )
+        return super().dispatch(request, *args, **kwargs)
 
     def get(self, request):
         return render(request, self.template_name, self.page_context(request))
 
     def post(self, request):
         action = request.POST.get("action", "")
-        identity = self.selected_identity(request)
         context = self.page_context(request)
+
+        # A suspended account keeps is_active - US-5.2 says they may sign in -
+        # so nothing else stops them acting on the people they invited.
+        if not trusted(request.user):
+            messages.error(request, _("Your account cannot make changes."))
+            return render(request, self.template_name, context)
+
+        identity = self.selected_identity(request)
 
         if identity is None:
             messages.error(request, _("That account is not in the realm."))
@@ -99,6 +126,8 @@ class EnrolmentView(View):
             return self.issue_link(request, identity, context)
         if action == SEND_EMAIL:
             return self.send_email(request, identity, context)
+        if action == RESTORE:
+            return self.restore(request, identity)
 
         messages.error(request, _("Unknown action."))
         return render(request, self.template_name, context)
@@ -107,14 +136,17 @@ class EnrolmentView(View):
     def selected_identity(request):
         """The identity this row acts on, or None.
 
-        Resolved from the database rather than trusted: a hand-made POST can
-        carry anything, including the primary key of an account that has no
-        realm identity at all.
+        Resolved from the database rather than trusted, and narrowed to what
+        this person may act on at all: a hand-made POST can carry anything,
+        including the id of an account somebody else vouched for.
         """
         value = request.POST.get("identity", "")
         if not value.isdigit():
             return None
-        return KeycloakIdentity.objects.filter(pk=value).select_related("user").first()
+        identities = KeycloakIdentity.objects.select_related("user")
+        if not request.user.is_superuser:
+            identities = identities.filter(sponsor=request.user)
+        return identities.filter(pk=value).first()
 
     # -- the actions -------------------------------------------------------
 
@@ -166,6 +198,19 @@ class EnrolmentView(View):
         response["Cache-Control"] = "no-store"
         return response
 
+    def restore(self, request, identity):
+        try:
+            revocation.restore(request.user, identity)
+        except revocation.RevocationError as error:
+            messages.error(request, str(error))
+        else:
+            messages.success(
+                request,
+                _("%(username)s and their subtree are active again.")
+                % {"username": identity.user.username},
+            )
+        return self.back(request)
+
     def session(self, request):
         """``(provisioner, redirect_uri)``, or None with the reason reported."""
         try:
@@ -199,7 +244,11 @@ class EnrolmentView(View):
         state = request.GET.get("state", "")
         search = request.GET.get("q", "").strip()
 
-        matching = linked_rows()
+        # A superuser sees the whole forest; everybody else sees their own
+        # branch of it.
+        matching = linked_rows(
+            sponsored_by=None if request.user.is_superuser else request.user
+        )
         counts = {key: 0 for key in LINKED_STATES}
         for row in matching:
             counts[row.state] += 1
@@ -229,11 +278,16 @@ class EnrolmentView(View):
             "state": state,
             "search": search,
             "totals": [(key, STATES[key][0], counts[key]) for key in LINKED_STATES],
+            "may_invite_new": bool(invitable_roles(request.user)),
+            "everyone": request.user.is_superuser,
+            # Shown once, then gone: put here by the invite form across its
+            # redirect, because a credential cannot go through messages.
+            "issued": request.session.pop(ISSUED_SESSION_KEY, None),
         }
 
 
 @superuser_only
-class CreateAccountsView(View):
+class InviteExistingView(View):
     """Accounts that have no realm identity yet.
 
     Not paginated, and that is the point: this is the one place a selection is
@@ -241,7 +295,7 @@ class CreateAccountsView(View):
     search box is how a long list is narrowed.
     """
 
-    template_name = "qgis_sso/manage/create.html"
+    template_name = "qgis_sso/manage/invite_existing.html"
 
     def get(self, request):
         return render(request, self.template_name, self.page_context(request))
@@ -318,7 +372,7 @@ class CreateAccountsView(View):
                     "account."
                 ),
             )
-        return HttpResponseRedirect(reverse("qgis_sso:create"))
+        return HttpResponseRedirect(reverse("qgis_sso:invite_existing"))
 
     def page_context(self, request):
         search = request.GET.get("q", "").strip()
@@ -341,3 +395,273 @@ class CreateAccountsView(View):
             "hidden": hidden,
             "max_users": max_users_per_action(),
         }
+
+
+class InviteNewView(View):
+    """Bring in somebody who has no account here at all.
+
+    The web-of-trust route, open to anyone whose roles carry quota. The account
+    is created straight away rather than a link being handed out that creates
+    one later: the inviter types the address, so nobody else can choose it, and
+    there is no public endpoint that makes accounts.
+    """
+
+    template_name = "qgis_sso/manage/invite_new.html"
+
+    def dispatch(self, request, *args, **kwargs):
+        if not signed_in(request):
+            return HttpResponseRedirect(
+                f"{reverse('login')}?next={reverse('qgis_sso:invite_new')}"
+            )
+        if not trusted(request.user):
+            messages.error(request, _("Your account cannot invite anybody."))
+            return HttpResponseRedirect(reverse("qgis_sso:enrolment"))
+        return super().dispatch(request, *args, **kwargs)
+
+    def get(self, request):
+        return render(request, self.template_name, self.page_context(request, {}))
+
+    def post(self, request):
+        form = {
+            key: request.POST.get(key, "").strip()
+            for key in ("username", "email", "first_name", "last_name", "role")
+        }
+
+        error = self.check_locally(request.user, form)
+        if error:
+            return self.again(request, form, error)
+
+        try:
+            provisioner = Provisioner()
+            taken = self.check_realm(provisioner, form)
+            if taken:
+                return self.again(request, form, taken)
+            identity = self.create(request, provisioner, form)
+        except KeycloakError as error:
+            # Not echoed: it can carry realm detail the reader cannot act on.
+            logger.warning("Invitation failed against the realm: %s", error)
+            return self.again(
+                request,
+                form,
+                _("The account could not be created just now. Try again shortly."),
+            )
+
+        messages.success(
+            request,
+            _("%(username)s now has an account. Nothing has been sent to them yet.")
+            % {"username": identity.user.username},
+        )
+        return HttpResponseRedirect(reverse("qgis_sso:enrolment"))
+
+    # -- the checks --------------------------------------------------------
+
+    def check_locally(self, user, form):
+        """Whatever is wrong with the form, one message at a time."""
+        if not may_invite(user, form["role"]):
+            # One message for "no such role" and "above your tier": neither
+            # tells a prober anything about the ladder.
+            return _("You cannot invite somebody at that level.")
+
+        left = remaining(user)
+        if left is not None and left <= 0:
+            return _(
+                "You have no invitations left. They free up as the people you "
+                "have already invited sign in."
+            )
+
+        if not form["username"]:
+            return _("Choose a username.")
+        if not form["email"]:
+            return _("An email address is needed to send the setup link.")
+        if User.objects.filter(username__iexact=form["username"]).exists():
+            return _("That username is taken here. Choose another.")
+        if User.objects.filter(email__iexact=form["email"]).exists():
+            return _("There is already an account here for that address.")
+        return None
+
+    @staticmethod
+    def check_realm(provisioner, form):
+        """Whether the realm already knows this username or address.
+
+        Checked before anything is written. An address already in the realm
+        belongs to somebody, and enrolling a second account onto it would send
+        them a setup link they never asked for.
+        """
+        if provisioner.client.find_user_by_username(form["username"].lower()):
+            return _("That username is taken in the QGIS realm. Choose another.")
+        if provisioner.client.find_user_by_email(form["email"]):
+            return _(
+                "That address already has a QGIS account. Invite them as an "
+                "existing user instead, or ask them to sign in."
+            )
+        return None
+
+    # -- the write ---------------------------------------------------------
+
+    def create(self, request, provisioner, form):
+        """Make the account here and in the realm, and fetch its setup link.
+
+        One transaction. The realm write inside it cannot be rolled back, so a
+        later failure leaves an unused realm account, which is recoverable by
+        hand; the reverse - a local account with nothing behind it - is not.
+        """
+        with transaction.atomic():
+            user = User.objects.create_user(
+                username=form["username"],
+                email=form["email"],
+                first_name=form["first_name"],
+                last_name=form["last_name"],
+            )
+            # No usable password, ever: this account signs in through Keycloak
+            # or not at all.
+            user.set_unusable_password()
+            user.save(update_fields=["password"])
+
+            decision = provisioner.inspect(user, roles=[form["role"]])
+            if not decision.actionable:
+                raise KeycloakError(decision.reason)
+
+            # The sponsor goes in with the rest: the check constraint fires at
+            # insert, so setting it afterwards is setting it too late.
+            identity = provisioner.provision(
+                decision,
+                sponsor=request.user,
+                link_method=LinkMethod.INVITATION,
+            )
+            SsoAuditEvent.record(
+                SsoAuditEvent.Action.INVITED,
+                user=user,
+                sub=identity.sub,
+                sponsor=request.user.username,
+                role=form["role"],
+            )
+
+        # After the commit: the link is worth nothing if the account it belongs
+        # to has just been rolled back.
+        self.offer_link(request, provisioner, identity)
+        return identity
+
+    @staticmethod
+    def offer_link(request, provisioner, identity):
+        """Fetch the setup link, if the realm can hand one back.
+
+        A convenience rather than a requirement - the account exists either way
+        and the setup email is a button on the list - so a realm that cannot
+        mint links is reported and nothing else.
+        """
+        try:
+            link = provisioner.issue_setup_link(identity, setup_redirect_uri())
+        except (KeycloakError, ValueError) as error:
+            logger.info("No setup link issued for %s: %s", identity.sub, error)
+            return
+        request.session[ISSUED_SESSION_KEY] = {
+            "username": identity.user.username,
+            "link": link,
+        }
+
+    # -- rendering ---------------------------------------------------------
+
+    def again(self, request, form, error):
+        context = self.page_context(request, form)
+        context["error"] = error
+        return render(request, self.template_name, context, status=400)
+
+    @staticmethod
+    def page_context(request, form):
+        left = remaining(request.user)
+        return {
+            "form": form,
+            "roles": invitable_roles(request.user),
+            "remaining": left,
+            "unlimited": left is None,
+        }
+
+
+class RevokeView(View):
+    """Withdrawing trust from one account, on a page of its own.
+
+    Separate from the list because it is not a row action in the sense the
+    other two are: it asks for a reason, and it has to show by name everybody
+    the cascade would reach. Both belong somewhere with room, and somewhere a
+    reader can arrive at, read, and leave without having acted.
+    """
+
+    template_name = "qgis_sso/manage/revoke.html"
+
+    def dispatch(self, request, *args, **kwargs):
+        if not signed_in(request):
+            return HttpResponseRedirect(f"{reverse('login')}?next={request.path}")
+        return super().dispatch(request, *args, **kwargs)
+
+    def get(self, request, pk):
+        blast = self.blast_or_none(request, pk)
+        if blast is None:
+            return self.refuse(request)
+        return render(request, self.template_name, self.context(blast, ""))
+
+    def post(self, request, pk):
+        blast = self.blast_or_none(request, pk)
+        if blast is None:
+            return self.refuse(request)
+
+        reason = request.POST.get("reason", "").strip()
+        if not reason:
+            return render(
+                request,
+                self.template_name,
+                dict(self.context(blast, reason), reason_missing=True),
+                status=400,
+            )
+
+        try:
+            revocation.revoke(request.user, blast.target, reason)
+        except revocation.RevocationError as error:
+            messages.error(request, str(error))
+            return HttpResponseRedirect(reverse("qgis_sso:enrolment"))
+
+        messages.success(
+            request,
+            _(
+                "Trust withdrawn from %(username)s. %(count)d other account(s) "
+                "suspended."
+            )
+            % {
+                "username": blast.target.user.username,
+                "count": len(blast.descendants),
+            },
+        )
+        return HttpResponseRedirect(reverse("qgis_sso:enrolment"))
+
+    @staticmethod
+    def context(blast, reason):
+        return {
+            "blast": blast,
+            "reason": reason,
+            "grace_days": revocation.grace().days,
+        }
+
+    @staticmethod
+    def blast_or_none(request, pk):
+        """What revoking this account would do, or None if it may not be.
+
+        ``preview`` applies the permission rule, so being able to see this page
+        at all is the same check as being able to act on it. One answer for
+        "no such account" and "not yours", so the page cannot be used to find
+        out who exists.
+        """
+        identity = (
+            KeycloakIdentity.objects.select_related("user", "sponsor")
+            .filter(pk=pk)
+            .first()
+        )
+        if identity is None:
+            return None
+        try:
+            return revocation.preview(request.user, identity)
+        except revocation.RevocationError:
+            return None
+
+    @staticmethod
+    def refuse(request):
+        messages.error(request, _("You cannot withdraw trust from that account."))
+        return HttpResponseRedirect(reverse("qgis_sso:enrolment"))

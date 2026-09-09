@@ -20,7 +20,7 @@ from django.db import transaction
 from django.utils import timezone
 from mozilla_django_oidc.auth import OIDCAuthenticationBackend
 
-from .models import KeycloakIdentity, LinkMethod, SsoAuditEvent
+from .models import KeycloakIdentity, LinkMethod, SsoAuditEvent, TrustState
 from .provisioning import disable_local_password
 from .roles import mirror_roles
 
@@ -93,6 +93,21 @@ class QGISOIDCAuthenticationBackend(OIDCAuthenticationBackend):
 
         return payload
 
+    def get_user(self, user_id):
+        """Resolve a session back to its user, refusing a closed account.
+
+        ``mozilla-django-oidc`` looks the user up by primary key and returns it,
+        without the ``is_active`` check ``ModelBackend`` applies. Every request
+        from an existing session goes through here, so without this a revoked
+        account stays signed in with its permissions intact until the session
+        expires - the realm block only stops the *next* sign-in, and there is
+        never a next one.
+        """
+        user = super().get_user(user_id)
+        if user is not None and not user.is_active:
+            return None
+        return user
+
     def verify_claims(self, claims):
         """Userinfo claims must carry a subject.
 
@@ -154,6 +169,7 @@ class QGISOIDCAuthenticationBackend(OIDCAuthenticationBackend):
             # shouting about if it ever happens.
             raise SuspiciousOperation("More than one user matched one subject")
         if len(users) == 1:
+            self.refuse_if_revoked(users[0], claims)
             return self.update_user(users[0], claims)
 
         user = self.link_migrated_user(claims)
@@ -162,6 +178,29 @@ class QGISOIDCAuthenticationBackend(OIDCAuthenticationBackend):
 
         self.refuse(claims)
         return None
+
+    def refuse_if_revoked(self, user, claims):
+        """Turn a revoked account away here as well as in the realm.
+
+        Revocation disables the realm account, so this should be unreachable.
+        It is here because "should be" is doing a lot of work in that sentence:
+        somebody may re-enable the account in the Keycloak console without
+        knowing what it meant here, and a revocation that quietly stops holding
+        is worse than one that never happened.
+
+        A *suspended* account is let through deliberately. US-5.2 says they may
+        sign in and see why; the permissions are withheld by role mirroring.
+        """
+        identity = getattr(user, "keycloak_identity", None)
+        if identity is None or identity.trust_state != TrustState.REVOKED:
+            return
+        SsoAuditEvent.record(
+            SsoAuditEvent.Action.REFUSED,
+            user=user,
+            sub=claims.get("sub", ""),
+            reason="trust withdrawn",
+        )
+        raise SuspiciousOperation("Trust has been withdrawn from this account")
 
     # -- migration linking -------------------------------------------------
 

@@ -65,24 +65,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Passkey-only accounts.** Provisioned users verify their address and enrol
   a passkey; no password and no TOTP secret is ever set, so there is no
   password to phish or reuse. `SSO_REQUIRED_ACTIONS` carries this.
-- **Enrolment pages under `/sso/manage/`**, superuser-only and linked from the
-  site header.
-  - The list holds the accounts that exist in the realm and where each has got
-    to — created, invited, signed in, migrated — ten a page, filtered and
-    searchable. Each row acts on itself: send the setup email, after one
-    confirmation, or get the link. No checkbox selection, because one cannot
-    survive paging.
-  - *Create Keycloak accounts* opens a second page of candidates — users with
-    nobody behind them in the realm — where a wave is ticked and confirmed
-    against a preview of what each account would become. Not paginated, so the
-    selection cannot be lost; searchable instead.
-  - Accounts no invitation could reach — no address, or deactivated — are left
-    off both and counted, since the admin user list is where those are dealt
-    with.
-  - State is read from this site's own database, so neither page waits on
-    Keycloak to render; the realm is contacted only when something is pressed.
-  - The existing admin actions stay and remain the way to act on a whole wave.
-    All of them now call one shared engine rather than several that could drift.
 - **An enrolment link can be handed over instead of emailed**, for somebody on a
   call whose email is not arriving. Shown once with a copy button, never stored,
   never logged and never put through the messages framework; the audit trail
@@ -96,9 +78,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   spent, so a link would authenticate with no passkey at all and open a session
   across the whole realm. Somebody who has lost every device gets the email
   instead, which reaches them rather than the administrator asking for it.
+- **Invitations — the first slice of the web of trust.** Somebody with quota
+  brings in somebody they know, and the account that results permanently records
+  who vouched for it.
+  - `/sso/manage/` opens to anyone with a realm account. A superuser sees every
+    account as before; everybody else sees only the ones they vouched for, and
+    is refused a row outside that set even by posting its id.
+  - An **Invite** menu replaces *Create Keycloak accounts*. *New user* is open
+    to anyone whose roles carry quota and creates the account in both places
+    straight away; *Existing user* stays superuser-only, because it reaches the
+    whole user list.
+  - The setup link is shown once on the list afterwards, with a copy button,
+    carried in the session rather than through the messages framework, whose
+    fallback storage is a cookie. Nothing is emailed until you press *Send
+    email*.
+  - Who may offer what comes from `SSO_ROLE_TIERS` and `SSO_TIER_QUOTAS`,
+    declared beside `SSO_ROLE_MAP` and reusing its role names. Holding two roles
+    gives the more privileged tier and the larger allowance, never the sum. A
+    place is held by every account you invited that has not signed in yet. Tier
+    governs invitations only; content permissions are unchanged.
+  - The role offered is checked when the form is rendered and again on submit,
+    and username and address must be free both here and in the realm.
+  - `KeycloakIdentity` gains `sponsor` and `is_root`, with a check constraint
+    that every identity has a sponsor unless it is a root — or was grandfathered
+    in before there was a graph. Migrated accounts are **not** given an invented
+    sponsor: US-9.4 asks for them to stay an explicit untrusted-by-default
+    cohort, and `link_method` is what tells them apart.
+  - There is no self-service redemption endpoint, deliberately. Creating the
+    account when the invitation is issued means the inviter types the address,
+    so a leaked link cannot be used by a stranger to make a realm account.
+- **Withdrawing trust.** Revoking somebody removes their Keycloak client roles,
+  ends their sessions and disables their realm account, so the block holds at
+  `auth.qgis.org` rather than depending on this site. Everybody they vouched for
+  is *suspended*: still able to sign in, shown a banner explaining why, and
+  holding no permissions until it is reversed.
+  - Suspension is enforced through role mirroring, which grants nothing while it
+    lasts. Removing Django groups alone would not have worked — mirroring
+    reconciles them from the token at every sign-in and would hand them back.
+  - You may act anywhere in your own subtree and nowhere else; a root may act
+    anywhere except on another root, since removing one needs a second root to
+    agree (US-5.5, not built).
+  - The blast radius is listed by name before you confirm, and a reason is
+    required and audited.
+  - Reversal restores the recorded roles and clears the subtree in one action
+    within `SSO_REVOCATION_GRACE_DAYS`; accounts suspended by a different
+    revocation are left alone.
+  - Content is retained. `SSO_ON_REVOKE` names what the site does about
+    unpublished work; the feed's returns pending and approved entries to draft so
+    revoked work cannot be published by a reviewer who has no reason to know.
+- **The enrolment list shows who vouched for whom**, which the sponsor field has
+  recorded since invitations were added without anything displaying it.
 - `docs/sso.md` — contributor and maintainer documentation.
 
 ### Changed
+
+- **The account state ladder now means one thing.** *Created → Link sent →
+  Active*, plus *Suspended* and *Revoked*. `Invited` was ambiguous once accounts
+  could arrive by invitation — it described both a state and an origin — and
+  `Migrated` was not a state at all: it meant a local password had been retired,
+  which can only happen to a grandfathered account and says nothing about
+  progress. That is a marker on the row now.
 
 - **Login page** keeps its existing layout — username, password and the QGIS
   account button. The only change is that the password form is now rendered

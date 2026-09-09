@@ -91,12 +91,10 @@ by hand for some other purpose survives a sign-in untouched.
 
 ### The enrolment pages
 
-Two of them, linked from the site header for superusers, because they are two
-jobs.
-
-**`/sso/manage/` — accounts that exist in the realm.** Every account with a
-Keycloak identity, and where it has got to: *account created*, *invited*,
-*signed in*, *migrated*. Ten rows a page, filtered by state or searched by
+`/sso/manage/` is open to anyone with a realm account, and shows what each is
+entitled to see: a superuser gets every account with a Keycloak identity,
+everybody else only the ones they vouched for. Ten rows a page, filtered by
+state — *account created*, *invited*, *signed in*, *migrated* — or searched by
 name. Each row acts on itself:
 
 - **Send email** — the account-setup email, after one confirmation. It reaches a
@@ -104,27 +102,77 @@ name. Each row acts on itself:
 - **Get the link** — see *Handing over a link* below. No confirmation: nothing
   leaves the building until you pass it on.
 
-**`/sso/manage/create/` — accounts that do not.** Reached from the *Create
-Keycloak accounts* button. Users on this site with nobody behind them in the
-realm, tick the ones you want and confirm; the confirmation lists the Keycloak
-username, the roles and the outcome for each before anything is written. Capped
-at `SSO_ADMIN_ACTION_MAX_USERS` (25) per run, which is about how many
-synchronous calls to Keycloak fit in one request. Deliberately **not
-paginated** — a selection cannot be lost by paging if there is no paging — so
-use the search box on a long list.
+Both are refused for a row outside your own branch, whether or not the listing
+showed it.
 
-Accounts that no invitation could reach — no email address, or deactivated —
-are left off and counted in a line under the table. They are not work in
-progress, and the admin user list with its **SSO account** filter is the place
-to deal with them. Dormant and never-used accounts *are* offered, with the flag
-shown beside them: they can be enrolled, somebody just has to decide to.
+The **Invite** menu is described under *Invitations* below. *Existing user*
+opens `/sso/manage/invite/existing/`: accounts on this site with nobody behind
+them in the realm, ticked and confirmed against a preview of the Keycloak
+username, roles and outcome for each. Capped at `SSO_ADMIN_ACTION_MAX_USERS`
+(25) per run, which is about how many synchronous calls to Keycloak fit in one
+request, and deliberately **not paginated** — a selection cannot be lost by
+paging if there is no paging.
 
-Both pages read state from this site's own database, so neither waits on
-Keycloak to render. The realm is contacted only when you press something.
+Accounts no invitation could reach — no email address, or deactivated — are left
+off and counted in a line under the table. They are not work in progress, and the
+admin user list with its **SSO account** filter is where those get dealt with.
+Dormant and never-used accounts *are* offered, with the flag shown beside them.
+
+The pages read state from this site's own database, so neither waits on Keycloak
+to render. The realm is contacted only when you press something.
 
 Selecting a whole wave and acting on it in one go is still the Django admin's
 job — see below. All of it runs through the same code, so the rules and the
 wording are identical wherever you start.
+
+### Withdrawing trust
+
+**Revoked** is what happens to the person acted on. Their client roles are
+removed, their sessions ended and their realm account disabled, so the block
+holds at `auth.qgis.org` rather than depending on this site being consulted.
+Locally they are deactivated, and the roles they held are recorded first so a
+reversal has something to put back.
+
+**Suspended** is what happens to everybody they vouched for. Those people can
+still sign in and see a banner explaining why, but hold no permissions — US-5.2
+is explicit that suspension is lighter than revocation, because they have done
+nothing wrong.
+
+That distinction is enforced in different places, and it matters. Suspension is
+local, because `roles.mirror_roles` reconciles Django's groups from the token at
+**every** sign-in: taking somebody's groups away achieves nothing on its own, as
+the next authentication hands them straight back. Anything meant to last happens
+in Keycloak, or is respected by the mirroring.
+
+Who may act:
+
+- Anywhere in your own subtree, and nowhere else. Never an ancestor, never
+  across branches.
+- A root may act anywhere except on another root. Removing a root needs a second
+  root to agree (US-5.5), which is not built, so it is refused with that reason.
+- Standing down voluntarily (US-5.3) is not built either; it re-parents
+  descendants rather than suspending them, so it is not the same button.
+
+Withdrawing trust has its own page, `/sso/manage/revoke/<id>/`, reached from
+the row. Getting there changes nothing, so it can be opened, read and left. It
+lists the whole blast radius **by name** — US-5.2 asks for no surprises, and a
+cascade larger than expected is the one mistake here that cannot be walked back
+casually — and requires a reason, which goes in the audit trail. Being able to
+see the page is the same check as being able to act on it, and a forbidden
+account reads exactly like one that does not exist.
+
+**Reversal** restores the recorded roles, re-enables the realm account and
+clears the subtree in one action, within `SSO_REVOCATION_GRACE_DAYS` (7). After
+that the record stays but the button goes: reversing months later is a
+re-invitation, not an undo. Accounts suspended by a *different* revocation are
+left alone.
+
+Content is **retained**. `SSO_ON_REVOKE` names what this site does about the
+person's unpublished work — `qgisfeed.trust.on_revoke` returns entries in
+*pending review* or *approved* to *draft*, so an approved entry from somebody
+revoked an hour ago cannot be published by a reviewer working through the queue
+who has no reason to know. Published entries are left alone, and nothing is
+deleted or re-attributed.
 
 ### The same steps in the admin
 
@@ -232,6 +280,57 @@ rest are reported and left alone, because taking the password from somebody
 who has not yet signed in through Keycloak locks them out of an account they
 cannot recover. Accounts that linked themselves through the migration-linking
 path already had this done at link time.
+
+### Invitations
+
+The first slice of the [web of trust](../SSO-Web-Of-Trust.md): somebody with
+quota brings in somebody they know, and the account that results permanently
+records who vouched for it.
+
+`/sso/manage/` is open to anyone with a realm account, and shows what each is
+entitled to see — a superuser gets every account, everybody else only the ones
+they vouched for. The **Invite** menu offers two routes:
+
+- **New user** — anyone whose roles carry quota. A short form, and the account
+  is created immediately in both places. Nothing is sent until you send it.
+- **Existing user** — superusers only. Grafts accounts that already exist here
+  into the realm; it reaches the whole user list, which is why it is not open
+  to everybody with quota.
+
+Who may offer what is the ladder in `SSO_ROLE_TIERS`, whose role names are the
+ones already in `SSO_ROLE_MAP`:
+
+| Tier | Role | May offer | Open places |
+|---|---|---|---|
+| 0 | `admin` | anything | unlimited |
+| 1 | `web-maintainer` | tier 1 and below | 25 |
+| 2 | `reviewer` | tier 2 and below | 10 |
+| 3 | `usergroup-author` | tier 3 and below | 10 |
+| 4 | `author` | `author` only | 3 |
+
+Somebody holding two roles gets the more privileged tier and the *larger* of the
+two allowances, never their sum. A place is held by every account you invited
+that has not signed in yet, and frees up when they do. Tier governs invitations
+and nothing else — what you may do to an entry still comes from the mirrored
+Django permissions.
+
+The role is checked against the inviter's tier when the form is rendered *and*
+again on submit, because a form is only a suggestion. Username and address must
+be free both here and in the realm; an address already in the realm belongs to
+somebody, and enrolling a second account onto it would send them a setup link
+they never asked for.
+
+After inviting, the setup link is shown once on `/sso/manage/`, with a copy
+button, exactly as *Get the link* shows it. It is carried there in the session
+rather than through the messages framework, whose fallback storage is a cookie.
+Reload and it is gone; use **Send email** on the row to have Keycloak deliver it
+instead.
+
+**There is no self-service redemption endpoint**, deliberately. An earlier
+design handed out a signed token that created the account when redeemed, which
+meant a public page where a stranger holding a leaked link could create a realm
+account with an address of their choosing. Creating the account at the moment of
+invitation removes that entirely: the inviter types the address.
 
 ### The account menu and the profile page
 

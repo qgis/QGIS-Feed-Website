@@ -16,5 +16,19 @@ urlpatterns = [
     path("sign-in-failed/", views.sign_in_failed, name="sign_in_failed"),
     path("profile/", views_profile.ProfileView.as_view(), name="profile"),
     path("manage/", views_manage.EnrolmentView.as_view(), name="enrolment"),
-    path("manage/create/", views_manage.CreateAccountsView.as_view(), name="create"),
+    path(
+        "manage/invite/new/",
+        views_manage.InviteNewView.as_view(),
+        name="invite_new",
+    ),
+    path(
+        "manage/invite/existing/",
+        views_manage.InviteExistingView.as_view(),
+        name="invite_existing",
+    ),
+    path(
+        "manage/revoke/<int:pk>/",
+        views_manage.RevokeView.as_view(),
+        name="revoke",
+    ),
 ]

@@ -13,14 +13,43 @@ cannot survive paging, and a whole wave is what the Django admin is for.
     <div>
       <h1 class="title is-4">{% trans "SSO enrolment" %}</h1>
       <p class="subtitle is-6">
-        {% blocktrans trimmed %}
-          Accounts that exist at auth.qgis.org, and where each of them has got to.
-        {% endblocktrans %}
+        {% if everyone %}
+          {% blocktrans trimmed %}
+            Every account at auth.qgis.org, and where each of them has got to.
+          {% endblocktrans %}
+        {% else %}
+          {% blocktrans trimmed %}
+            The people you have invited, and where each of them has got to.
+          {% endblocktrans %}
+        {% endif %}
       </p>
     </div>
-    <a class="button is-primary1" href="{% url 'qgis_sso:create' %}">
-      {% trans "Create Keycloak accounts" %}
-    </a>
+    {% if everyone or may_invite_new %}
+      <div class="dropdown is-hoverable is-right">
+        <div class="dropdown-trigger">
+          <button class="button is-primary1" aria-haspopup="true"
+                  aria-controls="invite-menu">
+            <span class="icon is-small"><i class="fas fa-user-plus"></i></span>
+            <span>{% trans "Invite" %}</span>
+            <span class="icon is-small"><i class="fas fa-angle-down"></i></span>
+          </button>
+        </div>
+        <div class="dropdown-menu" id="invite-menu" role="menu">
+          <div class="dropdown-content">
+            {% if may_invite_new %}
+              <a class="dropdown-item" href="{% url 'qgis_sso:invite_new' %}">
+                {% trans "New user" %}
+              </a>
+            {% endif %}
+            {% if everyone %}
+              <a class="dropdown-item" href="{% url 'qgis_sso:invite_existing' %}">
+                {% trans "Existing user" %}
+              </a>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    {% endif %}
   </div>
 
   {% if issued %}
@@ -56,7 +85,7 @@ cannot survive paging, and a whole wave is what the Django admin is for.
     </div>
   {% endif %}
 
-  {% if confirming %}
+  {% if confirming == 'send-email' %}
     <div class="box-content sso-confirm mb-4">
       <h2 class="title is-5">{% trans "Send the account-setup email?" %}</h2>
       <div class="notification is-warning">
@@ -112,6 +141,7 @@ cannot survive paging, and a whole wave is what the Django admin is for.
       <tr>
         <th scope="col" class="sso-account">{% trans "Account" %}</th>
         <th scope="col">{% trans "State" %}</th>
+        <th scope="col">{% trans "Vouched for by" %}</th>
         <th scope="col">{% trans "Roles" %}</th>
         <th scope="col">{% trans "Last step" %}</th>
         <th scope="col">{% trans "Invite" %}</th>
@@ -130,11 +160,16 @@ cannot survive paging, and a whole wave is what the Django admin is for.
               <br><small>{{ row.flags|join:", " }}</small>
             {% endif %}
           </td>
+          <td>
+            {% if row.sponsor %}
+              {{ row.sponsor.get_full_name|default:row.sponsor.username }}
+            {% else %}
+              <span title="{% trans 'Here before there was a trust graph, or a root.' %}">—</span>
+            {% endif %}
+          </td>
           <td>{{ row.proposed_roles|join:", "|default:"—" }}</td>
           <td>
-            {% if row.identity.local_password_disabled_at %}
-              {% trans "Password retired" %} {{ row.identity.local_password_disabled_at|date:"Y-m-d" }}
-            {% elif row.identity.first_sso_login_at %}
+            {% if row.identity.first_sso_login_at %}
               {% trans "Signed in" %} {{ row.identity.first_sso_login_at|date:"Y-m-d" }}
             {% elif row.identity.setup_link_issued_at %}
               {% trans "Link issued" %} {{ row.identity.setup_link_issued_at|date:"Y-m-d" }}
@@ -142,6 +177,9 @@ cannot survive paging, and a whole wave is what the Django admin is for.
               {% trans "Emailed" %} {{ row.identity.setup_email_sent_at|date:"Y-m-d" }}
             {% else %}
               {% trans "Created" %} {{ row.identity.linked_at|date:"Y-m-d" }}
+            {% endif %}
+            {% if row.password_retired %}
+              <br><small class="has-text-grey">{% trans "local password retired" %}</small>
             {% endif %}
           </td>
           <td>
@@ -168,12 +206,31 @@ cannot survive paging, and a whole wave is what the Django admin is for.
                   <span class="icon is-small"><i class="fas fa-link"></i></span>
                 </button>
               {% endif %}
+              {% if row.identity.trust_state == 'active' %}
+                {% blocktrans trimmed asvar revoke_label with username=row.user.username %}
+                  Withdraw trust from {{ username }}
+                {% endblocktrans %}
+                <a class="button is-small is-danger is-outlined"
+                   href="{% url 'qgis_sso:revoke' row.identity.pk %}"
+                   title="{{ revoke_label }}" aria-label="{{ revoke_label }}">
+                  <span class="icon is-small"><i class="fas fa-user-slash"></i></span>
+                </a>
+              {% elif row.identity.revoked_directly %}
+                {% blocktrans trimmed asvar restore_label with username=row.user.username %}
+                  Restore {{ username }}
+                {% endblocktrans %}
+                <button class="button is-small is-primary1 is-outlined" type="submit"
+                        name="action" value="restore"
+                        title="{{ restore_label }}" aria-label="{{ restore_label }}">
+                  <span class="icon is-small"><i class="fas fa-rotate-left"></i></span>
+                </button>
+              {% endif %}
             </form>
           </td>
         </tr>
       {% empty %}
         <tr>
-          <td colspan="5">
+          <td colspan="6">
             {% blocktrans trimmed %}
               No accounts match. Nobody has a Keycloak account yet, or the filter
               is too narrow.
