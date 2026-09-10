@@ -82,7 +82,11 @@ class FakeRealm:
     server_url = "https://auth.example.org"
     realm = "qgis"
 
-    def __init__(self, existing_usernames=(), fail_on=()):
+    def __init__(self, existing_usernames=(), fail_on=(), realm_users=()):
+        #: Realm accounts keyed by address, as Keycloak would return them:
+        #: {"id", "username", "email", "emailVerified"}. Linking is matched on
+        #: a verified address, so the flag has to be modelled.
+        self.realm_users = {user["email"]: user for user in realm_users}
         self.existing = set(existing_usernames)
         self.fail_on = set(fail_on)
         self.created = []
@@ -110,6 +114,9 @@ class FakeRealm:
 
     def find_user_by_username(self, username):
         return {"id": "existing"} if username in self.existing else None
+
+    def find_user_by_email(self, email):
+        return self.realm_users.get(email)
 
     def create_user(self, payload):
         if payload["username"] in self.fail_on:

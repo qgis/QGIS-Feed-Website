@@ -119,8 +119,12 @@ def plan_provisioning(users, include_flagged=False):
     return session, decisions
 
 
-def run_provisioning(session, decisions):
-    """Create the realm accounts the decisions call for. Sends no email.
+def run_provisioning(session, decisions, sponsor=None):
+    """Act on what each decision calls for. Sends no email.
+
+    Two outcomes are actionable and they are not the same thing: creating a
+    realm account, and binding to one the realm already had. The message says
+    which, so nobody reads "done" and assumes an account was made.
 
     A held-back account is named along with its reason. Being told only that
     there was nothing to do leaves no way to see which account was skipped, or
@@ -135,16 +139,34 @@ def run_provisioning(session, decisions):
                 decision.reason,
             )
             continue
+
+        linking = decision.is_link
         try:
-            session.provision(decision)
+            if linking:
+                session.link(decision, sponsor=sponsor)
+            else:
+                session.provision(decision, sponsor=sponsor)
         except KeycloakError as error:
             run.add(
                 decision.username,
                 FAILED,
-                _("could not be created: %s") % error,
+                (
+                    _("could not be linked: %s") % error
+                    if linking
+                    else _("could not be created: %s") % error
+                ),
             )
             continue
-        run.add(decision.username, OK, _("account created"))
+
+        if linking:
+            run.add(
+                decision.username,
+                OK,
+                _("linked to the existing QGIS account %(username)s")
+                % {"username": decision.realm_username},
+            )
+        else:
+            run.add(decision.username, OK, _("account created"))
     return run
 
 

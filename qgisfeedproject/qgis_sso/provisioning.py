@@ -27,6 +27,7 @@ from .migration import (
 from .models import KeycloakIdentity, LinkMethod, SsoAuditEvent
 
 CREATE = "create"
+LINK = "link"
 SKIP = "skip"
 ERROR = "error"
 
@@ -42,10 +43,21 @@ class Decision:
     email: str = ""
     roles: list = field(default_factory=list)
     flags: list = field(default_factory=list)
+    #: The realm account this would bind to, when the verdict is ``LINK``.
+    sub: str = ""
+    realm_username: str = ""
 
     @property
     def actionable(self):
+        return self.verdict in (CREATE, LINK)
+
+    @property
+    def is_create(self):
         return self.verdict == CREATE
+
+    @property
+    def is_link(self):
+        return self.verdict == LINK
 
     @property
     def is_skip(self):
@@ -105,6 +117,13 @@ class Provisioner:
         if decision.flags and not include_flagged:
             return self._skip(decision, _("flagged (%s)") % ", ".join(decision.flags))
 
+        # Before considering a new account, see whether the realm already knows
+        # this person. In a realm shared with hub and plugins that is the
+        # common case, not the exception.
+        linked = self._consider_link(decision)
+        if linked is not None:
+            return linked
+
         try:
             existing = self.client.find_user_by_username(decision.username)
         except KeycloakError as error:
@@ -131,6 +150,116 @@ class Provisioner:
             )
 
         return decision
+
+    def _consider_link(self, decision):
+        """Whether this account can be bound to one the realm already has.
+
+        Matched on an exact email address that Keycloak reports as **verified**,
+        and on nothing else. That is the same evidence the sign-in linking path
+        requires, and the strongest available without asking the person: they
+        have proved they control that address. A username is not evidence - it
+        can belong to somebody else entirely, which is why claiming one was
+        refused outright before this existed.
+
+        Returns a decision when there is something to say, or None to carry on
+        and consider creating an account.
+        """
+        try:
+            found = self.client.find_user_by_email(decision.email)
+        except KeycloakError as error:
+            return self._error(decision, _("lookup failed: %s") % error)
+
+        if not found:
+            return None
+
+        sub = found.get("id", "")
+        if not found.get("emailVerified"):
+            return self._skip(
+                decision,
+                _(
+                    "the realm has %(email)s but has not verified it; ask them "
+                    "to verify it there first"
+                )
+                % {"email": decision.email},
+            )
+        if (found.get("email") or "").strip().lower() != decision.email.lower():
+            # Keycloak's search is not guaranteed to be exact on every version;
+            # the comparison here is.
+            return self._skip(
+                decision,
+                _("the realm returned a different address; not binding to it"),
+            )
+        if not sub:
+            return self._error(decision, _("the realm returned no subject"))
+        if KeycloakIdentity.objects.filter(sub=sub).exists():
+            # Two local accounts on one subject would break the assumption
+            # every lookup in this app rests on.
+            return self._skip(
+                decision,
+                _("that realm account is already bound to another account here"),
+            )
+
+        roles = proposed_roles(decision.user)
+        missing = [role for role in roles if role not in self.available_roles]
+        if missing:
+            # Linking assigns a role; it does not create one. Returning early
+            # here would skip the same check the create path makes further
+            # down, and link() would raise a KeyError instead of saying this.
+            return self._error(
+                decision,
+                _(
+                    "client %(client)s has no role(s) %(roles)s. Deploy the "
+                    "realm changes first."
+                )
+                % {"client": self.client_id, "roles": ", ".join(missing)},
+            )
+
+        decision.verdict = LINK
+        decision.sub = sub
+        decision.realm_username = found.get("username", "")
+        decision.roles = roles
+        return decision
+
+    def link(
+        self,
+        decision,
+        sponsor=None,
+        link_method=LinkMethod.PRE_SSO_MIGRATION,
+    ):
+        """Bind an account here to one the realm already has.
+
+        Creates nothing in the realm. It assigns the client roles the account's
+        current Django state implies, so that when mirroring runs at their next
+        sign-in it gives back exactly what they had - no more.
+
+        Raises :class:`~qgis_sso.keycloak.KeycloakError`.
+        """
+        if decision.roles:
+            self.client.assign_client_roles(
+                decision.sub,
+                self.client_uuid,
+                [self.available_roles[role] for role in decision.roles],
+            )
+
+        identity = KeycloakIdentity.objects.create(
+            user=decision.user,
+            sub=decision.sub,
+            issuer=f"{self.client.server_url}/realms/{self.client.realm}",
+            preferred_username=decision.realm_username or decision.username,
+            email_at_link=decision.email,
+            link_method=link_method,
+            sponsor=sponsor,
+        )
+        SsoAuditEvent.record(
+            SsoAuditEvent.Action.LINKED,
+            user=decision.user,
+            sub=decision.sub,
+            keycloak_username=decision.realm_username,
+            matched_email=decision.email,
+            roles=decision.roles,
+            sponsor=getattr(sponsor, "username", None),
+        )
+        return identity
 
     def provision(
         self,

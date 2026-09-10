@@ -125,6 +125,35 @@ Selecting a whole wave and acting on it in one go is still the Django admin's
 job — see below. All of it runs through the same code, so the rules and the
 wording are identical wherever you start.
 
+### Linking an account that already exists in the realm
+
+The realm is shared with hub and plugins, so a long-standing contributor here
+very likely already has a QGIS account. *Invite existing user* now offers a
+third outcome for those: **will be linked**, naming the QGIS account it matched.
+Nothing is created in the realm; the existing account is bound to the one here
+and given the client roles this account's current Django state implies.
+
+**Matched on an exact address that Keycloak reports as verified, and nothing
+else.** A username is not evidence — it can belong to somebody else entirely,
+which is why claiming one was refused outright before this existed. An address
+that differs, or one the realm has not verified, is refused with which of the
+two it was, because they need different fixing. So is a realm account already
+bound to somebody here: two local accounts on one subject would break every
+lookup in the app.
+
+> **Superuser here comes from the `admin` client role on `feed-qgis-org`, never
+> from a realm role.** It is tempting to reach for a realm-wide role like
+> `qgis-superuser` and read it at sign-in — it would be less work. It would also
+> mean whoever holds that role for hub or plugins becomes a superuser here,
+> which is exactly what the client-scoped design exists to prevent, and what
+> US-9.2 asks for a test against. `proposed_roles` derives the client role from
+> what the account can already do here, so linking grants no privilege that was
+> not already held.
+
+Role mirroring then does the rest: at their next sign-in `mirror_roles`
+reconciles Django's groups and flags from the token in full, granting and
+revoking, so removing the role in Keycloak takes it away here too.
+
 ### Withdrawing trust
 
 **Revoked** is what happens to the person acted on. Their client roles are

@@ -37,7 +37,7 @@
                                 {% trans "Profile" %}
                             </a>
                             {# Everyone with a realm account: the page shows only what each may see. #}
-                            {% if user.keycloak_identity %}
+                            {% if user.is_superuser or user.keycloak_identity %}
                                 <a class="navbar-item has-text-weight-semibold is-size-7"
                                     href="{% url "qgis_sso:enrolment" %}">
                                     {% trans "SSO enrolment" %}

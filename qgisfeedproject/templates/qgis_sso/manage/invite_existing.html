@@ -43,7 +43,15 @@ no paging. The search box is how a long list gets narrowed.
               <td>{{ decision.username }}</td>
               <td>{{ decision.roles|join:", "|default:"—" }}</td>
               <td>
-                {% if decision.actionable %}
+                {% if decision.is_link %}
+                  <span class="tag is-info">{% trans "Will be linked" %}</span>
+                  <br>
+                  <small>
+                    {% blocktrans trimmed with username=decision.realm_username %}
+                      to the QGIS account {{ username }}
+                    {% endblocktrans %}
+                  </small>
+                {% elif decision.actionable %}
                   <span class="tag is-success">{% trans "Will be created" %}</span>
                 {% else %}
                   <span class="tag {% if decision.is_error %}is-danger{% else %}is-warning{% endif %}">
@@ -67,8 +75,16 @@ no paging. The search box is how a long list gets narrowed.
                  {% if include_flagged %}checked{% endif %}>
           {% trans "Include accounts held back by a flag" %}
         </label>
+        <p class="mb-3">
+          {% blocktrans trimmed %}
+            Linking binds an account here to one auth.qgis.org already has,
+            matched on an address it has verified. Nothing is created in the
+            realm, and the roles assigned are the ones the account already has
+            here.
+          {% endblocktrans %}
+        </p>
         <div class="buttons">
-          <button class="button is-primary1" type="submit">{% trans "Yes, create them" %}</button>
+          <button class="button is-primary1" type="submit">{% trans "Yes, go ahead" %}</button>
           <a class="button is-light" href="{% url 'qgis_sso:invite_existing' %}">
             {% trans "Cancel" %}
           </a>

@@ -361,7 +361,7 @@ class InviteExistingView(View):
             )
             return render(request, self.template_name, context)
 
-        run = run_provisioning(provisioner, decisions)
+        run = run_provisioning(provisioner, decisions, sponsor=request.user)
         report(request, run)
         if run.succeeded:
             messages.info(
