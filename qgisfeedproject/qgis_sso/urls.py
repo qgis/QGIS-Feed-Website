@@ -17,6 +17,11 @@ urlpatterns = [
     path("profile/", views_profile.ProfileView.as_view(), name="profile"),
     path("manage/", views_manage.EnrolmentView.as_view(), name="enrolment"),
     path(
+        "manage/link/",
+        views_manage.IssuedLinkView.as_view(),
+        name="issued_link",
+    ),
+    path(
         "manage/invite/new/",
         views_manage.InviteNewView.as_view(),
         name="invite_new",

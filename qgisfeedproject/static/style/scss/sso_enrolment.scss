@@ -22,6 +22,25 @@
   }
 }
 
+// The same link, for a camera. Sized to be scanned off a shared screen or a
+// video call rather than only from arm's length, and kept on white: a scanner
+// needs the contrast and the quiet zone whatever sits behind the page.
+.sso-qr {
+  .sso-qr-code {
+    max-width: 520px;
+    margin: auto;
+    padding: 0.75rem;
+    background: #fff;
+    border-radius: 4px;
+
+    svg {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+  }
+}
+
 // Two small buttons in one table cell, kept off each other without a wrapper
 // element per button.
 .sso-row-actions {

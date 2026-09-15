@@ -11,6 +11,7 @@ the rest pins the guards.
 from datetime import timedelta
 from unittest import mock
 
+import segno
 from django.contrib.auth.models import User
 from django.test import TestCase, override_settings
 from django.urls import reverse
@@ -19,10 +20,12 @@ from django.utils import timezone
 from .. import enrolment
 from ..models import KeycloakIdentity, SsoAuditEvent
 from ..provisioning import Provisioner
+from ..views_manage import IssuedLinkView
 from .base import FakeRealm
 
 PAGE = reverse("qgis_sso:enrolment")
 CREATE = reverse("qgis_sso:invite_existing")
+LINK_PAGE = reverse("qgis_sso:issued_link")
 
 # force_login picks the first configured backend, which is the OIDC one, and
 # SessionRefresh would then bounce every GET to Keycloak to renew a token these
@@ -429,7 +432,7 @@ class IssuedLinkTest(SuperuserPage):
     """Handing a link over instead of emailing it.
 
     The link is a bearer credential: whoever holds it signs in as that person.
-    So it is shown once, on one response, and exists nowhere else.
+    So it is shown once, on a page of its own, and exists nowhere else.
     """
 
     def setUp(self):
@@ -453,6 +456,40 @@ class IssuedLinkTest(SuperuserPage):
         self.assertContains(response, "login-actions/token?key=sub-alice")
         self.assertContains(response, 'id="copy-link"')
 
+    def test_it_lands_on_the_page_of_its_own(self):
+        """The list is a table of everybody; a credential does not belong in a
+        notification bar above it."""
+        response = self.issue(follow=False)
+
+        self.assertRedirects(response, LINK_PAGE, fetch_redirect_response=False)
+
+    def test_the_list_itself_never_carries_a_link(self):
+        self.issue()
+
+        response = self.client.get(PAGE)
+
+        self.assertNotContains(response, "login-actions/token")
+        self.assertNotContains(response, 'id="copy-link"')
+
+    def test_a_qr_of_the_same_link_sits_below_it(self):
+        """So it can be scanned onto the device the passkey will live on,
+        instead of read out."""
+        response = self.issue()
+
+        handed_over = response.context["issued"]["link"]
+        expected = segno.make(handed_over, error="m").svg_inline(
+            **IssuedLinkView.QR_SVG
+        )
+        self.assertContains(response, "<svg")
+        self.assertContains(response, expected)
+
+    def test_the_qr_can_be_scaled_without_being_cropped(self):
+        """It is sized by the stylesheet, which needs a viewBox to work from.
+        A cropped QR does not scan."""
+        response = self.issue()
+
+        self.assertContains(response, "viewBox=")
+
     def test_it_is_not_confirmed_first(self):
         """Unlike the email, which cannot be unsent, nothing leaves the building
         until an administrator passes the link on."""
@@ -462,7 +499,7 @@ class IssuedLinkTest(SuperuserPage):
         self.assertEqual(self.realm.linked, ["alice"])
 
     def test_the_reply_is_not_cached(self):
-        response = self.issue(follow=False)
+        response = self.issue()
 
         self.assertEqual(response["Cache-Control"], "no-store")
 
@@ -485,9 +522,30 @@ class IssuedLinkTest(SuperuserPage):
     def test_reloading_the_page_does_not_show_it_again(self):
         self.issue()
 
-        response = self.client.get(PAGE)
+        response = self.client.get(LINK_PAGE)
 
         self.assertNotContains(response, "login-actions/token")
+        self.assertNotContains(response, "<svg")
+        self.assertContains(response, "no link to show")
+
+    def test_the_page_on_its_own_has_nothing_to_show(self):
+        """Nothing put it there, so there is nothing to hand over. It says so
+        rather than pretending a link expired."""
+        response = self.client.get(LINK_PAGE)
+
+        self.assertContains(response, "no link to show")
+        self.assertEqual(response["Cache-Control"], "no-store")
+
+    def test_it_is_not_open_to_anybody_signed_out(self):
+        self.client.logout()
+
+        response = self.client.get(LINK_PAGE)
+
+        self.assertRedirects(
+            response,
+            f"{reverse('login')}?next={LINK_PAGE}",
+            fetch_redirect_response=False,
+        )
 
     def test_a_link_for_a_different_subject_is_refused(self):
         """The endpoint is keyed on the username; everything else here on sub.

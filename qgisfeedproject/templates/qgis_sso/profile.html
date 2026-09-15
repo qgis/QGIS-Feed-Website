@@ -38,14 +38,6 @@ to auth.qgis.org and no other site can create or delete one.
               {% empty %}
                 {% trans "None" %}
               {% endfor %}
-              {% if identity %}
-                <p class="help">
-                  {% blocktrans trimmed %}
-                    These follow the roles on your QGIS account and are refreshed
-                    every time you sign in. Ask a feed maintainer to change them.
-                  {% endblocktrans %}
-                </p>
-              {% endif %}
             </td>
           </tr>
         </tbody>
@@ -55,24 +47,22 @@ to auth.qgis.org and no other site can create or delete one.
   {% if not identity %}
     <div class="notification is-info">
       {% blocktrans trimmed %}
-        This account does not sign in through auth.qgis.org, so it has no
-        passkeys to manage.
+        Please sign in with your QGIS account to manage your account and passkeys.
       {% endblocktrans %}
     </div>
   {% else %}
     <h2 class="title is-5">{% trans "Passkeys" %}</h2>
     <div class="notification is-primary3 is-light">
       {% blocktrans trimmed %}
-        Your passkeys live at auth.qgis.org, so adding or removing one takes you
-        there and brings you back. Keep at least two — a phone and a hardware
-        key, say — so that losing one device does not lock you out.
+        We recommend keeping at least two passkeys (a phone and a hardware
+        key) so that losing one device does not lock you out.
       {% endblocktrans %}
     </div>
 
     {% if unreachable %}
       <div class="notification is-warning">
         {% blocktrans trimmed %}
-          auth.qgis.org could not be reached, so your passkeys are not listed.
+          The QGIS account manager could not be reached, so your passkeys are not listed.
           Try again shortly.
         {% endblocktrans %}
       </div>

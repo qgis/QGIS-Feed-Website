@@ -66,9 +66,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a passkey; no password and no TOTP secret is ever set, so there is no
   password to phish or reuse. `SSO_REQUIRED_ACTIONS` carries this.
 - **An enrolment link can be handed over instead of emailed**, for somebody on a
-  call whose email is not arriving. Shown once with a copy button, never stored,
-  never logged and never put through the messages framework; the audit trail
-  records that a link was issued and for whom, never the token. Needs PhaseTwo's
+  call whose email is not arriving. It gets a page of its own at
+  `/sso/manage/link/`, showing that one link and nothing else: a copy button, and
+  a QR code below it for scanning the link straight onto the device the passkey
+  will live on instead of reading a long token out. The QR is rendered in-process
+  as inline SVG with `segno`, so the credential never reaches disk or a
+  third-party image service, and the copyable field stays the primary route
+  because a QR is reachable by neither keyboard nor screen reader. Shown once,
+  never stored, never logged and never put through the messages framework; the
+  audit trail records that a link was issued and for whom, never the token. The
+  page takes the link out of the session as it renders, so a reload offers to
+  issue a fresh one rather than showing the old one again. Needs PhaseTwo's
   magic-link extension on the realm. The link *signs the holder in*, after which
   Keycloak presents the outstanding verify-email and passkey enrolment, so it arrives
   where the email does. It is requested non-reusable and never creates a realm
@@ -88,10 +96,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     to anyone whose roles carry quota and creates the account in both places
     straight away; *Existing user* stays superuser-only, because it reaches the
     whole user list.
-  - The setup link is shown once on the list afterwards, with a copy button,
-    carried in the session rather than through the messages framework, whose
-    fallback storage is a cookie. Nothing is emailed until you press *Send
-    email*.
+  - Inviting lands on `/sso/manage/link/` with the setup link, shown once,
+    carried there in the session rather than through the messages framework,
+    whose fallback storage is a cookie. Nothing is emailed until you press
+    *Send email*.
   - Who may offer what comes from `SSO_ROLE_TIERS` and `SSO_TIER_QUOTAS`,
     declared beside `SSO_ROLE_MAP` and reusing its role names. Holding two roles
     gives the more privileged tier and the larger allowance, never the sum. A

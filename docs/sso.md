@@ -99,8 +99,9 @@ name. Each row acts on itself:
 
 - **Send email** — the account-setup email, after one confirmation. It reaches a
   real contributor and cannot be unsent.
-- **Get the link** — see *Handing over a link* below. No confirmation: nothing
-  leaves the building until you pass it on.
+- **Get the link** — opens the link on a page of its own, with a copy button and
+  a QR code; see *Handing over a link* below. No confirmation: nothing leaves
+  the building until you pass it on.
 
 Both are refused for a row outside your own branch, whether or not the listing
 showed it.
@@ -251,10 +252,20 @@ window or loses every device. Each send is counted on the identity record.
 #### Handing over a link
 
 When somebody is on a call and their email is not arriving, *Get the link* on
-their row fetches a link and shows it once, with a copy button. It is never
-stored, never logged and never put through the messages framework; the audit
-trail records that a link was issued and for whom, not the token. Reload the
-page and it is gone.
+their row fetches a link and takes you to `/sso/manage/link/`, a page that shows
+that one link and nothing else. Inviting a new user lands on the same page. It
+is never stored, never logged and never put through the messages framework; the
+audit trail records that a link was issued and for whom, not the token. The page
+takes the link out of the session as it renders, so a reload shows an empty page
+telling you to issue a fresh one.
+
+Below the link is a QR code of it, for having the person scan it straight onto
+the device the passkey will live on rather than reading a long token out. It is
+the same credential in another shape, so it is handed over with the same care.
+The code is generated in the web process with [segno](https://pypi.org/project/segno/)
+and embedded as inline SVG — it is never written to disk, and no external image
+service is involved. The copyable field above it stays the primary route, since
+a QR is reachable by neither keyboard nor screen reader.
 
 Keycloak has no endpoint that hands back a setup link, so this needs PhaseTwo's
 [magic-link extension](https://github.com/p2-inc/keycloak-magic-link) deployed
@@ -349,11 +360,11 @@ be free both here and in the realm; an address already in the realm belongs to
 somebody, and enrolling a second account onto it would send them a setup link
 they never asked for.
 
-After inviting, the setup link is shown once on `/sso/manage/`, with a copy
-button, exactly as *Get the link* shows it. It is carried there in the session
-rather than through the messages framework, whose fallback storage is a cookie.
-Reload and it is gone; use **Send email** on the row to have Keycloak deliver it
-instead.
+After inviting, the setup link is shown once on `/sso/manage/link/`, with a copy
+button and a QR code, exactly as *Get the link* shows it. It is carried there in
+the session rather than through the messages framework, whose fallback storage
+is a cookie. Reload and it is gone; use **Send email** on the row to have
+Keycloak deliver it instead.
 
 **There is no self-service redemption endpoint**, deliberately. An earlier
 design handed out a signed token that created the account when redeemed, which

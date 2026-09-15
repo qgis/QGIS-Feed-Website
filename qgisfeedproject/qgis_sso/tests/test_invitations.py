@@ -24,6 +24,7 @@ from ..provisioning import Provisioner
 from .base import FakeRealm
 
 MANAGE = reverse("qgis_sso:enrolment")
+ISSUED_LINK = reverse("qgis_sso:issued_link")
 INVITE_NEW = reverse("qgis_sso:invite_new")
 INVITE_EXISTING = reverse("qgis_sso:invite_existing")
 
@@ -361,12 +362,14 @@ class InviteNewTest(TestCase):
 
     # -- the link it hands back -------------------------------------------
 
-    def test_the_setup_link_is_shown_once_on_the_list(self):
+    def test_the_setup_link_is_shown_once_on_its_own_page(self):
         response = self.invite()
 
+        self.assertEqual(response.request["PATH_INFO"], ISSUED_LINK)
         self.assertContains(response, "login-actions/token?key=sub-newbie")
+        self.assertContains(response, "<svg")
 
-        again = self.client.get(MANAGE)
+        again = self.client.get(ISSUED_LINK)
         self.assertNotContains(again, "login-actions/token")
 
     def test_nothing_is_emailed_by_inviting(self):

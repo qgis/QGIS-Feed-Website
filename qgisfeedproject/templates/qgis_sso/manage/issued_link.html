@@ -1,0 +1,103 @@
+{% extends 'layouts/base-fullscreen.html' %}
+{% load i18n %}
+
+{% comment %}
+One issued enrolment link, on a page of its own. It arrives through the session
+and is popped on the way in, so this renders it exactly once: a reload gets the
+recovery panel instead.
+{% endcomment %}
+
+{% block content %}
+<div class="sso-profile">
+
+  <div class="is-flex is-justify-content-space-between is-align-items-center mb-4">
+    <div>
+      <h1 class="title is-4">
+        {% if issued %}
+          {% blocktrans trimmed with username=issued.username %}
+            Enrolment link for {{ username }}
+          {% endblocktrans %}
+        {% else %}
+          {% trans "Enrolment link" %}
+        {% endif %}
+      </h1>
+      <p class="subtitle is-6">
+        {% trans "Hand it to one person, the way you would a password." %}
+      </p>
+    </div>
+    <a class="button is-light" href="{% url 'qgis_sso:enrolment' %}">
+      {% trans "Back" %}
+    </a>
+  </div>
+
+  <div class="box-content sso-issued">
+    {% if issued %}
+      <div class="notification is-warning">
+        {% blocktrans trimmed %}
+          Copy it now — it is not stored anywhere and will not be shown again. It
+          signs its holder in as that person, who is then asked to verify their
+          address and enrol a passkey, so pass it on the same way you would a
+          password and to that person only. It can be used once.
+        {% endblocktrans %}
+      </div>
+
+      <div class="field has-addons">
+        <div class="control is-expanded">
+          <label class="is-sr-only" for="issued-link">{% trans "Enrolment link" %}</label>
+          <input class="input is-family-monospace" id="issued-link" type="text"
+                 readonly value="{{ issued.link }}">
+        </div>
+        <div class="control">
+          <button class="button is-primary1" type="button" id="copy-link"
+                  data-copied="{% trans 'Copied' %}">
+            <span class="icon is-small"><i class="fas fa-copy"></i></span>
+            <span>{% trans "Copy" %}</span>
+          </button>
+        </div>
+      </div>
+
+      {# The field above stays the primary way to take the link: a QR is not #}
+      {# reachable by keyboard or screen reader. #}
+      <figure class="sso-qr mt-5">
+        <div class="sso-qr-code" role="img"
+             aria-label="{% trans 'QR code holding the enrolment link shown above' %}">
+          {{ qr }}
+        </div>
+        <figcaption class="has-text-centered is-size-7 mt-2">
+          {% blocktrans trimmed %}
+            The same link. Have them scan it with the device the passkey will
+            live on, so nobody has to read an address out.
+          {% endblocktrans %}
+        </figcaption>
+      </figure>
+    {% else %}
+      <div class="notification">
+        {% blocktrans trimmed %}
+          There is no link to show. One is displayed once, on the page that
+          issues it, and is stored nowhere — so a reload loses it. Issue a fresh
+          one from the enrolment list.
+        {% endblocktrans %}
+      </div>
+      <a class="button is-primary1" href="{% url 'qgis_sso:enrolment' %}">
+        {% trans "Go to the enrolment list" %}
+      </a>
+    {% endif %}
+  </div>
+
+</div>
+{% endblock content %}
+
+{% block javascripts %}
+<script>
+  // The only script on the page. Without it the link is still selectable in the
+  // field beside the button.
+  document.getElementById('copy-link')?.addEventListener('click', function () {
+    const field = document.getElementById('issued-link');
+    const done = this.querySelector('span:last-child');
+    field.select();
+    navigator.clipboard?.writeText(field.value).then(() => {
+      done.textContent = this.dataset.copied;
+    });
+  });
+</script>
+{% endblock javascripts %}

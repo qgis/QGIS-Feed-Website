@@ -17,6 +17,7 @@ state is :mod:`qgis_sso.enrolment`'s, and this module renders and reports.
 import logging
 from urllib.parse import urlencode
 
+import segno
 from django.contrib import messages
 from django.contrib.auth.decorators import user_passes_test
 from django.contrib.auth.models import User
@@ -26,6 +27,7 @@ from django.http import HttpResponseRedirect
 from django.shortcuts import render
 from django.urls import reverse
 from django.utils.decorators import method_decorator
+from django.utils.safestring import mark_safe
 from django.utils.translation import gettext as _
 from django.views import View
 
@@ -53,7 +55,7 @@ RESTORE = "restore"
 
 #: Where a freshly issued setup link waits for the page it is shown on. It
 #: cannot go through messages: that framework's fallback storage is a cookie,
-#: and this is a credential. Popped by the listing, so it appears exactly once.
+#: and this is a credential. Popped by that page, so it appears exactly once.
 ISSUED_SESSION_KEY = "qgis_sso_issued_link"
 
 #: Rows a page on the list. Deliberately not the selection cap on the create
@@ -170,13 +172,13 @@ class EnrolmentView(View):
         return self.back(request)
 
     def issue_link(self, request, identity, context):
-        """Fetch one sign-in link and show it once.
+        """Fetch one sign-in link and hand it to the page that shows it.
 
         Not confirmed: nothing leaves this building until an administrator
-        passes the link on. Not redirected either, and this is the only action
-        that is not - the link exists on this one response and nowhere else. It
-        is a bearer credential, so it is never stored, never logged, and never
-        put through the messages framework, whose fallback storage is a cookie.
+        passes the link on. It is a bearer credential, so it is never stored,
+        never logged, and never put through the messages framework, whose
+        fallback storage is a cookie. The one hop it does make is the session,
+        which lives on the server, and :class:`IssuedLinkView` pops it there.
         """
         session = self.session(request)
         if session is None:
@@ -189,14 +191,16 @@ class EnrolmentView(View):
             messages.error(request, str(error))
             return render(request, self.template_name, context)
 
-        report(request, run)
-        fresh = self.page_context(request)
         issued = [outcome for outcome in run.succeeded if outcome.link]
-        if issued:
-            fresh["issued"] = issued[0]
-        response = render(request, self.template_name, fresh)
-        response["Cache-Control"] = "no-store"
-        return response
+        if not issued:
+            report(request, run)
+            return self.back(request)
+
+        request.session[ISSUED_SESSION_KEY] = {
+            "username": issued[0].username,
+            "link": issued[0].link,
+        }
+        return HttpResponseRedirect(reverse("qgis_sso:issued_link"))
 
     def restore(self, request, identity):
         try:
@@ -280,10 +284,55 @@ class EnrolmentView(View):
             "totals": [(key, STATES[key][0], counts[key]) for key in LINKED_STATES],
             "may_invite_new": bool(invitable_roles(request.user)),
             "everyone": request.user.is_superuser,
-            # Shown once, then gone: put here by the invite form across its
-            # redirect, because a credential cannot go through messages.
-            "issued": request.session.pop(ISSUED_SESSION_KEY, None),
         }
+
+
+class IssuedLinkView(View):
+    """One freshly issued enrolment link, on a page of its own.
+
+    Both flows that mint a link end up here: the row action on the list and the
+    invite form. The link is a bearer credential, so this page is the whole of
+    its life - popped from the session on the way in, rendered once, and gone
+    on reload. A QR of it sits below, for handing over on a call without
+    reading a token out; it is generated in this process and embedded as inline
+    SVG, so nothing is written to disk and no image service ever sees it.
+    """
+
+    template_name = "qgis_sso/manage/issued_link.html"
+
+    #: How the QR is drawn. ``omitsize`` swaps the fixed width and height for a
+    #: viewBox, without which the stylesheet cannot scale the code to its box
+    #: and crops it instead - a cropped QR does not scan. The class names are
+    #: dropped because the stylesheet targets the figure, not the paths.
+    QR_SVG = {"scale": 5, "omitsize": True, "svgclass": None, "lineclass": None}
+
+    def dispatch(self, request, *args, **kwargs):
+        if not signed_in(request):
+            return HttpResponseRedirect(
+                f"{reverse('login')}?next={reverse('qgis_sso:issued_link')}"
+            )
+        return super().dispatch(request, *args, **kwargs)
+
+    def get(self, request):
+        issued = request.session.pop(ISSUED_SESSION_KEY, None)
+        context = {"issued": issued, "qr": self.qr(issued)}
+        response = render(request, self.template_name, context)
+        response["Cache-Control"] = "no-store"
+        return response
+
+    @classmethod
+    def qr(cls, issued):
+        """The link as inline SVG, or None.
+
+        Safe to mark: segno emits geometry derived from the module matrix, not
+        the text, so nothing from the link reaches the markup as markup.
+        """
+        if not issued:
+            return None
+        code = segno.make(issued["link"], error="m")
+        return mark_safe(  # noqa: S308 - geometry only, see the docstring
+            code.svg_inline(**cls.QR_SVG)
+        )
 
 
 @superuser_only
@@ -456,6 +505,10 @@ class InviteNewView(View):
             _("%(username)s now has an account. Nothing has been sent to them yet.")
             % {"username": identity.user.username},
         )
+        # Straight to the link when there is one to show; the realm cannot
+        # always mint one, and the account exists either way.
+        if ISSUED_SESSION_KEY in request.session:
+            return HttpResponseRedirect(reverse("qgis_sso:issued_link"))
         return HttpResponseRedirect(reverse("qgis_sso:enrolment"))
 
     # -- the checks --------------------------------------------------------
