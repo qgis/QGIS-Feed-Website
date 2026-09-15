@@ -120,7 +120,7 @@ class Provisioner:
         # Before considering a new account, see whether the realm already knows
         # this person. In a realm shared with hub and plugins that is the
         # common case, not the exception.
-        linked = self._consider_link(decision)
+        linked = self._consider_link(decision, roles)
         if linked is not None:
             return linked
 
@@ -151,7 +151,7 @@ class Provisioner:
 
         return decision
 
-    def _consider_link(self, decision):
+    def _consider_link(self, decision, roles=None):
         """Whether this account can be bound to one the realm already has.
 
         Matched on an exact email address that Keycloak reports as **verified**,
@@ -199,7 +199,10 @@ class Provisioner:
                 _("that realm account is already bound to another account here"),
             )
 
-        roles = proposed_roles(decision.user)
+        # Same override as the create path: a caller that names the roles
+        # means them, and silently substituting derived ones on one branch
+        # would make the argument mean two different things.
+        roles = list(roles) if roles is not None else proposed_roles(decision.user)
         missing = [role for role in roles if role not in self.available_roles]
         if missing:
             # Linking assigns a role; it does not create one. Returning early

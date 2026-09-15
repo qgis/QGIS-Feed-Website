@@ -76,6 +76,16 @@ class HeaderAccountMenuTest(TestCase):
         )
         self.assertContains(self.home(), enrolment)
 
+    def test_a_superuser_is_offered_it_before_they_are_linked(self):
+        """The bootstrap case. At cutover the first superuser has no realm
+        account, and they are the one who has to link everybody else - so
+        hiding the page from them hides it exactly when it is needed."""
+        self.user.is_superuser = True
+        self.user.save(update_fields=["is_superuser"])
+        self.client.force_login(self.user, backend=LOCAL_BACKEND)
+
+        self.assertContains(self.home(), reverse("qgis_sso:enrolment"))
+
     def test_an_anonymous_visitor_is_not_offered_it(self):
         self.assertNotContains(self.home(), reverse("qgis_sso:enrolment"))
 

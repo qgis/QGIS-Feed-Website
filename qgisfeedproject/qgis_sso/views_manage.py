@@ -413,7 +413,12 @@ class InviteNewView(View):
             return HttpResponseRedirect(
                 f"{reverse('login')}?next={reverse('qgis_sso:invite_new')}"
             )
-        if not trusted(request.user):
+        # trusted() is true for an account with no realm identity at all -
+        # it is about suspension, not capability. Whether there is anything to
+        # offer is a separate question, and asking it here rather than leaving
+        # the page to render an empty form keeps this route consistent with
+        # Invite existing, which also turns away anybody who cannot use it.
+        if not trusted(request.user) or not invitable_roles(request.user):
             messages.error(request, _("Your account cannot invite anybody."))
             return HttpResponseRedirect(reverse("qgis_sso:enrolment"))
         return super().dispatch(request, *args, **kwargs)

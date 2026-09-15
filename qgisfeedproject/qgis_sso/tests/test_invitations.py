@@ -52,14 +52,21 @@ TRUST_SETTINGS = {
 
 
 class InvitingRealm(FakeRealm):
-    """The provisioning double, plus the address lookup inviting makes."""
+    """The provisioning double, plus the address lookup inviting makes.
+
+    ``existing_emails`` is the shorthand for "the realm knows this address and
+    nothing more matters"; ``realm_users`` on the base class is for the tests
+    that care what the account looks like.
+    """
 
     def __init__(self, *args, existing_emails=(), **kwargs):
         super().__init__(*args, **kwargs)
         self.existing_emails = set(existing_emails)
 
     def find_user_by_email(self, email):
-        return {"id": "somebody"} if email in self.existing_emails else None
+        if email in self.existing_emails:
+            return {"id": "somebody"}
+        return super().find_user_by_email(email)
 
 
 def contributor(username, roles, sponsor=None, **kwargs):
@@ -367,3 +374,116 @@ class InviteNewTest(TestCase):
         self.invite()
 
         self.assertEqual(self.realm.emailed, [])
+
+
+@override_settings(**TRUST_SETTINGS)
+class WhoMayDoWhatTest(TestCase):
+    """The three routes, and who each is for.
+
+    Creating a realm account for somebody who already has an account here, and
+    binding one to a realm account that already exists, both reach the whole
+    user list. Inviting somebody new does not - it is bounded by the ladder and
+    the quota, which is the point of having them.
+    """
+
+    def setUp(self):
+        self.realm = InvitingRealm(
+            realm_users=[
+                {
+                    "id": "sub-existing",
+                    "username": "dave-qgis",
+                    "email": "dave@example.org",
+                    "emailVerified": True,
+                }
+            ]
+        )
+        self.superuser = User.objects.create_superuser("root", "root@example.org", "x")
+        KeycloakIdentity.objects.create(
+            user=self.superuser,
+            sub="sub-root",
+            issuer="https://auth.example.org/realms/qgis",
+            link_method=LinkMethod.PRE_SSO_MIGRATION,
+            last_seen_roles=["admin"],
+            is_root=True,
+        )
+        self.reviewer = contributor("rita", ["reviewer"])
+        # Somebody the realm already knows, so the link path is live.
+        self.dave = User.objects.create_user("dave", "dave@example.org", "x")
+        self.dave.last_login = timezone.now()
+        self.dave.save(update_fields=["last_login"])
+
+    def act_as(self, user):
+        self.client.force_login(user, backend=LOCAL_BACKEND)
+
+    def post_existing(self, **data):
+        real_init = Provisioner.__init__
+
+        def init(instance, client=None):
+            real_init(instance, client=self.realm)
+
+        payload = {"selected": [str(self.dave.pk)], "confirm": "yes"}
+        payload.update(data)
+        with mock.patch.object(Provisioner, "__init__", init):
+            return self.client.post(INVITE_EXISTING, payload, follow=True)
+
+    def test_a_superuser_may_link_an_existing_realm_account(self):
+        self.act_as(self.superuser)
+
+        self.post_existing()
+
+        identity = KeycloakIdentity.objects.get(user=self.dave)
+        self.assertEqual(identity.sub, "sub-existing")
+        self.assertEqual(self.realm.created, [])
+
+    def test_a_reviewer_may_not_link_even_by_posting(self):
+        """The menu hides it; the view has to refuse it as well."""
+        self.act_as(self.reviewer)
+
+        self.post_existing()
+
+        self.assertFalse(KeycloakIdentity.objects.filter(user=self.dave).exists())
+
+    def test_a_reviewer_may_not_create_for_an_existing_account_either(self):
+        somebody = User.objects.create_user("erin", "erin@example.org", "x")
+        somebody.last_login = timezone.now()
+        somebody.save(update_fields=["last_login"])
+        self.act_as(self.reviewer)
+
+        self.post_existing(selected=[str(somebody.pk)])
+
+        self.assertEqual(self.realm.created, [])
+        self.assertFalse(KeycloakIdentity.objects.filter(user=somebody).exists())
+
+    def test_a_reviewer_may_invite_somebody_new(self):
+        """Bounded by the ladder and the quota rather than by being a
+        superuser, which is what the web of trust is for."""
+        self.act_as(self.reviewer)
+
+        real_init = Provisioner.__init__
+
+        def init(instance, client=None):
+            real_init(instance, client=self.realm)
+
+        with mock.patch.object(Provisioner, "__init__", init):
+            self.client.post(
+                INVITE_NEW,
+                {
+                    "username": "newbie",
+                    "email": "newbie@example.org",
+                    "first_name": "New",
+                    "last_name": "Bie",
+                    "role": "author",
+                },
+                follow=True,
+            )
+
+        identity = KeycloakIdentity.objects.get(user__username="newbie")
+        self.assertEqual(identity.sponsor, self.reviewer)
+
+    def test_a_staff_user_with_no_realm_account_may_invite_nobody(self):
+        """No identity means no tier, so no quota and nothing to offer."""
+        staff = User.objects.create_user("bob", "bob@example.org", "x", is_staff=True)
+        self.act_as(staff)
+
+        self.assertEqual(self.client.get(INVITE_NEW).status_code, 302)
+        self.assertEqual(self.client.get(INVITE_EXISTING).status_code, 302)
