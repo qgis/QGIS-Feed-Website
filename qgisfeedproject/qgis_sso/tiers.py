@@ -73,6 +73,24 @@ def effective_tier(user):
     return min(tiers, default=NO_TIER)
 
 
+def tier_of(identity):
+    """The tier an identity holds, read from the record rather than the user.
+
+    ``effective_tier`` answers for a *trusted* account and returns ``NO_TIER``
+    for anybody suspended or revoked, which is the right answer for quotas and
+    the wrong one for authority. A suspended administrator is still an
+    administrator, and asking whether somebody outranks them has to say so.
+
+    ``last_seen_roles`` is cleared on revocation, so fall back to the roles
+    kept at that moment.
+    """
+    roles = list(identity.last_seen_roles or []) or list(
+        identity.roles_at_revocation or []
+    )
+    known = ladder()
+    return min((known[role] for role in roles if role in known), default=NO_TIER)
+
+
 def quota(user):
     """How many invitations this account may have open at once.
 

@@ -175,7 +175,7 @@ cannot survive paging, and a whole wave is what the Django admin is for.
                   <span class="icon is-small"><i class="fas fa-link"></i></span>
                 </button>
               {% endif %}
-              {% if row.identity.trust_state == 'active' %}
+              {% if row.identity.trust_state == 'active' and row.may_revoke %}
                 {% blocktrans trimmed asvar revoke_label with username=row.user.username %}
                   Withdraw trust from {{ username }}
                 {% endblocktrans %}

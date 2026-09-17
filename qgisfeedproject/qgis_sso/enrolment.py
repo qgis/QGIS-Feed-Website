@@ -78,6 +78,9 @@ class Row:
     flags: list = field(default_factory=list)
     proposed_username: str = ""
     proposed_roles: list = field(default_factory=list)
+    #: Set by the enrolment view, which knows who is looking. False here so a
+    #: row built anywhere else never offers the action by accident.
+    may_revoke: bool = False
 
     @property
     def label(self):

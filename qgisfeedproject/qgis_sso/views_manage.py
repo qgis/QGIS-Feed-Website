@@ -285,6 +285,12 @@ class EnrolmentView(View):
         except EmptyPage:
             page = paginator.page(paginator.num_pages)
 
+        # Mark the rows this person may actually act on, so the page does not
+        # offer a button that the view will refuse. Cheap: the actor's own
+        # ancestors are walked once here rather than once per row.
+        for row in page.object_list:
+            row.may_revoke = revocation.may_revoke(request.user, row.identity)
+
         return {
             "page": page,
             "rows": page.object_list,

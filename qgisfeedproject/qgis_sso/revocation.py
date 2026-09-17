@@ -31,7 +31,7 @@ from .keycloak import KeycloakError
 from .migration import feed_client_id
 from .models import KeycloakIdentity, SsoAuditEvent, TrustState
 from .roles import mirror_roles
-from .tiers import effective_tier
+from .tiers import effective_tier, tier_of
 
 logger = logging.getLogger(__name__)
 
@@ -125,31 +125,70 @@ def ancestors(identity):
     return chain
 
 
-def may_revoke(actor, identity):
-    """Whether ``actor`` may withdraw trust from ``identity``.
+def refusal(actor, identity):
+    """Why ``actor`` may not withdraw trust from ``identity``, or None.
 
-    An inviter may act anywhere in their own subtree and nowhere else - never
-    on an ancestor, never across branches. A root may act anywhere in the
-    forest except on another root, because roots are peers and removing one
-    needs a second root to agree (US-5.5, not built).
+    The reason is the useful part, so it is what this returns and
+    :func:`may_revoke` is defined in terms of it. One set of rules, one place
+    to change them, and the page can say which one stopped you.
+
+    An inviter reaches their own subtree and nowhere else. An administrator
+    reaches the whole forest. Neither reaches upwards, and neither reaches
+    another administrator.
     """
     if identity.user_id == actor.pk:
         # Standing down is US-5.3 and behaves differently: descendants are
         # re-parented rather than suspended.
-        return False
-    if identity.is_root:
-        return False
+        return _("You cannot withdraw trust from your own account.")
 
     actor_identity = getattr(actor, "keycloak_identity", None)
-    if actor_identity is None:
-        return False
-    if actor_identity.trust_state != TrustState.ACTIVE:
-        return False
+    if actor_identity is None or actor_identity.trust_state != TrustState.ACTIVE:
+        return _("Your account cannot withdraw trust.")
 
-    if actor.is_superuser and effective_tier(actor) == 0:
+    # Never upwards. This used to sit after the administrator branch below,
+    # which returns early, so it never ran for an administrator: they could
+    # revoke whoever invited them and be suspended by their own cascade.
+    if any(node.user_id == identity.user_id for node in ancestors(actor_identity)):
+        return _(
+            "You cannot withdraw trust from the person who invited you. "
+            "Ask another administrator."
+        )
+
+    # Never sideways either. Removing an administrator is meant to need a
+    # second administrator to agree (US-5.5), which is not built, so the case
+    # is refused rather than half allowed. `is_root` was doing this job and
+    # could not: nothing outside the tests ever sets it.
+    if identity.is_root or tier_of(identity) == 0:
+        return _(
+            "You cannot withdraw trust from an administrator. Remove their "
+            "administrator role first, or ask another administrator."
+        )
+
+    if out_of_reach(actor, identity):
+        return _("You can only withdraw trust from people you invited.")
+    return None
+
+
+def out_of_reach(actor, identity):
+    """Whether ``identity`` is outside what ``actor`` may act on at all.
+
+    Reach only, shared by withdrawing and restoring. An administrator reaches
+    the whole forest, everybody else reaches their own subtree. The guards that
+    apply to withdrawing but not to restoring live in :func:`refusal`, because
+    giving trust back is not the dangerous direction: an administrator who was
+    wrongly revoked has to stay restorable.
+    """
+    actor_identity = getattr(actor, "keycloak_identity", None)
+    if actor_identity is None or actor_identity.trust_state != TrustState.ACTIVE:
         return True
+    if actor.is_superuser and effective_tier(actor) == 0:
+        return False
+    return not any(node.user_id == actor.pk for node in ancestors(identity))
 
-    return any(node.user_id == actor.pk for node in ancestors(identity))
+
+def may_revoke(actor, identity):
+    """Whether ``actor`` may withdraw trust from ``identity``."""
+    return refusal(actor, identity) is None
 
 
 def preview(actor, identity):
@@ -159,14 +198,24 @@ def preview(actor, identity):
     larger than expected is the one mistake here that cannot be walked back
     casually.
     """
-    if not may_revoke(actor, identity):
-        raise RevocationError(_("You cannot withdraw trust from that account."))
-    return Blast(
+    refused = refusal(actor, identity)
+    if refused:
+        raise RevocationError(refused)
+
+    blast = Blast(
         target=identity,
         descendants=[
             node for node in subtree(identity) if node.trust_state == TrustState.ACTIVE
         ],
     )
+    # Belt and braces. The ancestor rule already makes this impossible, but the
+    # action is irreversible and suspending yourself is the one outcome nobody
+    # can undo, so it is checked rather than reasoned about.
+    if any(node.user_id == actor.pk for node in blast.descendants):
+        raise RevocationError(
+            _("This would suspend your own account, so it was not done.")
+        )
+    return blast
 
 
 @transaction.atomic
@@ -269,7 +318,7 @@ def restore(actor, identity, client=None):
     """
     if identity.trust_state != TrustState.REVOKED:
         raise RevocationError(_("That account has not been revoked."))
-    if not may_revoke(actor, identity):
+    if identity.user_id == actor.pk or out_of_reach(actor, identity):
         raise RevocationError(_("You cannot restore that account."))
     if identity.revoked_at and timezone.now() - identity.revoked_at > grace():
         raise RevocationError(

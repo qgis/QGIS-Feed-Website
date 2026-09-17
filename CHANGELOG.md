@@ -203,6 +203,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **An administrator could revoke the administrator who invited them, and
+  suspend themselves doing it.** `may_revoke()` promised "never on an ancestor"
+  but never checked: `if actor.is_superuser and effective_tier(actor) == 0`
+  returned early, so the ancestor test on the last line was unreachable for
+  tier 0. The only remaining guard read `is_root`, which defaults to `False`
+  and is set nowhere outside the tests, so in a real deployment it never fired.
+  Because the actor sits inside the target's subtree, the cascade suspended the
+  actor: the target ended revoked, the actor suspended, and neither could undo
+  it, since `restore()` requires an active actor. Authority is now refused
+  upwards and between administrators, target tiers are read from the stored
+  roles so a suspended administrator still counts as one, and `preview()`
+  refuses outright if the actor appears in the blast radius. Restoring keeps
+  the old reach rule, so an administrator revoked before this fix can still be
+  brought back.
 
 ### Security
 

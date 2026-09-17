@@ -88,6 +88,79 @@ class TrustChainTest(TestCase):
 
         self.assertFalse(revocation.may_revoke(self.root, self.identity(second)))
 
+    def admin(self, username, sponsor):
+        """A non-root administrator, which is what the old guard missed.
+
+        ``is_root`` is never set outside these fixtures, so a deployment's
+        administrators all look like this.
+        """
+        user = person(username, ["admin"], sponsor=sponsor)
+        user.is_superuser = True
+        user.save(update_fields=["is_superuser"])
+        return user
+
+    def test_an_administrator_may_not_revoke_whoever_invited_them(self):
+        """The reported bug.
+
+        The actor sits inside the target's subtree, so going ahead suspended
+        the actor by their own cascade, leaving nobody able to undo it.
+        """
+        alpha = self.admin("alpha", sponsor=self.root)
+        beta = self.admin("beta", sponsor=alpha)
+
+        self.assertFalse(revocation.may_revoke(beta, self.identity(alpha)))
+
+    def test_an_administrator_may_not_revoke_an_unrelated_administrator(self):
+        """Removing one needs a second to agree (US-5.5), which is not built."""
+        alpha = self.admin("alpha", sponsor=self.root)
+
+        self.assertFalse(revocation.may_revoke(self.root, self.identity(alpha)))
+
+    def test_the_refusal_says_which_rule_stopped_it(self):
+        alpha = self.admin("alpha", sponsor=self.root)
+
+        reason = revocation.refusal(self.root, self.identity(alpha))
+
+        self.assertIn("administrator", str(reason))
+
+    def test_an_administrator_may_still_revoke_everybody_else(self):
+        """The guard is about peers, not a general loss of reach."""
+        self.assertTrue(revocation.may_revoke(self.root, self.identity(self.rita)))
+        self.assertTrue(revocation.may_revoke(self.root, self.identity(self.maria)))
+
+    def test_a_suspended_administrator_is_still_an_administrator(self):
+        """``effective_tier`` answers NO_TIER once trust is gone.
+
+        Authority has to read the record instead, or suspending somebody would
+        make them revocable by the people they outrank.
+        """
+        alpha = self.admin("alpha", sponsor=self.root)
+        identity = self.identity(alpha)
+        identity.trust_state = TrustState.SUSPENDED
+        identity.save(update_fields=["trust_state"])
+
+        self.assertFalse(revocation.may_revoke(self.root, self.identity(alpha)))
+
+    def test_a_wrongly_revoked_administrator_can_still_be_restored(self):
+        """Refusing to revoke a peer must not refuse to undo an old one.
+
+        Restoring is the safe direction, so it keeps the reach rule and drops
+        the guards that only apply to taking trust away.
+        """
+        alpha = self.admin("alpha", sponsor=self.root)
+        identity = self.identity(alpha)
+        identity.trust_state = TrustState.REVOKED
+        identity.revoked_at = timezone.now()
+        identity.revoked_directly = True
+        identity.roles_at_revocation = ["admin"]
+        identity.last_seen_roles = []
+        identity.save()
+
+        revocation.restore(self.root, identity, client=self.realm)
+
+        identity.refresh_from_db()
+        self.assertEqual(identity.trust_state, TrustState.ACTIVE)
+
     def test_nobody_may_revoke_themselves(self):
         """Standing down is US-5.3 and re-parents rather than cascades."""
         self.assertFalse(revocation.may_revoke(self.rita, self.identity(self.rita)))
