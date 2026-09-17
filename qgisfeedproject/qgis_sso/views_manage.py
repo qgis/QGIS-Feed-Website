@@ -42,7 +42,7 @@ from .actions import (
 )
 from .enrolment import LINKED_STATES, STATES, candidate_rows, linked_rows
 from .keycloak import KeycloakError
-from .models import KeycloakIdentity, LinkMethod, SsoAuditEvent
+from .models import KeycloakIdentity, LinkMethod, SsoAuditEvent, TrustState
 from .provisioning import Provisioner, setup_redirect_uri
 from .tiers import invitable_roles
 from .tiers import label as role_label
@@ -288,8 +288,12 @@ class EnrolmentView(View):
         # Mark the rows this person may actually act on, so the page does not
         # offer a button that the view will refuse. Cheap: the actor's own
         # ancestors are walked once here rather than once per row.
+        moves_people = revocation.may_reparent(request.user)
         for row in page.object_list:
             row.may_revoke = revocation.may_revoke(request.user, row.identity)
+            row.may_reparent = (
+                moves_people and row.identity.trust_state == TrustState.SUSPENDED
+            )
 
         return {
             "page": page,
@@ -655,6 +659,112 @@ class InviteNewView(View):
             "remaining": left,
             "unlimited": left is None,
         }
+
+
+class ReparentView(View):
+    """Moving one account to a new sponsor, on a page of its own.
+
+    The way back for somebody a cascade suspended, and the only way back once
+    the grace window has closed. Like revoking, it asks for a reason and names
+    everybody it would bring with it, so it gets a page rather than a row
+    button.
+    """
+
+    template_name = "qgis_sso/manage/reparent.html"
+
+    def dispatch(self, request, *args, **kwargs):
+        if not signed_in(request):
+            return HttpResponseRedirect(f"{reverse('login')}?next={request.path}")
+        if not revocation.may_reparent(request.user):
+            return self.refuse(request)
+        return super().dispatch(request, *args, **kwargs)
+
+    def get(self, request, pk):
+        identity = self.target_or_none(pk)
+        if identity is None:
+            return self.refuse(request)
+        return render(request, self.template_name, self.context(identity))
+
+    def post(self, request, pk):
+        identity = self.target_or_none(pk)
+        if identity is None:
+            return self.refuse(request)
+
+        sponsor = self.chosen_sponsor(request, identity)
+        reason = request.POST.get("reason", "").strip()
+        if sponsor is None or not reason:
+            return render(
+                request,
+                self.template_name,
+                dict(
+                    self.context(identity),
+                    reason=reason,
+                    reason_missing=not reason,
+                    sponsor_missing=sponsor is None,
+                ),
+                status=400,
+            )
+
+        try:
+            rescued = revocation.reparent(request.user, identity, sponsor, reason)
+        except revocation.RevocationError as error:
+            messages.error(request, str(error))
+            return HttpResponseRedirect(reverse("qgis_sso:enrolment"))
+
+        messages.success(
+            request,
+            _("%(username)s now answers to %(sponsor)s, with %(count)d other(s).")
+            % {
+                "username": identity.user.username,
+                "sponsor": sponsor.username,
+                # The account itself is in the list, so it is not "other".
+                "count": max(0, len(rescued) - 1),
+            },
+        )
+        return HttpResponseRedirect(reverse("qgis_sso:enrolment"))
+
+    @staticmethod
+    def chosen_sponsor(request, identity):
+        """The posted sponsor, resolved against what the picker offered.
+
+        Checked against the eligible list rather than trusted, so a hand made
+        POST cannot name somebody inside the subtree and close the graph into a
+        loop. ``reparent`` checks again; this is what makes the page honest.
+        """
+        wanted = request.POST.get("sponsor", "")
+        if not wanted.isdigit():
+            return None
+        for candidate in revocation.eligible_sponsors(identity):
+            if str(candidate.user_id) == wanted:
+                return candidate.user
+        return None
+
+    @staticmethod
+    def context(identity):
+        return {
+            "subject": identity,
+            "sponsors": revocation.eligible_sponsors(identity),
+            "rescued": [
+                node
+                for node in revocation.subtree(identity)
+                if node.trust_state == TrustState.SUSPENDED
+                and node.revoked_at == identity.revoked_at
+            ],
+            "reason": "",
+        }
+
+    @staticmethod
+    def target_or_none(pk):
+        return (
+            KeycloakIdentity.objects.select_related("user", "sponsor")
+            .filter(pk=pk)
+            .first()
+        )
+
+    @staticmethod
+    def refuse(request):
+        messages.error(request, _("You cannot move that account to a new sponsor."))
+        return HttpResponseRedirect(reverse("qgis_sso:enrolment"))
 
 
 class RevokeView(View):

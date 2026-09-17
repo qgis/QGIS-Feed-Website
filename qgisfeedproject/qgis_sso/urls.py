@@ -39,4 +39,9 @@ urlpatterns = [
         views_manage.RevokeView.as_view(),
         name="revoke",
     ),
+    path(
+        "manage/reparent/<int:pk>/",
+        views_manage.ReparentView.as_view(),
+        name="reparent",
+    ),
 ]

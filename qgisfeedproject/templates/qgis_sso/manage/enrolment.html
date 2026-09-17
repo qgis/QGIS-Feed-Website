@@ -193,6 +193,15 @@ cannot survive paging, and a whole wave is what the Django admin is for.
                         title="{{ restore_label }}" aria-label="{{ restore_label }}">
                   <span class="icon is-small"><i class="fas fa-rotate-left"></i></span>
                 </button>
+              {% elif row.may_reparent %}
+                {% blocktrans trimmed asvar move_label with username=row.user.username %}
+                  Move {{ username }} to a new sponsor
+                {% endblocktrans %}
+                <a class="button is-small is-primary1 is-outlined"
+                   href="{% url 'qgis_sso:reparent' row.identity.pk %}"
+                   title="{{ move_label }}" aria-label="{{ move_label }}">
+                  <span class="icon is-small"><i class="fas fa-people-arrows"></i></span>
+                </a>
               {% endif %}
             </form>
           </td>

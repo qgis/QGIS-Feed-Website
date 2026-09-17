@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Move an account to a new sponsor** (US-5.4), at
+  `/sso/manage/reparent/<id>/`. Revoking somebody suspends everyone they
+  invited, and until now the only way to lift that was to restore the person
+  who was revoked, inside a seven day window. After the window there was no way
+  back at all: the row offered no action, `restore()` refuses anything not
+  directly revoked, every admin field is read only, and an account that already
+  exists cannot be invited again. Suspended contributors were stuck for good.
+  Giving the account a new sponsor now reactivates it, together with anyone the
+  same revocation suspended below it, while the person actually revoked stays
+  revoked. The grace window does not apply, because this is the path that has to
+  work after it closes. Refuses a sponsor inside the account's own subtree,
+  which would close the chain into a loop, and refuses one whose role is too
+  junior to have invited the account. Administrators and web maintainers only,
+  audited with the sponsor before and after.
 - **A contributor's guide at `/sso/help/`** — one page answering the questions
   people actually ask: how to get an account, what to do with an enrolment
   link, what a passkey is, how to add or remove one, what your role lets you

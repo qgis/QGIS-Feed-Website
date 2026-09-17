@@ -253,6 +253,7 @@ class Migration(migrations.Migration):
                             ("revoked-trust", "Trust withdrawn"),
                             ("suspended", "Suspended: their sponsor was revoked"),
                             ("restored", "Trust restored"),
+                            ("re-parented", "Moved to a different sponsor"),
                             ("local-password-disabled", "Local password made unusable"),
                         ],
                         db_index=True,

@@ -81,6 +81,7 @@ class Row:
     #: Set by the enrolment view, which knows who is looking. False here so a
     #: row built anywhere else never offers the action by accident.
     may_revoke: bool = False
+    may_reparent: bool = False
 
     @property
     def label(self):

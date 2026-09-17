@@ -138,11 +138,15 @@ in Keycloak, or is respected by the mirroring.
 Who may act:
 
 - Anywhere in your own subtree, and nowhere else. Never an ancestor, never
-  across branches.
-- A root may act anywhere except on another root. Removing a root needs a second
-  root to agree (US-5.5), which is not built, so it is refused with that reason.
-- Standing down voluntarily (US-5.3) is not built either; it re-parents
-  descendants rather than suspending them, so it is not the same button.
+  across branches. This holds for administrators too: the rule used to be
+  skipped for them, which let an administrator revoke whoever invited them and
+  be suspended by their own cascade.
+- Never another administrator, whoever you are. Removing one needs a second to
+  agree (US-5.5), which is not built, so the case is refused rather than half
+  allowed. To remove an administrator, take the `admin` role off them in
+  Keycloak first, then revoke.
+- Standing down voluntarily (US-5.3) is not built; it re-parents descendants
+  rather than suspending them, so it is not the same button.
 
 Withdrawing trust has its own page, `/sso/manage/revoke/<id>/`, reached from
 the row. Getting there changes nothing, so it can be opened, read and left. It
@@ -157,6 +161,34 @@ clears the subtree in one action, within `SSO_REVOCATION_GRACE_DAYS` (7). After
 that the record stays but the button goes: reversing months later is a
 re-invitation, not an undo. Accounts suspended by a *different* revocation are
 left alone.
+
+### Rescuing a suspended account
+
+Suspension is not a punishment, and the person who caused it is rarely the
+person you want to bring back. When a maintainer leaves, everyone they invited
+is suspended and only restoring the maintainer would clear it, which briefly
+re-enables the account you meant to remove.
+
+**Give the account a new sponsor instead** (US-5.4), at
+`/sso/manage/reparent/<id>/`, reached from the row. It takes a reason, names
+everyone it brings back, and reactivates the account together with anyone the
+same revocation suspended below it. The person who was actually revoked stays
+revoked.
+
+The grace window deliberately does **not** apply here. Once it closes, restoring
+is refused and this is the only way back, so gating it the same way would leave
+suspended people with no route at all. Before this existed there was none: the
+row offered nothing, `restore` refuses anything not directly revoked, the admin
+is read only, and an existing account cannot be invited again.
+
+A new sponsor must be active, must sit outside the account's own subtree (a
+sponsor from inside it would close the chain into a loop), and must hold a role
+senior enough to have invited the account in the first place. The picker only
+lists people who qualify, and the view checks the posted value against that same
+list. Quota is counted from invitations still outstanding, so moving somebody
+who has already signed in costs their new sponsor nothing.
+
+Only administrators and web maintainers may do this.
 
 Content is **retained**. `SSO_ON_REVOKE` names what this site does about the
 person's unpublished work — `qgisfeed.trust.on_revoke` returns entries in

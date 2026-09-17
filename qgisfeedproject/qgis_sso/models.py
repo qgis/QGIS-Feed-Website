@@ -230,6 +230,7 @@ class SsoAuditEvent(models.Model):
         REVOKED_TRUST = "revoked-trust", _("Trust withdrawn")
         SUSPENDED = "suspended", _("Suspended: their sponsor was revoked")
         RESTORED = "restored", _("Trust restored")
+        REPARENTED = "re-parented", _("Moved to a different sponsor")
         LOCAL_PASSWORD_DISABLED = "local-password-disabled", _(
             "Local password made unusable"
         )
