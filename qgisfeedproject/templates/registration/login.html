@@ -1,5 +1,5 @@
 {% extends 'layouts/base-fullscreen.html' %}
-{% load static %}
+{% load static i18n %}
 
 {% block pagetitle %}
 
@@ -10,9 +10,23 @@
     <div class="columns is-vcentered is-centered">
       <div class="column is-4 p-6 login-container" >
         <div class="has-text-centered">
-          <h3 class="title">Login</h3>
+          <h3 class="title">{% trans "Sign in" %}</h3>
           <hr class="login-hr" />
-          <p class="subtitle">Log in with your credentials.</p>
+          <p class="subtitle">
+            {% if LOCAL_LOGIN_ENABLED %}
+              {% blocktrans trimmed %}
+                Your QGIS account signs you in here and on other QGIS sites.
+                You sign in with a passkey, so there is no password to
+                remember. Your username and password also still work.
+              {% endblocktrans %}
+            {% else %}
+              {% blocktrans trimmed %}
+                Your QGIS account signs you in here and on other QGIS sites.
+                You sign in with a passkey, so there is no password to
+                remember.
+              {% endblocktrans %}
+            {% endif %}
+          </p>
           {% if LOCAL_LOGIN_ENABLED %}
           <div>
             <form method="POST">
@@ -22,7 +36,7 @@
                   <input
                     class="input is-large"
                     type="text"
-                    placeholder="Username"
+                    placeholder="{% trans 'Username' %}"
                     autofocus=""
                     id="username"
                     name="username"
@@ -38,7 +52,7 @@
                   <input
                     class="input is-large"
                     type="password"
-                    placeholder="Password"
+                    placeholder="{% trans 'Password' %}"
                     id="password"
                     name="password"
                   />
@@ -65,7 +79,8 @@
                 value="login"
                 id="submit-button"
               >
-                Login <i class="fa fa-sign-in" aria-hidden="true"></i>
+                {% trans "Sign in" %}
+                <i class="fa fa-sign-in" aria-hidden="true"></i>
               </button>
             </form>
           </div>
@@ -76,8 +91,14 @@
                 class="button is-success is-large is-fullwidth"
                 type="submit"
                 value="login"
-            >Login with QGIS account</button>
+            >{% trans "Sign in with your QGIS account" %}</button>
           </form>
+          <p class="mt-4">
+            <i class="fa-solid fa-circle-info has-text-success mr-1" aria-hidden="true"></i>
+            <a href="{% url 'qgis_sso:help' %}">
+              {% trans "New here, or cannot get in?" %}
+            </a>
+          </p>
         </div>
       </div>
     </div>

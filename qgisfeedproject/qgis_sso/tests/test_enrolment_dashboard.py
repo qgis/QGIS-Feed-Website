@@ -230,6 +230,21 @@ class ListingTest(SuperuserPage):
     def test_the_create_page_is_linked(self):
         self.assertContains(self.client.get(PAGE), CREATE)
 
+    def test_the_guide_is_linked(self):
+        self.assertContains(self.client.get(PAGE), reverse("qgis_sso:help"))
+
+    @override_settings(SSO_ROLE_LABELS={"admin": "Administrator"})
+    def test_roles_are_named_for_a_reader_not_for_keycloak(self):
+        superuser = User.objects.create_superuser(
+            "rootadmin", "rootadmin@example.org", "x", last_login=timezone.now()
+        )
+        link(superuser)
+
+        response = self.client.get(PAGE)
+
+        self.assertContains(response, "Administrator")
+        self.assertNotContains(response, ">admin<")
+
 
 @override_settings(**PAGE_SETTINGS)
 class CandidateListingTest(SuperuserPage):
@@ -394,7 +409,7 @@ class SendEmailTest(SuperuserPage):
             PAGE, {"action": "send-email", "identity": str(self.identity.pk)}
         )
 
-        self.assertContains(response, "cannot be unsent")
+        self.assertContains(response, "cannot be called back")
         self.assertEqual(self.realm.emailed, [])
 
     def test_a_confirmed_post_sends_and_records_it(self):
@@ -423,7 +438,7 @@ class SendEmailTest(SuperuserPage):
             },
         )
 
-        self.assertContains(response, "not in the realm")
+        self.assertContains(response, "could not find that account")
         self.assertEqual(self.realm.emailed, [])
 
 
@@ -495,7 +510,7 @@ class IssuedLinkTest(SuperuserPage):
         until an administrator passes the link on."""
         response = self.issue()
 
-        self.assertNotContains(response, "cannot be unsent")
+        self.assertNotContains(response, "cannot be called back")
         self.assertEqual(self.realm.linked, ["alice"])
 
     def test_the_reply_is_not_cached(self):
@@ -586,4 +601,4 @@ class IssuedLinkTest(SuperuserPage):
         response = self.client.get(PAGE)
 
         self.assertNotContains(response, "Get the enrolment link")
-        self.assertContains(response, "Email the account-setup link")
+        self.assertContains(response, "Email the setup link")

@@ -31,8 +31,8 @@ class HeaderAccountMenuTest(TestCase):
     def test_anonymous_visitor_is_offered_login_not_a_username(self):
         response = self.home()
 
-        self.assertContains(response, "Login")
-        self.assertNotContains(response, "Log Out")
+        self.assertContains(response, "Sign in")
+        self.assertNotContains(response, "Sign out")
         self.assertNotContains(response, "qgis_user")
 
     def test_signed_in_user_sees_their_name_and_a_logout(self):
@@ -41,7 +41,7 @@ class HeaderAccountMenuTest(TestCase):
         response = self.home()
 
         self.assertContains(response, "alice")
-        self.assertContains(response, "Log Out")
+        self.assertContains(response, "Sign out")
 
     def test_profile_points_at_this_site_not_the_provider(self):
         """The page is here even though the passkeys are not.
@@ -55,7 +55,7 @@ class HeaderAccountMenuTest(TestCase):
         response = self.home()
 
         self.assertContains(response, reverse("qgis_sso:profile"))
-        self.assertContains(response, "Profile")
+        self.assertContains(response, "Your account")
         self.assertNotContains(response, ACCOUNT_URL)
 
     def test_the_enrolment_page_is_offered_to_anybody_in_the_realm(self):

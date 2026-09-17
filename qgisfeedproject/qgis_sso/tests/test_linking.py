@@ -63,7 +63,7 @@ class LinkDecisionTest(TestCase):
         decision = self.decide(realm)
 
         self.assertTrue(decision.is_skip)
-        self.assertIn("has not verified it", decision.reason)
+        self.assertIn("has not confirmed it", decision.reason)
 
     def test_an_address_the_realm_does_not_know_falls_through_to_creating(self):
         realm = FakeRealm()
@@ -87,7 +87,7 @@ class LinkDecisionTest(TestCase):
         decision = self.decide(realm)
 
         self.assertTrue(decision.is_skip)
-        self.assertIn("already bound", decision.reason)
+        self.assertIn("already linked", decision.reason)
 
     def test_an_account_that_already_has_an_identity_is_refused(self):
         KeycloakIdentity.objects.create(
@@ -101,7 +101,7 @@ class LinkDecisionTest(TestCase):
         decision = self.decide(realm)
 
         self.assertTrue(decision.is_skip)
-        self.assertIn("already has a Keycloak identity", decision.reason)
+        self.assertIn("already has a QGIS account", decision.reason)
 
     def test_a_role_the_client_does_not_have_is_refused_not_crashed(self):
         """Linking assigns a role; it does not create one. Without this the
@@ -117,7 +117,7 @@ class LinkDecisionTest(TestCase):
         decision = self.decide(realm)
 
         self.assertTrue(decision.is_error)
-        self.assertIn("has no role(s) admin", decision.reason)
+        self.assertIn("has no roles called admin", decision.reason)
 
     def test_a_username_collision_alone_is_still_never_claimed(self):
         """The old refusal stands where there is no address to go on."""
@@ -126,7 +126,7 @@ class LinkDecisionTest(TestCase):
         decision = self.decide(realm)
 
         self.assertTrue(decision.is_skip)
-        self.assertIn("not claiming it", decision.reason)
+        self.assertIn("Not claiming it", decision.reason)
 
 
 @override_settings(**LINK_SETTINGS)

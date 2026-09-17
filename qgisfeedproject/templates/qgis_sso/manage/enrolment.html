@@ -11,17 +11,18 @@ cannot survive paging, and a whole wave is what the Django admin is for.
 
   <div class="is-flex is-justify-content-space-between is-align-items-center mb-4">
     <div>
-      <h1 class="title is-4">{% trans "SSO enrolment" %}</h1>
+      <h1 class="title is-4">{% trans "People" %}</h1>
       <p class="subtitle is-6">
-        {% if everyone %}
-          {% blocktrans trimmed %}
-            Every account at auth.qgis.org, and where each of them has got to.
-          {% endblocktrans %}
-        {% else %}
-          {% blocktrans trimmed %}
-            The people you have invited, and where each of them has got to.
-          {% endblocktrans %}
-        {% endif %}
+        {% blocktrans trimmed %}
+          Accounts here are created by invitation. Invite people, get the invitation link, and
+          withdraw trust when you need to.
+        {% endblocktrans %}
+      </p>
+      <p>
+        <i class="fa-solid fa-circle-info has-text-success mr-1" aria-hidden="true"></i>
+        <a href="{% url 'qgis_sso:help' %}#trust">
+          {% trans "How inviting and withdrawing trust work" %}
+        </a>
       </p>
     </div>
     {% if everyone or may_invite_new %}
@@ -54,12 +55,13 @@ cannot survive paging, and a whole wave is what the Django admin is for.
 
   {% if confirming == 'send-email' %}
     <div class="box-content sso-confirm mb-4">
-      <h2 class="title is-5">{% trans "Send the account-setup email?" %}</h2>
+      <h2 class="title is-5">{% trans "Send the setup email?" %}</h2>
       <div class="notification is-warning">
+        {# Staging databases are restored from production, so these are real
+           addresses even when the site is not. #}
         {% blocktrans trimmed with username=subject.user.username email=subject.user.email %}
-          This emails {{ username }} at {{ email }}. A staging database restored
-          from production holds every contributor's real address, and a setup link
-          that has gone out cannot be unsent.
+          This emails {{ username }} at {{ email }}, which is a real address.
+          An email that has gone out cannot be called back.
         {% endblocktrans %}
       </div>
       <form method="post" action="">
@@ -108,7 +110,7 @@ cannot survive paging, and a whole wave is what the Django admin is for.
       <tr>
         <th scope="col" class="sso-account">{% trans "Account" %}</th>
         <th scope="col">{% trans "State" %}</th>
-        <th scope="col">{% trans "Vouched for by" %}</th>
+        <th scope="col">{% trans "Invited by" %}</th>
         <th scope="col">{% trans "Roles" %}</th>
         <th scope="col">{% trans "Last step" %}</th>
         <th scope="col">{% trans "Invite" %}</th>
@@ -131,10 +133,10 @@ cannot survive paging, and a whole wave is what the Django admin is for.
             {% if row.sponsor %}
               {{ row.sponsor.get_full_name|default:row.sponsor.username }}
             {% else %}
-              <span title="{% trans 'Here before there was a trust graph, or a root.' %}">—</span>
+              <span title="{% trans 'Nobody. This account was created before invitations existed.' %}">—</span>
             {% endif %}
           </td>
-          <td>{{ row.proposed_roles|join:", "|default:"—" }}</td>
+          <td>{{ row.role_labels|join:", "|default:"—" }}</td>
           <td>
             {% if row.identity.first_sso_login_at %}
               {% trans "Signed in" %} {{ row.identity.first_sso_login_at|date:"Y-m-d" }}
@@ -146,7 +148,7 @@ cannot survive paging, and a whole wave is what the Django admin is for.
               {% trans "Created" %} {{ row.identity.linked_at|date:"Y-m-d" }}
             {% endif %}
             {% if row.password_retired %}
-              <br><small class="has-text-grey">{% trans "local password retired" %}</small>
+              <br><small class="has-text-grey">{% trans "old password switched off" %}</small>
             {% endif %}
           </td>
           <td>
@@ -155,7 +157,7 @@ cannot survive paging, and a whole wave is what the Django admin is for.
               {% csrf_token %}
               <input type="hidden" name="identity" value="{{ row.identity.pk }}">
               {% blocktrans trimmed asvar send_label with username=row.user.username %}
-                Email the account-setup link to {{ username }}
+                Email the setup link to {{ username }}
               {% endblocktrans %}
               <button class="button is-small is-primary1 is-outlined" type="submit"
                       name="action" value="send-email"
@@ -199,8 +201,8 @@ cannot survive paging, and a whole wave is what the Django admin is for.
         <tr>
           <td colspan="6">
             {% blocktrans trimmed %}
-              No accounts match. Nobody has a Keycloak account yet, or the filter
-              is too narrow.
+              No accounts match. Nobody has a QGIS account yet, or the filter is
+              too narrow.
             {% endblocktrans %}
           </td>
         </tr>

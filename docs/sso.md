@@ -1,51 +1,12 @@
 # Single sign-on with auth.qgis.org
 
----
+This page is for the people who run and maintain the feed site.
 
-## For contributors
-
-### Signing in
-
-Go to `/accounts/login/` and use **Sign in with your QGIS account**. You will be
-sent to `auth.qgis.org`, where you sign in with your **passkey** — Touch ID,
-Windows Hello, a phone, or a hardware key.
-
-There is no password and no one-time code. A passkey already combines something
-you have with something you are, so there is nothing else to type, nothing to
-remember, and nothing that can be phished out of you.
-
-### Setting your account up for the first time
-
-You will receive an email from `noreply@qgis.org` with a setup link that is
-valid for **14 days**. It asks you to verify your address and enrol a passkey.
-Both are required, and once done you are returned to the feed site already
-signed in — no password is ever set on the account, and there is no second
-login to perform.
-
-You need a device that can create a passkey. A passkey made on a phone or in
-iCloud Keychain, Google Password Manager or Bitwarden syncs across your
-devices, so it is not tied to the machine you enrolled on. Enrol a second one —
-a hardware key, or a passkey on another device — at
-`https://auth.qgis.org/realms/qgis/account/#/security/signing-in` under
-*Passwordless*, so that losing a device does not lock you out.
-
-If the link has expired, or you have lost every passkey, ask a feed maintainer.
-
-### "You need an invitation"
-
-A QGIS account is not by itself an account on the feed site: this site does not
-allow self-registration, and the realm is shared with the plugins and hub sites.
-If you see this page, your sign-in worked but no feed account is bound to it.
-Ask a feed maintainer, and tell them the QGIS account name you used.
-
-### Losing every passkey
-
-Contact a feed administrator, who can resend a setup link **to your address** so
-you can enrol a new one. They cannot read it out to you: once an account has
-signed in, a link handed to somebody else would sign *them* in as you. There is
-no password to fall back on, so the administrator is expected to verify who you
-are through a channel other than the email address on the account — enrolling a
-second passkey in advance is much less trouble.
+**Contributors want the guide at `/sso/help/` instead.** It covers getting an
+account, setting it up, passkeys, roles, invitations and what to do when you
+cannot sign in. It lives in the site so that it always matches what is deployed,
+and it is readable while signed out. Keep it up to date in the same change as
+the code: `qgisfeedproject/templates/qgis_sso/help.html`.
 
 ---
 

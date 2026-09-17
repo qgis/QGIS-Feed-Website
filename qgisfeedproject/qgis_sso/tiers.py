@@ -25,6 +25,24 @@ def quotas():
     return getattr(settings, "SSO_TIER_QUOTAS", {})
 
 
+def label(role):
+    """What to call that role on screen.
+
+    Falls back to the identifier, so a role the site has not named still shows
+    something rather than nothing.
+    """
+    return getattr(settings, "SSO_ROLE_LABELS", {}).get(role, role)
+
+
+def labels(roles):
+    return [label(role) for role in roles]
+
+
+def summary(role):
+    """One line on what the role lets a person do. Empty if unsaid."""
+    return getattr(settings, "SSO_ROLE_SUMMARIES", {}).get(role, "")
+
+
 def roles_of(user):
     """The role set as of that account's last sign-in.
 

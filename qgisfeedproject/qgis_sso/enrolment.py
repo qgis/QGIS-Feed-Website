@@ -16,6 +16,7 @@ from django.contrib.auth.models import User
 from django.db.models import Q
 from django.utils.translation import gettext_lazy as _
 
+from . import tiers
 from .migration import flag_users, proposed_roles, proposed_username
 from .models import KeycloakIdentity, TrustState
 
@@ -42,7 +43,7 @@ REVOKED = "revoked"
 #: marker on the row now.
 STATES = {
     BLOCKED: (_("Needs a decision"), "is-danger"),
-    NOT_PROVISIONED: (_("No realm account"), "is-light"),
+    NOT_PROVISIONED: (_("No QGIS account"), "is-light"),
     PROVISIONED: (_("Created"), "is-info"),
     LINK_SENT: (_("Link sent"), "is-warning"),
     ACTIVE: (_("Active"), "is-success"),
@@ -81,6 +82,11 @@ class Row:
     @property
     def label(self):
         return STATES[self.state][0]
+
+    @property
+    def role_labels(self):
+        """The roles as a reader sees them, not as Keycloak names them."""
+        return tiers.labels(self.proposed_roles)
 
     @property
     def css_class(self):

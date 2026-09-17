@@ -16,6 +16,8 @@ import os
 import sys
 from pathlib import Path
 
+from django.utils.translation import gettext_lazy as _
+
 logger = logging.getLogger(__name__)
 
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
@@ -377,6 +379,31 @@ SSO_ROLE_MAP = {
 # created by hand for an unrelated purpose survives a sign-in.
 SSO_MANAGED_GROUPS = ["qgisfeedentry_authors", "qgisfeedentry_approver"]
 
+# What each role is called on screen. The identifiers above are Keycloak's and
+# mean nothing to a contributor.
+SSO_ROLE_LABELS = {
+    "admin": _("Administrator"),
+    "web-maintainer": _("Web maintainer"),
+    "reviewer": _("Reviewer"),
+    "usergroup-author": _("User group author"),
+    "author": _("Author"),
+}
+
+# One line saying what each role lets a person do, for the help page.
+SSO_ROLE_SUMMARIES = {
+    "admin": _("Runs the site, and can invite anybody."),
+    "web-maintainer": _("Looks after the site itself, and can invite anybody."),
+    "reviewer": _("Writes news items and publishes them."),
+    "usergroup-author": _("Writes news items for a QGIS user group."),
+    "author": _("Writes news items for a reviewer to publish."),
+}
+
+# What Django groups mean on screen, for the same reason.
+SSO_GROUP_LABELS = {
+    "qgisfeedentry_authors": _("Write news items"),
+    "qgisfeedentry_approver": _("Publish news items"),
+}
+
 # --- the web of trust -------------------------------------------------------
 # Who may invite whom. The ladder is generic; these names and numbers are this
 # site's. Lower is more privileged, and an invitation can never offer a role
@@ -450,8 +477,9 @@ SSO_MAGIC_LINK_URL = f"{QGIS_AUTH_URL}/realms/{SSO_KEYCLOAK_REALM}/magic-link"
 # combines something you have with something you are.
 SSO_REQUIRED_ACTIONS = ["VERIFY_EMAIL", "webauthn-register-passwordless"]
 
-# Shown on the sign-in failure page when set.
-SSO_SUPPORT_URL = os.environ.get("SSO_SUPPORT_URL", "")
+# Where "Get help" goes from the sign-in failure page. Our own guide by
+# default, because the three reasons that page names are all answered there.
+SSO_SUPPORT_URL = os.environ.get("SSO_SUPPORT_URL", "/sso/help/#stuck")
 
 # Local settings overrides
 # Must be the last!

@@ -216,7 +216,7 @@ class ScopingTest(TestCase):
                 follow=True,
             )
 
-        self.assertContains(response, "not in the realm")
+        self.assertContains(response, "could not find that account")
         self.assertEqual(self.realm.emailed, [])
 
     def test_an_anonymous_visitor_is_sent_to_the_login_page(self):

@@ -10,7 +10,7 @@ somebody else's credential.
 
 from unittest import mock
 
-from django.contrib.auth.models import User
+from django.contrib.auth.models import Group, User
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
@@ -85,6 +85,20 @@ class ProfileTest(TestCase):
         self.assertContains(response, "Phone")
         self.assertEqual(self.realm.asked, ["sub-alice"])
 
+    @override_settings(SSO_GROUP_LABELS={"qgisfeedentry_authors": "Write news items"})
+    def test_it_says_what_the_account_may_do_rather_than_naming_a_group(self):
+        """A group name is a database identifier, not an answer."""
+        group, _ = Group.objects.get_or_create(name="qgisfeedentry_authors")
+        self.user.groups.add(group)
+
+        response = self.visit()
+
+        self.assertContains(response, "Write news items")
+        self.assertNotContains(response, "qgisfeedentry_authors")
+
+    def test_it_links_to_the_guide_beside_the_passkeys(self):
+        self.assertContains(self.visit(), reverse("qgis_sso:help"))
+
     def test_it_asks_only_about_the_signed_in_account(self):
         """The subject comes from the session's own identity, never a request."""
         KeycloakIdentity.objects.create(
@@ -114,14 +128,14 @@ class ProfileTest(TestCase):
         response = self.visit()
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "could not be reached")
+        self.assertContains(response, "could not reach")
 
     def test_a_local_only_account_is_told_there_is_nothing_to_manage(self):
         self.identity.delete()
 
         response = self.visit()
 
-        self.assertContains(response, "does not sign in through auth.qgis.org")
+        self.assertContains(response, "does not sign in with a QGIS account")
         # And is not sent to an account console it has no account in.
         self.assertNotContains(response, "Edit profile")
 

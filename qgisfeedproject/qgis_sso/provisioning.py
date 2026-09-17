@@ -17,6 +17,7 @@ from django.conf import settings
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
+from . import tiers
 from .keycloak import KeycloakAdminClient, KeycloakError
 from .migration import (
     feed_client_id,
@@ -50,6 +51,11 @@ class Decision:
     @property
     def actionable(self):
         return self.verdict in (CREATE, LINK)
+
+    @property
+    def role_labels(self):
+        """The roles as a reader sees them, not as Keycloak names them."""
+        return tiers.labels(self.roles)
 
     @property
     def is_create(self):
@@ -109,7 +115,7 @@ class Provisioner:
             else KeycloakIdentity.objects.filter(user=user).exists()
         )
         if already_linked:
-            return self._skip(decision, _("already has a Keycloak identity"))
+            return self._skip(decision, _("already has a QGIS account"))
         if not decision.email:
             # Provisioning without an address produces an account nobody can
             # ever reach, because the setup link is emailed.
@@ -134,7 +140,7 @@ class Provisioner:
             # somebody else entirely.
             return self._skip(
                 decision,
-                _("the realm already has a user named %(username)s; not claiming it")
+                _("a QGIS account named %(username)s already exists. Not claiming it")
                 % {"username": decision.username},
             )
 
@@ -144,7 +150,8 @@ class Provisioner:
             return self._error(
                 decision,
                 _(
-                    "client %(client)s has no role(s) %(roles)s. Deploy the realm changes first."
+                    "%(client)s has no roles called %(roles)s yet. Deploy the "
+                    "role changes first."
                 )
                 % {"client": self.client_id, "roles": ", ".join(unknown)},
             )
@@ -177,8 +184,8 @@ class Provisioner:
             return self._skip(
                 decision,
                 _(
-                    "the realm has %(email)s but has not verified it; ask them "
-                    "to verify it there first"
+                    "a QGIS account has %(email)s but has not confirmed it. Ask "
+                    "them to confirm it first"
                 )
                 % {"email": decision.email},
             )
@@ -187,16 +194,18 @@ class Provisioner:
             # the comparison here is.
             return self._skip(
                 decision,
-                _("the realm returned a different address; not binding to it"),
+                _("the QGIS account has a different address. Not linking to it"),
             )
         if not sub:
-            return self._error(decision, _("the realm returned no subject"))
+            return self._error(
+                decision, _("the QGIS account service gave no account id")
+            )
         if KeycloakIdentity.objects.filter(sub=sub).exists():
             # Two local accounts on one subject would break the assumption
             # every lookup in this app rests on.
             return self._skip(
                 decision,
-                _("that realm account is already bound to another account here"),
+                _("that QGIS account is already linked to another account here"),
             )
 
         # Same override as the create path: a caller that names the roles
@@ -211,8 +220,8 @@ class Provisioner:
             return self._error(
                 decision,
                 _(
-                    "client %(client)s has no role(s) %(roles)s. Deploy the "
-                    "realm changes first."
+                    "%(client)s has no roles called %(roles)s yet. Deploy the "
+                    "role changes first."
                 )
                 % {"client": self.client_id, "roles": ", ".join(missing)},
             )

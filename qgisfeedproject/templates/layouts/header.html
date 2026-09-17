@@ -34,20 +34,20 @@
                         <div class="navbar-dropdown">
                             <a href="{% url "qgis_sso:profile" %}"
                                 class="navbar-item has-text-weight-semibold is-size-7">
-                                {% trans "Profile" %}
+                                {% trans "Your account" %}
                             </a>
                             {# Anyone with a realm account, and superusers who do not have one yet: at cutover they are the ones who need the page most. #}
                             {% if user.is_superuser or user.keycloak_identity %}
                                 <a class="navbar-item has-text-weight-semibold is-size-7"
                                     href="{% url "qgis_sso:enrolment" %}">
-                                    {% trans "SSO enrolment" %}
+                                    {% trans "People" %}
                                 </a>
                             {% endif %}
                             <form method="POST" action="{% url 'oidc_logout' %}">
                                 {% csrf_token %}
                                 <button type="submit"
                                     class="navbar-item has-text-weight-semibold is-size-7 logout-item">
-                                    {% trans "Log Out" %}
+                                    {% trans "Sign out" %}
                                 </button>
                             </form>
                         </div>
@@ -59,7 +59,7 @@
                                 <i class="fas fa-sign-in-alt"></i>
                             </span>
                             <span>
-                                {% trans "Login" %}
+                                {% trans "Sign in" %}
                             </span>
                         </a>
                     </div>

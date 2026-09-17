@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A contributor's guide at `/sso/help/`** — one page answering the questions
+  people actually ask: how to get an account, what to do with an enrolment
+  link, what a passkey is, how to add or remove one, what your role lets you
+  do, who you may invite, and what suspension means. Open to anybody, because
+  the reader who needs it most is often the one who cannot sign in. The role
+  ladder and the invitation allowances are built from `SSO_ROLE_TIERS` and
+  `SSO_TIER_QUOTAS`, so the page cannot drift from the rules it describes.
+  Linked from the sign-in page, the sign-in failure page, the enrolment list,
+  the issued link page, the profile page, and the suspension banner.
 - **Keycloak single sign-on (`qgis_sso`)** — Phase 3 of the
   [SSO migration plan](SSO-Feed-Migration-Plan.md). A new namespaced,
   feed-agnostic app holding the identity binding and the audit trail.
@@ -140,6 +149,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The SSO pages say what they mean.** Words that came from the
+  implementation no longer reach a reader: "realm", "Keycloak username" and
+  "subtree" are gone, roles read as *Administrator* and *User group author*
+  rather than `admin` and `usergroup-author`, and the profile page says what
+  your account lets you do instead of naming a Django group. `Login` and
+  `Log Out` become `Sign in` and `Sign out`, and the enrolment list is now
+  `People`. Error messages say what to do next, and technical detail moves out
+  of the message body into the logs. New settings `SSO_ROLE_LABELS`,
+  `SSO_ROLE_SUMMARIES` and `SSO_GROUP_LABELS` hold the names.
 - **The account state ladder now means one thing.** *Created → Link sent →
   Active*, plus *Suspended* and *Revoked*. `Invited` was ambiguous once accounts
   could arrive by invitation — it described both a state and an origin — and
@@ -182,6 +200,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   works with JavaScript off and from the keyboard.
 - `tests` in the dev shell and the `django-tests` flake check run `qgis_sso`
   alongside `qgisfeed`.
+
+### Fixed
+
 
 ### Security
 

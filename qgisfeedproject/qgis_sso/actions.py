@@ -212,8 +212,8 @@ def issue_setup_links(session, identities, redirect_uri=None):
                 HELD_BACK,
                 _(
                     "has already signed in and has a passkey. A link would sign "
-                    "you in as them, across the whole realm. Send the setup "
-                    "email instead: it reaches them, not you."
+                    "you in as them, on every QGIS site. Send the setup email "
+                    "instead. That reaches them, not you."
                 ),
             )
             continue

@@ -35,14 +35,14 @@ class LoginPageTest(TestCase):
     def test_both_ways_in_are_offered(self):
         response = self.client.get(reverse("login"))
 
-        self.assertContains(response, "Login with QGIS account")
+        self.assertContains(response, "Sign in with your QGIS account")
         self.assertContains(response, 'name="password"')
 
     @override_settings(LOCAL_LOGIN_ENABLED=False, AUTHENTICATION_BACKENDS=OIDC_ONLY)
     def test_local_form_is_absent_when_disabled(self):
         response = self.client.get(reverse("login"))
 
-        self.assertContains(response, "Login with QGIS account")
+        self.assertContains(response, "Sign in with your QGIS account")
         self.assertNotContains(response, 'name="password"')
 
     @override_settings(LOCAL_LOGIN_ENABLED=True, AUTHENTICATION_BACKENDS=WITH_LOCAL)

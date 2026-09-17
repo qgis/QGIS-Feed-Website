@@ -12,11 +12,50 @@ from django.http import HttpResponseRedirect
 from django.shortcuts import render, resolve_url
 from django.urls import reverse
 from django.utils.http import url_has_allowed_host_and_scheme
+from django.views.generic import TemplateView
 from mozilla_django_oidc.views import OIDCAuthenticationCallbackView
 
+from . import tiers
 from .auth import REFUSAL_SESSION_KEY
 
 logger = logging.getLogger(__name__)
+
+
+class HelpView(TemplateView):
+    """How signing in, passkeys and invitations work, for a contributor.
+
+    Open to anybody: the reader who needs it most is often the one who cannot
+    sign in. The ladder is built from the same settings the rules are enforced
+    from, so the page cannot quietly go out of date.
+    """
+
+    template_name = "qgis_sso/help.html"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["account_url"] = getattr(settings, "SSO_ACCOUNT_URL", "")
+        context["profile_url"] = reverse("qgis_sso:profile")
+        context["ladder"] = self.ladder()
+        context["grace_days"] = getattr(settings, "SSO_REVOCATION_GRACE_DAYS", 7)
+        return context
+
+    @staticmethod
+    def ladder():
+        """Every role, most trusted first, with what it may do and invite."""
+        quotas = tiers.quotas()
+        ordered = sorted(tiers.ladder().items(), key=lambda pair: pair[1])
+        return [
+            {
+                "name": tiers.label(role),
+                "summary": tiers.summary(role),
+                # None is unlimited, and the template needs to tell that from
+                # zero, which means "you cannot invite anybody".
+                "quota": quotas.get(level),
+                "unlimited": quotas.get(level) is None,
+                "invites": [tiers.label(other) for other, at in ordered if at >= level],
+            }
+            for role, level in ordered
+        ]
 
 
 def sign_in_failed(request):

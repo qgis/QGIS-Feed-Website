@@ -7,6 +7,49 @@
   margin: auto;
 }
 
+// The contributor's guide. A reading column rather than the full width, and
+// wide enough for the role table to stay a table on a laptop.
+.sso-help {
+  max-width: 860px;
+  margin: auto;
+
+  // Bulma's .content resets list markers inside the container this page sits
+  // in, so each list says how it wants to look rather than relying on that.
+  .sso-help-contents,
+  .sso-help-list,
+  .sso-help-ladder {
+    list-style: disc outside;
+    margin-left: 1.25rem;
+  }
+
+  .sso-help-steps {
+    list-style: decimal outside;
+    margin-left: 1.25rem;
+
+    li {
+      margin-bottom: 0.5rem;
+    }
+  }
+
+  // Term and description read as a pair, so the term carries the weight and
+  // the description is indented under it.
+  .sso-help-reasons {
+    dt {
+      font-weight: 600;
+      margin-top: 1rem;
+    }
+
+    dd {
+      margin-left: 1.25rem;
+    }
+  }
+
+  // Anchor targets sit under the fixed navbar without this.
+  section {
+    scroll-margin-top: 5rem;
+  }
+}
+
 // The confirmation panel interrupts the page deliberately: it is the last
 // chance to stop. A left rule marks it as an aside without borrowing the
 // notification colours the messages above it already use.
@@ -18,7 +61,7 @@
   // A link is long and has to be selectable in one go, so it is never wrapped
   // and never shrunk to the point of being unreadable when read aloud.
   .input {
-    font-size: 0.85rem;
+    font-size: 1rem;
   }
 }
 

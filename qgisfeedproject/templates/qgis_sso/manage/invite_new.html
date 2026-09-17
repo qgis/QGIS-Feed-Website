@@ -14,8 +14,8 @@ suggestion.
       <h1 class="title is-4">{% trans "Invite a new user" %}</h1>
       <p class="subtitle is-6">
         {% blocktrans trimmed %}
-          Somebody with no QGIS account yet. Their account is created straight
-          away; nothing is sent until you send it.
+          Create a new QGIS account for someone who does not have one.
+          You will be able to share the invitation link with them, and withdraw trust when you need to.
         {% endblocktrans %}
       </p>
     </div>
@@ -68,9 +68,9 @@ suggestion.
         <div class="control">
           <div class="select">
             <select id="role" name="role">
-              {% for role in roles %}
-                <option value="{{ role }}"
-                        {% if form.role == role %}selected{% endif %}>{{ role }}</option>
+              {% for value, name in roles %}
+                <option value="{{ value }}"
+                        {% if form.role == value %}selected{% endif %}>{{ name }}</option>
               {% endfor %}
             </select>
           </div>

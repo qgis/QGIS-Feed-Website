@@ -44,7 +44,9 @@ from .enrolment import LINKED_STATES, STATES, candidate_rows, linked_rows
 from .keycloak import KeycloakError
 from .models import KeycloakIdentity, LinkMethod, SsoAuditEvent
 from .provisioning import Provisioner, setup_redirect_uri
-from .tiers import invitable_roles, may_invite, remaining
+from .tiers import invitable_roles
+from .tiers import label as role_label
+from .tiers import may_invite, remaining
 from .views_profile import signed_in, trusted
 
 logger = logging.getLogger(__name__)
@@ -121,7 +123,10 @@ class EnrolmentView(View):
         identity = self.selected_identity(request)
 
         if identity is None:
-            messages.error(request, _("That account is not in the realm."))
+            messages.error(
+                request,
+                _("We could not find that account. Reload the list and try again."),
+            )
             return render(request, self.template_name, context)
 
         if action == ISSUE_LINK:
@@ -210,7 +215,7 @@ class EnrolmentView(View):
         else:
             messages.success(
                 request,
-                _("%(username)s and their subtree are active again.")
+                _("%(username)s and everyone they invited can sign in again.")
                 % {"username": identity.user.username},
             )
         return self.back(request)
@@ -223,7 +228,11 @@ class EnrolmentView(View):
         except ValueError as error:
             messages.error(request, str(error))
         except KeycloakError as error:
-            messages.error(request, _("Could not reach Keycloak: %s") % error)
+            messages.error(
+                request,
+                _("We could not reach the QGIS account service. Try again in a moment.")
+                + f" ({error})",
+            )
         return None
 
     # -- rendering ---------------------------------------------------------
@@ -396,7 +405,11 @@ class InviteExistingView(View):
         try:
             provisioner, decisions = plan_provisioning(users, include_flagged)
         except KeycloakError as error:
-            messages.error(request, _("Could not reach Keycloak: %s") % error)
+            messages.error(
+                request,
+                _("We could not reach the QGIS account service. Try again in a moment.")
+                + f" ({error})",
+            )
             return render(request, self.template_name, context)
 
         if request.POST.get("confirm") != "yes":
@@ -546,7 +559,7 @@ class InviteNewView(View):
         them a setup link they never asked for.
         """
         if provisioner.client.find_user_by_username(form["username"].lower()):
-            return _("That username is taken in the QGIS realm. Choose another.")
+            return _("That name is taken on another QGIS site. Choose another.")
         if provisioner.client.find_user_by_email(form["email"]):
             return _(
                 "That address already has a QGIS account. Invite them as an "
@@ -627,9 +640,12 @@ class InviteNewView(View):
     @staticmethod
     def page_context(request, form):
         left = remaining(request.user)
+        roles = invitable_roles(request.user)
         return {
             "form": form,
-            "roles": invitable_roles(request.user),
+            # Value and visible text kept apart: the form still posts the
+            # Keycloak identifier, the reader never sees it.
+            "roles": [(role, role_label(role)) for role in roles],
             "remaining": left,
             "unlimited": left is None,
         }

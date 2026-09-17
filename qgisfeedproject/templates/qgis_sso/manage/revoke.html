@@ -13,10 +13,10 @@ walked back casually.
     <div>
       <h1 class="title is-4">
         {% blocktrans trimmed with username=blast.target.user.username %}
-          Withdraw trust from {{ username }}?
+          Withdraw trust from {{ username }}
         {% endblocktrans %}
+        ({{ blast.target.user.email }})?
       </h1>
-      <p class="subtitle is-6">{{ blast.target.user.email }}</p>
     </div>
     <a class="button is-light" href="{% url 'qgis_sso:enrolment' %}">
       {% trans "Back" %}
@@ -36,20 +36,20 @@ walked back casually.
     {% if blast.descendants %}
       <p class="mb-3">
         {% blocktrans trimmed count counter=blast.descendants|length with username=blast.target.user.username %}
-          One account {{ username }} vouched for will be suspended. They can
-          still sign in and will be told why, but can change nothing until this
-          is reversed.
+          One account {{ username }} invited will be suspended. They can still
+          sign in and will be told why, but can change nothing until this is
+          reversed.
         {% plural %}
-          {{ counter }} accounts {{ username }} vouched for will be suspended.
-          They can still sign in and will be told why, but can change nothing
-          until this is reversed.
+          {{ counter }} accounts {{ username }} invited will be suspended. They
+          can still sign in and will be told why, but can change nothing until
+          this is reversed.
         {% endblocktrans %}
       </p>
       <table class="table is-fullwidth sso-table">
         <thead>
           <tr>
             <th scope="col" class="sso-account">{% trans "Account" %}</th>
-            <th scope="col">{% trans "Vouched for by" %}</th>
+            <th scope="col">{% trans "Invited by" %}</th>
           </tr>
         </thead>
         <tbody>
@@ -65,14 +65,14 @@ walked back casually.
         </tbody>
       </table>
     {% else %}
-      <p class="mb-3">{% trans "Nobody else. This account vouched for no one." %}</p>
+      <p class="mb-3">{% trans "Nobody else. This account invited no one." %}</p>
     {% endif %}
 
     <p class="mb-4">
       {% blocktrans trimmed %}
         Their entries, reviews and revisions are kept and stay attributed to
-        them. Anything of theirs waiting to be published goes back to draft, so
-        it cannot be published by somebody who has not heard.
+        them. Anything of theirs waiting to be published goes back to draft
+        and cannot be published anymore.
       {% endblocktrans %}
     </p>
 
@@ -114,8 +114,12 @@ walked back casually.
         </a>
       </div>
       <p class="help">
-        {% blocktrans trimmed with days=grace_days %}
-          Reversible in one action for {{ days }} days, subtree included.
+        {% blocktrans trimmed count counter=grace_days %}
+          You can undo this, and everyone it reaches, in one action for
+          {{ counter }} day.
+        {% plural %}
+          You can undo this, and everyone it reaches, in one action for
+          {{ counter }} days.
         {% endblocktrans %}
       </p>
     </form>

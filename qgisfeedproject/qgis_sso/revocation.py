@@ -331,7 +331,7 @@ def withdraw_in_realm(identity, roles, client=None):
     session = _session(client)
     if session is None:
         raise RevocationError(
-            _("auth.qgis.org could not be reached, so nothing was changed.")
+            _("We could not reach the QGIS account service, so nothing was changed.")
         )
     realm, uuid = session
     try:
@@ -341,7 +341,8 @@ def withdraw_in_realm(identity, roles, client=None):
         realm.set_user_enabled(identity.sub, False)
     except KeycloakError as error:
         raise RevocationError(
-            _("auth.qgis.org refused the change, so nothing was done: %s") % error
+            _("The QGIS account service refused the change, so nothing was done.")
+            + f" ({error})"
         )
 
 
@@ -349,7 +350,7 @@ def restore_in_realm(identity, roles, client=None):
     session = _session(client)
     if session is None:
         raise RevocationError(
-            _("auth.qgis.org could not be reached, so nothing was changed.")
+            _("We could not reach the QGIS account service, so nothing was changed.")
         )
     realm, uuid = session
     try:
@@ -358,7 +359,8 @@ def restore_in_realm(identity, roles, client=None):
             realm.assign_client_roles(identity.sub, uuid, _known(realm, uuid, roles))
     except KeycloakError as error:
         raise RevocationError(
-            _("auth.qgis.org refused the change, so nothing was done: %s") % error
+            _("The QGIS account service refused the change, so nothing was done.")
+            + f" ({error})"
         )
 
 

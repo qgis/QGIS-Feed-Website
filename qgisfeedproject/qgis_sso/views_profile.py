@@ -7,6 +7,7 @@ register or delete one. Pressing a button here starts an ordinary sign-in
 carrying ``kc_action``, Keycloak runs the action, and the user comes back.
 """
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import SESSION_KEY
 from django.http import HttpResponseRedirect
@@ -82,7 +83,7 @@ class ProfileView(View):
         identity = getattr(request.user, "keycloak_identity", None)
         if identity is None:
             messages.error(
-                request, _("This account does not sign in through auth.qgis.org.")
+                request, _("This account does not sign in with a QGIS account.")
             )
             return HttpResponseRedirect(reverse("qgis_sso:profile"))
 
@@ -105,7 +106,11 @@ class ProfileView(View):
         try:
             passkeys = passkeys_for(identity)
         except KeycloakError as error:
-            messages.error(request, _("Could not reach auth.qgis.org: %s") % error)
+            messages.error(
+                request,
+                _("We could not reach the QGIS account service. Try again in a moment.")
+                + f" ({error})",
+            )
             return HttpResponseRedirect(reverse("qgis_sso:profile"))
 
         wanted = request.POST.get("credential", "")
@@ -128,6 +133,16 @@ class ProfileView(View):
         return self.start(request, delete_action(wanted))
 
     @staticmethod
+    def permissions(user):
+        """What this account may do, said plainly.
+
+        Group names are database identifiers. A contributor reading their own
+        account should see what the group lets them do instead.
+        """
+        named = getattr(settings, "SSO_GROUP_LABELS", {})
+        return [named.get(group.name, group.name) for group in user.groups.all()]
+
+    @staticmethod
     def start(request, action):
         """Begin a sign-in that asks Keycloak to run ``action`` on the way."""
         request.session[ACTION_SESSION_KEY] = action
@@ -138,7 +153,7 @@ class ProfileView(View):
         identity = getattr(request.user, "keycloak_identity", None)
         context = {
             "identity": identity,
-            "groups": request.user.groups.all(),
+            "permissions": self.permissions(request.user),
             "passkeys": [],
             "unreachable": False,
         }

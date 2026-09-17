@@ -10,6 +10,12 @@ to auth.qgis.org and no other site can create or delete one.
 {% block content %}
 <div class="sso-profile">
   <h1 class="title is-4">{% trans "Your account" %}</h1>
+  <p class="subtitle is-6">
+    {% blocktrans trimmed %}
+      Your account details, what you can do on the feed, and the passkeys you
+      sign in with.
+    {% endblocktrans %}
+  </p>
     <div class="box-content mb-5">
       {% if identity %}
       <div class="is-flex is-justify-content-end">
@@ -31,12 +37,12 @@ to auth.qgis.org and no other site can create or delete one.
             <td class="sso-account">{{ user.email|default:"—" }}</td>
           </tr>
           <tr>
-            <th scope="row" class="sso-account">{% trans "Permissions" %}</th>
+            <th scope="row" class="sso-account">{% trans "You can" %}</th>
             <td class="sso-account">
-              {% for group in groups %}
-                <span class="tag is-info">{{ group.name }}</span>
+              {% for permission in permissions %}
+                <span class="tag is-info">{{ permission }}</span>
               {% empty %}
-                {% trans "None" %}
+                {% trans "Nothing yet. Ask a feed maintainer." %}
               {% endfor %}
             </td>
           </tr>
@@ -47,23 +53,30 @@ to auth.qgis.org and no other site can create or delete one.
   {% if not identity %}
     <div class="notification is-info">
       {% blocktrans trimmed %}
-        Please sign in with your QGIS account to manage your account and passkeys.
+        This account does not sign in with a QGIS account, so there are no
+        passkeys to manage here. Ask a feed maintainer to invite you.
       {% endblocktrans %}
     </div>
   {% else %}
     <h2 class="title is-5">{% trans "Passkeys" %}</h2>
+    <p class="mb-3">
+      <i class="fa-solid fa-circle-info has-text-success mr-1" aria-hidden="true"></i>
+      <a href="{% url 'qgis_sso:help' %}#passkeys">
+        {% trans "What passkeys are, and how to add or remove one" %}
+      </a>
+    </p>
     <div class="notification is-primary3 is-light">
       {% blocktrans trimmed %}
-        We recommend keeping at least two passkeys (a phone and a hardware
-        key) so that losing one device does not lock you out.
+        Keep at least two passkeys, on two different devices. Losing one device
+        then does not lock you out.
       {% endblocktrans %}
     </div>
 
     {% if unreachable %}
       <div class="notification is-warning">
         {% blocktrans trimmed %}
-          The QGIS account manager could not be reached, so your passkeys are not listed.
-          Try again shortly.
+          We could not reach the QGIS account service, so your passkeys are not
+          listed. Try again in a moment.
         {% endblocktrans %}
       </div>
     {% else %}
@@ -114,8 +127,8 @@ to auth.qgis.org and no other site can create or delete one.
             <tr>
               <td colspan="3">
                 {% blocktrans trimmed %}
-                  No passkeys yet. Add one, or you will not be able to sign in
-                  again once your setup link expires.
+                  No passkeys yet. Add one now, or you cannot sign in after
+                  your setup link expires.
                 {% endblocktrans %}
               </td>
             </tr>

@@ -178,7 +178,7 @@ class ProvisionActionTest(TestCase):
             }
         )
 
-        self.assertContains(response, "already has a Keycloak identity")
+        self.assertContains(response, "already has a QGIS account")
         self.assertEqual(self.realm.created, [])
 
     def test_a_name_already_taken_in_the_realm_is_never_claimed(self):
@@ -193,7 +193,7 @@ class ProvisionActionTest(TestCase):
             }
         )
 
-        self.assertContains(response, "not claiming it")
+        self.assertContains(response, "Not claiming it")
         self.assertEqual(self.realm.created, [])
         self.assertFalse(KeycloakIdentity.objects.exists())
 

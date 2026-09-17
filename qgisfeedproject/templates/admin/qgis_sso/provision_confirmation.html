@@ -12,16 +12,16 @@
 {% block content %}
   <p>
     {% blocktranslate trimmed %}
-      Each account below is created in the Keycloak realm with no credentials.
-      Nobody is emailed and nobody can sign in yet: to invite them, select the
-      new records under Keycloak identities and send the account-setup email.
+      Each account below gets a QGIS account with no way to sign in yet. Nobody
+      is emailed. To invite them, select the new records under Keycloak
+      identities and send the setup email.
     {% endblocktranslate %}
   </p>
   <p>
     {% blocktranslate trimmed %}
-      Through that email the person verifies their address and enrols a
-      passkey — Touch ID, Windows Hello, a phone or a hardware key. No password
-      and no one-time code is involved at any point, so make sure they can
+      Through that email the person confirms their address and creates a
+      passkey, using Touch ID, Windows Hello, a phone or a hardware key. There
+      is no password and no one-time code at any point, so make sure they can
       reach a device that creates passkeys.
     {% endblocktranslate %}
   </p>
@@ -43,7 +43,7 @@
           <th scope="row">{{ decision.user.username }}</th>
           <td>{{ decision.username }}</td>
           <td>{{ decision.email|default:"—" }}</td>
-          <td>{{ decision.roles|join:", "|default:"—" }}</td>
+          <td>{{ decision.role_labels|join:", "|default:"—" }}</td>
           <td>
             {% if decision.actionable %}
               {% translate "Will be created" %}
