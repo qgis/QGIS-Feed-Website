@@ -1,337 +1,119 @@
 # Single sign-on with auth.qgis.org
 
-This page is for the people who run and maintain the feed site.
+This page is for the people who run and maintain the feed site. It covers how
+accounts reach the site, who may invite whom, and how to withdraw trust.
 
-**Contributors want the guide at `/sso/help/` instead.** It covers getting an
-account, setting it up, passkeys, roles, invitations and what to do when you
-cannot sign in. It lives in the site so that it always matches what is deployed,
-and it is readable while signed out. Keep it up to date in the same change as
-the code: `qgisfeedproject/templates/qgis_sso/help.html`.
+If you are a contributor rather than a maintainer, read the guide at
+`/sso/help/` instead. It explains how to get an account, set up a passkey,
+invite somebody, and what to do when you cannot sign in. That guide lives
+inside the site so that it always matches what is deployed, and anybody can
+read it while signed out. Update it in the same change as the code:
+`qgisfeedproject/templates/qgis_sso/help.html`.
 
----
+The [design notes](sso-design.md) explain why each rule exists. Read them
+before you change any of this.
 
-## For maintainers
+## How a sign-in works
 
-### Where roles are edited
+Keycloak owns the account and the credential. This site keeps a link to the
+realm subject and a cached copy of what the roles mean here.
 
-**In Keycloak, on the `feed-qgis-org` client — never in Django admin.**
+```mermaid
+sequenceDiagram
+    autonumber
+    actor P as Contributor
+    participant F as feed.qgis.org
+    participant K as auth.qgis.org
+    P->>F: Sign in
+    F->>K: OIDC authorisation request
+    K->>P: Passkey prompt
+    P->>K: Passkey
+    K-->>F: ID token with feed-qgis-org client roles
+    F->>F: mirror_roles rebuilds groups, staff and superuser
+    F->>P: Signed in
+```
 
-Django groups and the staff/superuser flags are a *projection* of the Keycloak
-client roles. They are recomputed in full at every sign-in, in both directions:
-a role added in Keycloak grants here, and a role removed there revokes here.
-Editing the checkboxes in `/admin/` on an SSO-linked account appears to work
-and is silently reverted at that person's next sign-in. The admin interface
-says so beside the fields.
+Step 7 is the one to remember. Django groups and the staff and superuser flags
+are a copy of the Keycloak client roles, and we rebuild that copy in full at
+every sign-in. Add a role in Keycloak and the person gains it here. Remove it
+there and they lose it here.
 
-The mapping is `SSO_ROLE_MAP` in `settings.py`:
+> **Edit roles in Keycloak, on the `feed-qgis-org` client, never in Django
+> admin.** If you change the checkboxes in `/admin/` on an account linked to
+> the realm, it looks like it worked, and the next sign-in quietly undoes it.
+
+## What each role grants
+
+`SSO_ROLE_MAP` in `settings.py` holds the mapping. The mirroring only ever
+touches the groups named in `SSO_MANAGED_GROUPS`, so a group you created by
+hand for something else survives a sign-in.
 
 | Keycloak client role | Django groups | staff | superuser |
 |---|---|---|---|
 | `admin` | authors, approver | ✅ | ✅ |
 | `web-maintainer` | authors, approver | ✅ | ✅ |
-| `reviewer` | authors, approver | ✅ | — |
-| `usergroup-author` | authors | ✅ | — |
-| `author` | authors | ✅ | — |
+| `reviewer` | authors, approver | ✅ | |
+| `usergroup-author` | authors | ✅ | |
+| `author` | authors | ✅ | |
 
-Only the groups named in `SSO_MANAGED_GROUPS` are ever touched. A group created
-by hand for some other purpose survives a sign-in untouched.
+## The enrolment page
 
-### Settings that matter
+Anybody with a realm account can open `/sso/manage/`, and each person sees only
+what they are entitled to see. A superuser sees every account that has a
+Keycloak identity. Everybody else sees the accounts they vouched for. The page
+shows ten rows at a time, and you can filter by state or search by name.
 
-| Setting | Meaning |
+```mermaid
+stateDiagram-v2
+    state "No QGIS account" as NoAccount
+    state "Needs a decision" as Decision
+    state "Created" as Created
+    state "Link sent" as LinkSent
+
+    [*] --> NoAccount : local account only
+    NoAccount --> Decision : email missing or name collides
+    Decision --> Created : a human resolves it
+    NoAccount --> Created : invite, or create in bulk
+    Created --> LinkSent : send the setup email
+    LinkSent --> Active : first sign-in, passkey enrolled
+    Active --> Revoked : withdraw trust
+    Active --> Suspended : their sponsor was revoked
+    Revoked --> Active : reverse (7d)
+    Suspended --> Active : give them a new sponsor
+```
+
+Every button on a row acts on that row alone. If the account sits outside your
+own branch of the tree, the action is refused, whether or not the listing
+happened to show it.
+
+| Action | What it does |
 |---|---|
-| `LOCAL_LOGIN_ENABLED` | One flag, three effects: the `ModelBackend` entry, the password form on the login page, and what `/admin/login/` accepts. Set it to `False` in Phase 6. |
-| `SSO_MIGRATION_LINKING` | Enables binding a token to a pre-existing local account on an exact username **and** verified-email match. Off by default; on only during the cutover window. |
-| `OIDC_CREATE_USER` | Must stay `False`. The realm is LDAP-federatable, so auto-creation would grant feed accounts to the whole OSGeo directory. The backend refuses in `create_user` as well. |
-| `OIDC_RP_CLIENT_SECRET` | Confidential client secret. Goes in `settings_local`, **never** in the process environment — the deployment's environment is world-readable via the Nix store and `systemctl show`. |
-| `SSO_PROVISIONER_CLIENT_SECRET` | Service-account secret used by provisioning. Same rule. The web client must never hold `manage-users`. |
-| `SSO_REQUIRED_ACTIONS` | What Keycloak makes a new user complete. `VERIFY_EMAIL` and `webauthn-register-passwordless`: a passkey and nothing else, so no password or TOTP secret is ever created. |
-| `SSO_ADMIN_ACTION_MAX_USERS` | Accounts the admin action will provision in one request (25). |
-| `SSO_SETUP_REDIRECT_URI` | Where Keycloak returns somebody who has finished setting up. Points at `/oidc/authenticate/` so they arrive signed in rather than at a login form, and **must be registered as a valid redirect URI on the `feed-qgis-org` client**. |
-| `SSO_MAGIC_LINK_URL` | Derived from `QGIS_AUTH_URL`, like the OIDC endpoints. Answered by PhaseTwo's magic-link extension; see *Handing over a link*. |
+| Send email | Sends the account-setup email, after one confirmation. It reaches a real contributor and you cannot unsend it. |
+| Get the link | Shows the setup link on a page of its own. See [Handing over a link](#handing-over-a-link). |
+| Withdraw trust | Opens `/sso/manage/revoke/<id>/`. See [Withdrawing trust](#withdrawing-trust). |
+| New sponsor | Opens `/sso/manage/reparent/<id>/`. See [Rescuing a suspended account](#rescuing-a-suspended-account). |
 
-### The enrolment pages
+Some accounts cannot be invited at all, because they have no email address or
+somebody deactivated them. The page leaves those out and counts them in a line
+under the table. Deal with them in the admin user list, using its **SSO
+account** filter. Dormant accounts and accounts that have never been used do
+appear, with the flag shown beside them.
 
-`/sso/manage/` is open to anyone with a realm account, and shows what each is
-entitled to see: a superuser gets every account with a Keycloak identity,
-everybody else only the ones they vouched for. Ten rows a page, filtered by
-state — *account created*, *invited*, *signed in*, *migrated* — or searched by
-name. Each row acts on itself:
+## Invitations
 
-- **Send email** — the account-setup email, after one confirmation. It reaches a
-  real contributor and cannot be unsent.
-- **Get the link** — opens the link on a page of its own, with a copy button and
-  a QR code; see *Handing over a link* below. No confirmation: nothing leaves
-  the building until you pass it on.
+Somebody with quota brings in somebody they know, and the new account records
+for good who vouched for it. This is the first part of the
+[web of trust](../SSO-Web-Of-Trust.md). The **Invite** menu offers two routes:
 
-Both are refused for a row outside your own branch, whether or not the listing
-showed it.
+- **New user.** Anyone whose roles carry quota can use this. You fill in a
+  short form, and we create the account straight away both here and in the
+  realm. Nothing reaches the person until you send it.
+- **Existing user.** Superusers only, because it reaches the whole user list.
+  It takes an account that already exists here and gives it a place in the
+  realm.
 
-The **Invite** menu is described under *Invitations* below. *Existing user*
-opens `/sso/manage/invite/existing/`: accounts on this site with nobody behind
-them in the realm, ticked and confirmed against a preview of the Keycloak
-username, roles and outcome for each. Capped at `SSO_ADMIN_ACTION_MAX_USERS`
-(25) per run, which is about how many synchronous calls to Keycloak fit in one
-request, and deliberately **not paginated** — a selection cannot be lost by
-paging if there is no paging.
-
-Accounts no invitation could reach — no email address, or deactivated — are left
-off and counted in a line under the table. They are not work in progress, and the
-admin user list with its **SSO account** filter is where those get dealt with.
-Dormant and never-used accounts *are* offered, with the flag shown beside them.
-
-The pages read state from this site's own database, so neither waits on Keycloak
-to render. The realm is contacted only when you press something.
-
-Selecting a whole wave and acting on it in one go is still the Django admin's
-job — see below. All of it runs through the same code, so the rules and the
-wording are identical wherever you start.
-
-### Linking an account that already exists in the realm
-
-The realm is shared with hub and plugins, so a long-standing contributor here
-very likely already has a QGIS account. *Invite existing user* now offers a
-third outcome for those: **will be linked**, naming the QGIS account it matched.
-Nothing is created in the realm; the existing account is bound to the one here
-and given the client roles this account's current Django state implies.
-
-**Matched on an exact address that Keycloak reports as verified, and nothing
-else.** A username is not evidence — it can belong to somebody else entirely,
-which is why claiming one was refused outright before this existed. An address
-that differs, or one the realm has not verified, is refused with which of the
-two it was, because they need different fixing. So is a realm account already
-bound to somebody here: two local accounts on one subject would break every
-lookup in the app.
-
-> **Superuser here comes from the `admin` client role on `feed-qgis-org`, never
-> from a realm role.** It is tempting to reach for a realm-wide role like
-> `qgis-superuser` and read it at sign-in — it would be less work. It would also
-> mean whoever holds that role for hub or plugins becomes a superuser here,
-> which is exactly what the client-scoped design exists to prevent, and what
-> US-9.2 asks for a test against. `proposed_roles` derives the client role from
-> what the account can already do here, so linking grants no privilege that was
-> not already held.
-
-Role mirroring then does the rest: at their next sign-in `mirror_roles`
-reconciles Django's groups and flags from the token in full, granting and
-revoking, so removing the role in Keycloak takes it away here too.
-
-### Withdrawing trust
-
-**Revoked** is what happens to the person acted on. Their client roles are
-removed, their sessions ended and their realm account disabled, so the block
-holds at `auth.qgis.org` rather than depending on this site being consulted.
-Locally they are deactivated, and the roles they held are recorded first so a
-reversal has something to put back.
-
-**Suspended** is what happens to everybody they vouched for. Those people can
-still sign in and see a banner explaining why, but hold no permissions — US-5.2
-is explicit that suspension is lighter than revocation, because they have done
-nothing wrong.
-
-That distinction is enforced in different places, and it matters. Suspension is
-local, because `roles.mirror_roles` reconciles Django's groups from the token at
-**every** sign-in: taking somebody's groups away achieves nothing on its own, as
-the next authentication hands them straight back. Anything meant to last happens
-in Keycloak, or is respected by the mirroring.
-
-Who may act:
-
-- Anywhere in your own subtree, and nowhere else. Never an ancestor, never
-  across branches. This holds for administrators too: the rule used to be
-  skipped for them, which let an administrator revoke whoever invited them and
-  be suspended by their own cascade.
-- Never another administrator, whoever you are. Removing one needs a second to
-  agree (US-5.5), which is not built, so the case is refused rather than half
-  allowed. To remove an administrator, take the `admin` role off them in
-  Keycloak first, then revoke.
-- Standing down voluntarily (US-5.3) is not built; it re-parents descendants
-  rather than suspending them, so it is not the same button.
-
-Withdrawing trust has its own page, `/sso/manage/revoke/<id>/`, reached from
-the row. Getting there changes nothing, so it can be opened, read and left. It
-lists the whole blast radius **by name** — US-5.2 asks for no surprises, and a
-cascade larger than expected is the one mistake here that cannot be walked back
-casually — and requires a reason, which goes in the audit trail. Being able to
-see the page is the same check as being able to act on it, and a forbidden
-account reads exactly like one that does not exist.
-
-**Reversal** restores the recorded roles, re-enables the realm account and
-clears the subtree in one action, within `SSO_REVOCATION_GRACE_DAYS` (7). After
-that the record stays but the button goes: reversing months later is a
-re-invitation, not an undo. Accounts suspended by a *different* revocation are
-left alone.
-
-### Rescuing a suspended account
-
-Suspension is not a punishment, and the person who caused it is rarely the
-person you want to bring back. When a maintainer leaves, everyone they invited
-is suspended and only restoring the maintainer would clear it, which briefly
-re-enables the account you meant to remove.
-
-**Give the account a new sponsor instead** (US-5.4), at
-`/sso/manage/reparent/<id>/`, reached from the row. It takes a reason, names
-everyone it brings back, and reactivates the account together with anyone the
-same revocation suspended below it. The person who was actually revoked stays
-revoked.
-
-The grace window deliberately does **not** apply here. Once it closes, restoring
-is refused and this is the only way back, so gating it the same way would leave
-suspended people with no route at all. Before this existed there was none: the
-row offered nothing, `restore` refuses anything not directly revoked, the admin
-is read only, and an existing account cannot be invited again.
-
-A new sponsor must be active, must sit outside the account's own subtree (a
-sponsor from inside it would close the chain into a loop), and must hold a role
-senior enough to have invited the account in the first place. The picker only
-lists people who qualify, and the view checks the posted value against that same
-list. Quota is counted from invitations still outstanding, so moving somebody
-who has already signed in costs their new sponsor nothing.
-
-Only administrators and web maintainers may do this.
-
-Content is **retained**. `SSO_ON_REVOKE` names what this site does about the
-person's unpublished work — `qgisfeed.trust.on_revoke` returns entries in
-*pending review* or *approved* to *draft*, so an approved entry from somebody
-revoked an hour ago cannot be published by a reviewer working through the queue
-who has no reason to know. Published entries are left alone, and nothing is
-deleted or re-attributed.
-
-### The same steps in the admin
-
-The admin actions remain, and are where a whole wave gets done at once: filter
-the changelist, select, act. They and the pages call the same code, so the rules
-and the wording are identical. Retiring local passwords lives only here, since
-it is a one-off backfill rather than part of enrolment. All superuser-only and
-all audited:
-
-| Where | Action | What it does |
-|---|---|---|
-| Users | *Export the migration report for selected users* | Downloads a CSV. Changes nothing. |
-| Users | *Create the Keycloak account* | Creates realm accounts. Sends no email. |
-| Keycloak identities | *Send the account-setup email* | Invites them. Repeatable. |
-| Keycloak identities | *Disable the local Django password* | Retires the fallback, late. |
-
-They are separate so that no step is a side effect of another: creating an
-account never emails anybody, and inviting somebody can be repeated without
-touching the account.
-
-**1. Read the report first.** The CSV gives the Keycloak username and client
-roles each account would get, and flags the ones needing a human decision:
-case collisions after lowercasing, duplicate or missing email addresses,
-dormant and never-used accounts. Keep it as the migration record.
-
-**2. Create the accounts.** A confirmation page lists the outcome per user
-before anything is written; it is the only preview there is. Capped at
-`SSO_ADMIN_ACTION_MAX_USERS` (25) per run — each account costs several
-synchronous calls to Keycloak inside one request and there is no task queue
-here, so migrate in waves. Flagged accounts are held back unless you tick the
-box. A realm name that already exists is never claimed, and an account already
-linked is never provisioned twice.
-
-**3. Send the setup email.** Links last 14 days, and a passkey-only account has
-no password to fall back on, so use this again whenever somebody misses the
-window or loses every device. Each send is counted on the identity record.
-
-> **Handing the link over needs an extension.** Keycloak mints the action token
-> inside `execute-actions-email` and returns nothing; its own API has no way to
-> give it back. With the extension below deployed, the enrolment page can fetch
-> the same link and show it to you. Without it, the identity's detail page
-> links straight to that account in the Keycloak admin console, where the
-> credential state is visible and the send can be retried against Keycloak's
-> own SMTP settings — which are separate from Django's. Check the realm's mail
-> configuration there first.
-
-#### Handing over a link
-
-When somebody is on a call and their email is not arriving, *Get the link* on
-their row fetches a link and takes you to `/sso/manage/link/`, a page that shows
-that one link and nothing else. Inviting a new user lands on the same page. It
-is never stored, never logged and never put through the messages framework; the
-audit trail records that a link was issued and for whom, not the token. The page
-takes the link out of the session as it renders, so a reload shows an empty page
-telling you to issue a fresh one.
-
-Below the link is a QR code of it, for having the person scan it straight onto
-the device the passkey will live on rather than reading a long token out. It is
-the same credential in another shape, so it is handed over with the same care.
-The code is generated in the web process with [segno](https://pypi.org/project/segno/)
-and embedded as inline SVG — it is never written to disk, and no external image
-service is involved. The copyable field above it stays the primary route, since
-a QR is reachable by neither keyboard nor screen reader.
-
-Keycloak has no endpoint that hands back a setup link, so this needs PhaseTwo's
-[magic-link extension](https://github.com/p2-inc/keycloak-magic-link) deployed
-into `/opt/keycloak/providers/`. It authorises with `manage-users`, which the
-provisioner service account already holds; without it the button reports a 404.
-Check its licence and record the Keycloak version it was validated against.
-
-**A magic link signs the person in — it is not an action token.** Enrolment
-still happens because the required actions set at provisioning are outstanding
-on the account, and Keycloak presents them straight after authenticating.
-
-> ⚠ **Verify that on a throwaway realm before relying on it.** Follow a link
-> all the way through. If the required actions do not fire, the person lands
-> signed in with no passkey, which is worse than the email path.
-
-**Only for accounts that have not signed in yet.** After the first sign-in
-those actions are spent, so the link authenticates straight through with no
-passkey and opens a session across the whole realm, hub and plugins included.
-The button disappears once an account has signed in and the view refuses the
-request anyway. Somebody who has lost every device gets *Send email*: the same
-link, delivered to their own address rather than to the administrator asking
-for it.
-
-Two details in the request are load-bearing. `reusable` and `force_create` both
-default the wrong way for us — a reusable link is a standing credential, and
-`force_create` would have this site creating realm accounts as a side effect of
-asking for a link — so both are sent false. And the endpoint is keyed on the
-**username** where the rest of this app is keyed on `sub`, so the returned
-`user_id` is checked against the identity and the link discarded if they
-differ; a username that has come to point at somebody else would otherwise sign
-that person into this account.
-
-> ⚠ **Staging can email real contributors.** The staging database is restored
-> from production and holds every contributor's real address, and the staging
-> realm uses the real Resend credential and can send from `noreply@qgis.org`.
-> Check who you have selected. A setup link pointing at a throwaway realm
-> cannot be unsent.
-
-Announce the migration on the mailing list, naming the exact sender address,
-*before* the first email goes out — an unexpected account-setup email reads as
-phishing.
-
-**4. Disable local passwords** — mostly automatic. An account's password is
-retired the moment it first signs in through Keycloak, because that sign-in is
-the proof it is reachable; `SSO_RETIRE_PASSWORD_ON_LOGIN = False` turns that
-off if a cutover needs both doors open. The action is there to backfill
-accounts that signed in before this was automatic, and to check the state of a
-batch.
-
-Only accounts with a **recorded successful SSO login** are ever touched; the
-rest are reported and left alone, because taking the password from somebody
-who has not yet signed in through Keycloak locks them out of an account they
-cannot recover. Accounts that linked themselves through the migration-linking
-path already had this done at link time.
-
-### Invitations
-
-The first slice of the [web of trust](../SSO-Web-Of-Trust.md): somebody with
-quota brings in somebody they know, and the account that results permanently
-records who vouched for it.
-
-`/sso/manage/` is open to anyone with a realm account, and shows what each is
-entitled to see — a superuser gets every account, everybody else only the ones
-they vouched for. The **Invite** menu offers two routes:
-
-- **New user** — anyone whose roles carry quota. A short form, and the account
-  is created immediately in both places. Nothing is sent until you send it.
-- **Existing user** — superusers only. Grafts accounts that already exist here
-  into the realm; it reaches the whole user list, which is why it is not open
-  to everybody with quota.
-
-Who may offer what is the ladder in `SSO_ROLE_TIERS`, whose role names are the
-ones already in `SSO_ROLE_MAP`:
+Who may offer what is the ladder in `SSO_ROLE_TIERS`, with quotas in
+`SSO_TIER_QUOTAS`.
 
 | Tier | Role | May offer | Open places |
 |---|---|---|---|
@@ -341,76 +123,213 @@ ones already in `SSO_ROLE_MAP`:
 | 3 | `usergroup-author` | tier 3 and below | 10 |
 | 4 | `author` | `author` only | 3 |
 
-Somebody holding two roles gets the more privileged tier and the *larger* of the
-two allowances, never their sum. A place is held by every account you invited
-that has not signed in yet, and frees up when they do. Tier governs invitations
-and nothing else — what you may do to an entry still comes from the mirrored
-Django permissions.
+Somebody who holds two roles gets the more privileged tier and the *larger* of
+the two allowances, never the sum of them. Every account you invited that has
+not signed in yet holds one of your places, and that place comes back to you
+when they do sign in. The username and the address must both be free here and
+in the realm.
 
-The role is checked against the inviter's tier when the form is rendered *and*
-again on submit, because a form is only a suggestion. Username and address must
-be free both here and in the realm; an address already in the realm belongs to
-somebody, and enrolling a second account onto it would send them a setup link
-they never asked for.
+### Linking to an account that already exists in the realm
 
-After inviting, the setup link is shown once on `/sso/manage/link/`, with a copy
-button and a QR code, exactly as *Get the link* shows it. It is carried there in
-the session rather than through the messages framework, whose fallback storage
-is a cookie. Reload and it is gone; use **Send email** on the row to have
-Keycloak deliver it instead.
+The realm is shared with hub and plugins, so a long-standing contributor here
+very likely has a QGIS account already. For those accounts *Invite existing
+user* shows a third outcome, **will be linked**, and names the QGIS account it
+matched. We create nothing in the realm, and linking grants no privilege the
+account did not already hold here.
 
-**There is no self-service redemption endpoint**, deliberately. An earlier
-design handed out a signed token that created the account when redeemed, which
-meant a public page where a stranger holding a leaked link could create a realm
-account with an address of their choosing. Creating the account at the moment of
-invitation removes that entirely: the inviter types the address.
+We match on one thing only: an exact address that Keycloak reports as verified.
+Three cases are refused, and the page names which one it hit. The address
+differs, the realm has not verified it, or the realm account already belongs to
+somebody here. One run links up to `SSO_ADMIN_ACTION_MAX_USERS` accounts (25).
 
-### The account menu and the profile page
+## Withdrawing trust
 
-The site header shows the signed-in username as a dropdown: **Profile** and
-**Log out**.
+One action has two outcomes. The person you act on is **revoked**. Everybody
+they vouched for is **suspended**, which is deliberately lighter, because those
+people have done nothing wrong.
 
-Profile is `/sso/profile/` on this site. It shows the account — username,
-address, the groups the Keycloak roles have granted — and lists that person's
-passkeys with the date each was enrolled.
+```mermaid
+flowchart TD
+    A["Administrator"] --> B["Reviewer Bea<br/>revoked"]
+    A --> E["Reviewer Eli<br/>untouched"]
+    B --> C["Author Cai<br/>suspended"]
+    B --> D["Author Dee<br/>suspended"]
+    E --> F["Author Fen<br/>untouched"]
 
-**Adding or removing one happens at `auth.qgis.org`, and has to.** WebAuthn
-binds a credential to the relying party that created it, so no other site can
-register or delete a passkey for the realm; a browser will refuse. Pressing
-*Add a passkey* therefore starts an ordinary sign-in carrying `kc_action`, an
-[application-initiated action](https://www.keycloak.org/docs/latest/server_admin/#con-aia_server_administration_guide):
-Keycloak runs the action, then returns the user to the profile page.
+    classDef gone fill:#c0392b,stroke:#7b241c,color:#fff
+    classDef held fill:#f39c12,stroke:#b9770e,color:#fff
+    class B gone
+    class C,D held
+```
 
-Two consequences worth knowing:
+| | Revoked | Suspended |
+|---|---|---|
+| Client roles | removed, recorded first | reconciled to nothing at sign-in |
+| Realm account | disabled at `auth.qgis.org` | untouched |
+| Local account | deactivated | active, with a banner explaining why |
+| Can sign in | no | yes, with no permissions |
 
-- **This site never changes a credential.** It reads the list through the
-  provisioner service account and nothing more; every change is authorised by
-  the user at Keycloak. The action is put in the session by a view that has
-  already checked it, so a crafted link cannot ask Keycloak to run an action of
-  its own choosing.
-- **The last passkey cannot be removed from here.** These accounts have no
-  password, and the setup link an administrator could send is refused for
-  anybody who has already signed in, so removing the only one is a lockout with
-  no way back. Enrol the replacement first.
+Who may act:
 
-A local-only account gets the page too, and is told it has no passkeys to
-manage. *Everything else, at auth.qgis.org* links to the full account console.
+- You can act anywhere in your own part of the tree and nowhere else. Never on
+  somebody above you, never across into another branch. This holds for
+  administrators as well.
+- No administrator can revoke another administrator. Take the `admin` role off
+  them in Keycloak first, then revoke.
+- Standing down voluntarily is not built yet. It would move the people below
+  somebody to a new sponsor rather than suspend them, so it is not this button.
 
-### Tracking progress
+Opening `/sso/manage/revoke/<id>/` changes nothing, so you can read the page
+and leave it. It asks you for a reason, which goes into the audit trail, and it
+names every person the revocation would reach.
 
-The user list has an **SSO account** filter. Combined with the *last login*
-filter it answers the question retiring local login is gated on: which accounts
-still in use have nobody behind them in the realm yet.
+You can reverse a revocation for `SSO_REVOCATION_GRACE_DAYS` (7). One action
+puts the recorded roles back, re-enables the realm account, and clears the
+suspension for everybody below them. After that the record stays but the button
+goes. Anybody suspended by a *different* revocation is left alone.
 
-Local-password sign-ins are recorded as audit events — filter **SSO audit
-events** by action to count them.
+We keep the person's content. `SSO_ON_REVOKE` points at
+`qgisfeed.trust.on_revoke`, which sends entries in *pending review* or
+*approved* back to *draft*. Published entries stay published, and we delete
+nothing and re-attribute nothing.
 
-### Before retiring local login
+### Rescuing a suspended account
 
-Do not set `LOCAL_LOGIN_ENABLED = False` until break-glass access (US-1.3)
-exists and has been tested. Without a documented, audited, shell-only emergency
-path, a Keycloak outage locks out every administrator — including the ones who
-would fix Keycloak.
+The person who caused a suspension is rarely the person you want back. When a
+maintainer leaves, everyone they invited is suspended, and reversing the
+revocation to clear it re-enables the account you meant to remove.
+
+Give the account a new sponsor instead, at `/sso/manage/reparent/<id>/`, which
+you reach from the row. The page asks for a reason and names everybody it
+brings back. It reactivates the account, and anybody the same revocation
+suspended below it, while the person you actually revoked stays revoked. Only
+administrators and web maintainers can do this.
+
+The picker lists only people who qualify as a sponsor. They have to be active,
+senior enough to have invited the account in the first place, and outside the
+account's own part of the tree. The grace window does not apply here, so this
+route stays open long after reversal has expired.
+
+## Handing over a link
+
+Sometimes you have somebody on a call and their email is not arriving. *Get
+the link* on their row takes you to `/sso/manage/link/`, a page that shows that
+one link and nothing else. Inviting a new user brings you to the same page. We
+never store the link and never log it, and the page takes it out of the session
+as it renders, so a reload asks you to issue a fresh one.
+
+Under the link is a QR code of the same thing. The person can scan it straight
+onto the device their passkey will live on, instead of reading a long token out
+to you. It is the same credential in another shape, so hand it over with the
+same care.
+
+This works only for accounts that have not signed in yet. The button disappears
+after the first sign-in, and the view refuses the request in any case, because
+by then the link would sign the person in without asking for a passkey. If
+somebody has lost every device, use *Send email* instead. It is the same link,
+delivered to their own address rather than to the administrator who asked for
+it.
+
+The button needs an extension in Keycloak. It depends on PhaseTwo's
+[magic-link extension](https://github.com/p2-inc/keycloak-magic-link) deployed
+into `/opt/keycloak/providers/`. Without it the button reports a 404, and the
+identity's detail page links to the Keycloak admin console instead. There you
+can see the state of the person's credentials and retry the send, which uses
+Keycloak's own SMTP settings rather than Django's.
+
+> ⚠ **Verify a link end to end on a throwaway realm before relying on this.**
+> A magic link signs the person in, so if the required actions do not fire they
+> land signed in with no passkey, which is worse than the email path.
+
+## Passkeys and the profile page
+
+Your own page is at `/sso/profile/`, reached from the username in the header.
+It shows your username and address, the groups your Keycloak roles have
+granted you, and your passkeys with the date each one was enrolled.
+
+Adding or removing a passkey happens at `auth.qgis.org`, and it has to.
+*Add a passkey* starts an ordinary sign-in that asks Keycloak to run the
+enrolment, then brings you back to the profile page. This site never changes a
+credential itself, and it refuses to remove your last passkey, because that
+would lock you out with no way back. Enrol the replacement first.
+
+If an account has no realm identity, it still gets the page, and we tell it
+there are no passkeys to manage. *Everything else, at auth.qgis.org* links to
+the full account console.
+
+## Migrating a wave in the admin
+
+The enrolment page works one row at a time. To move a whole wave of people, use
+the Django admin: filter the changelist, select the accounts, then run an
+action. Both routes call the same code, so the rules and the wording match
+wherever you start. All four actions are superuser only and audited, and each
+one does a single thing, so no step happens as a side effect of another.
+
+| Where | Action | What it does |
+|---|---|---|
+| Users | Export the migration report | Downloads a CSV and changes nothing. |
+| Users | Create the Keycloak account | Creates realm accounts and sends no email. |
+| Keycloak identities | Send the account-setup email | Invites them, and you can run it again. |
+| Keycloak identities | Disable the local Django password | Retires the password fallback, near the end of a migration. |
+
+**1. Read the report first.** The CSV tells you the Keycloak username and the
+client roles each account would get. It also flags the accounts that need a
+person to decide: names that collide once they are lowercased, duplicate or
+missing email addresses, and accounts that are dormant or have never been used.
+Keep the file as your record of the migration.
+
+**2. Create the accounts.** A confirmation page lists the outcome for each
+person before we write anything, and that page is the only preview you get. We
+hold the flagged accounts back unless you tick the box. One run creates up to
+`SSO_ADMIN_ACTION_MAX_USERS` accounts (25), so migrate in waves.
+
+**3. Send the setup email.** A link lasts 14 days, and these accounts have no
+password to fall back on, so send it again whenever somebody misses the window
+or loses every device. We count each send on the identity record.
+
+> ⚠ **Staging can email real contributors.** The staging database is restored
+> from production and holds every contributor's real address, and the staging
+> realm uses the real Resend credential and can send from `noreply@qgis.org`.
+> Check who you have selected. A setup link cannot be unsent.
+
+Announce the migration on the mailing list before the first email goes out, and
+name the exact address it will come from. An account-setup email nobody expects
+reads as phishing.
+
+**4. Disable local passwords.** This is mostly automatic, because we retire a
+password the moment that account first signs in through Keycloak. The action
+only touches accounts with a recorded successful SSO login, and it reports the
+rest and leaves them alone. Use it to catch up accounts that signed in before
+this became automatic, and to check where a batch stands.
+
+## Retiring local login
+
+The user list has an **SSO account** filter. Use it together with the *last
+login* filter to answer the question this decision rests on: which accounts are
+still in use but have nobody behind them in the realm yet. We record every
+local-password sign-in as an audit event, so filter **SSO audit events** by
+action to count how many are left.
+
+> ⚠ **Do not set `LOCAL_LOGIN_ENABLED = False` until break-glass access exists
+> and has been tested.** Without a documented, audited, shell-only emergency
+> path, a Keycloak outage locks out every administrator, including the ones who
+> would fix Keycloak.
+
+## Settings reference
+
+| Setting | Meaning |
+|---|---|
+| `LOCAL_LOGIN_ENABLED` | One flag, three effects: the `ModelBackend` entry, the password form on the login page, and what `/admin/login/` accepts. |
+| `SSO_MIGRATION_LINKING` | Binds a token to a pre-existing local account on an exact username **and** verified-email match. Off by default, on only during the cutover window. |
+| `OIDC_CREATE_USER` | Must stay `False`. The realm is LDAP-federatable, so auto-creation would grant feed accounts to the whole OSGeo directory. |
+| `OIDC_RP_CLIENT_SECRET` | Confidential client secret. Goes in `settings_local`, **never** in the process environment. |
+| `SSO_PROVISIONER_CLIENT_SECRET` | Service-account secret used by provisioning. Same rule. The web client must never hold `manage-users`. |
+| `SSO_REQUIRED_ACTIONS` | What Keycloak makes a new user complete. `VERIFY_EMAIL` and `webauthn-register-passwordless` mean a passkey and nothing else, so no password or TOTP secret is ever created. |
+| `SSO_RETIRE_PASSWORD_ON_LOGIN` | Retires the local password at the first SSO sign-in. `False` keeps both doors open during a cutover. |
+| `SSO_ADMIN_ACTION_MAX_USERS` | Accounts one request will provision (25). |
+| `SSO_SETUP_REDIRECT_URI` | Where Keycloak returns somebody who has finished setting up. Points at `/oidc/authenticate/` so they arrive signed in, and **must be registered as a valid redirect URI on the `feed-qgis-org` client**. |
+| `SSO_REVOCATION_GRACE_DAYS` | How long a revocation can be undone in one action (7). |
+| `SSO_MAGIC_LINK_URL` | Derived from `QGIS_AUTH_URL`, like the OIDC endpoints. Answered by PhaseTwo's magic-link extension. |
 
 ---
 

@@ -163,6 +163,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The SSO documentation splits in two, and gets diagrams.** `docs/sso.md` is
+  now the guide you read while doing the job: what each page does, who may act,
+  and how to migrate a wave. It carries a sign-in sequence diagram, the account
+  state ladder, and a picture of what a revocation reaches. The reasoning behind
+  each rule moves to `docs/sso-design.md`, linked from the top. The maintainer
+  page loses a quarter of its words, and the state filter names it described
+  ("account created", "invited", "signed in", "migrated") are corrected to the
+  ones the code uses.
 - **The SSO pages say what they mean.** Words that came from the
   implementation no longer reach a reader: "realm", "Keycloak username" and
   "subtree" are gone, roles read as *Administrator* and *User group author*
