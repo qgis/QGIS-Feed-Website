@@ -18,6 +18,11 @@ urlpatterns = [
     path("help/", views.HelpView.as_view(), name="help"),
     path("sign-in-failed/", views.sign_in_failed, name="sign_in_failed"),
     path("profile/", views_profile.ProfileView.as_view(), name="profile"),
+    path(
+        "profile/passkeys/",
+        views_profile.PasskeyListView.as_view(),
+        name="passkey_list",
+    ),
     path("manage/", views_manage.EnrolmentView.as_view(), name="enrolment"),
     path(
         "manage/link/",

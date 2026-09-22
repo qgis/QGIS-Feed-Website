@@ -247,6 +247,12 @@ Your own page is at `/sso/profile/`, reached from the username in the header.
 It shows your username and address, the groups your Keycloak roles have
 granted you, and your passkeys with the date each one was enrolled.
 
+The passkey list arrives a moment after the rest of the page. Reading it means
+asking auth.qgis.org twice, and holding the whole page for that meant a slow
+account service delayed your name and permissions as well, which were already
+to hand. The list comes from `/sso/profile/passkeys/`, which answers only about
+whoever is signed in and reads nothing from the URL.
+
 Adding or removing a passkey happens at `auth.qgis.org`, and it has to.
 *Add a passkey* starts an ordinary sign-in that asks Keycloak to run the
 enrolment, then brings you back to the profile page. This site never changes a
@@ -302,6 +308,31 @@ only touches accounts with a recorded successful SSO login, and it reports the
 rest and leaves them alone. Use it to catch up accounts that signed in before
 this became automatic, and to check where a batch stands.
 
+## What a wave costs, and why it still takes a moment
+
+Every person in a wave costs at least one read against auth.qgis.org before we
+create anything, and one or two writes after you confirm. That is why the limit
+of 25 exists, and why the page asks you to wait.
+
+The reads for a wave run together, eight at a time, so the lookups are a handful
+of rounds rather than a queue. The writes stay one after another, in the order
+you picked people, so the report you get back can name exactly who was created
+and who was held back.
+
+Two things are cached in each worker process for ten minutes: the feed client's
+internal id, and the list of roles it has. They only change when we deploy a
+role. If you add a role in Keycloak and this site still says it has no role by
+that name, wait ten minutes or restart the workers. Nothing about a person is
+ever cached.
+
+> **The cache lives in the worker, not in a shared store.** Each gunicorn worker
+> keeps its own copy, and a restart empties it. Read `CACHES` in `settings.py`
+> before you make anything else depend on it.
+
+If a wave is slow enough to worry you, the realm is usually the reason. A read
+gives up after ten seconds and the page tells you it could not reach the account
+service, rather than holding the request until gunicorn kills it.
+
 ## Retiring local login
 
 The user list has an **SSO account** filter. Use it together with the *last
@@ -327,6 +358,7 @@ action to count how many are left.
 | `SSO_REQUIRED_ACTIONS` | What Keycloak makes a new user complete. `VERIFY_EMAIL` and `webauthn-register-passwordless` mean a passkey and nothing else, so no password or TOTP secret is ever created. |
 | `SSO_RETIRE_PASSWORD_ON_LOGIN` | Retires the local password at the first SSO sign-in. `False` keeps both doors open during a cutover. |
 | `SSO_ADMIN_ACTION_MAX_USERS` | Accounts one request will provision (25). |
+| `SSO_LOOKUP_CONCURRENCY` | Lookups in flight at once while deciding about a wave (8). Reads only; the writes stay one at a time. |
 | `SSO_SETUP_REDIRECT_URI` | Where Keycloak returns somebody who has finished setting up. Points at `/oidc/authenticate/` so they arrive signed in, and **must be registered as a valid redirect URI on the `feed-qgis-org` client**. |
 | `SSO_REVOCATION_GRACE_DAYS` | How long a revocation can be undone in one action (7). |
 | `SSO_MAGIC_LINK_URL` | Derived from `QGIS_AUTH_URL`, like the OIDC endpoints. Answered by PhaseTwo's magic-link extension. |

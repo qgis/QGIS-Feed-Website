@@ -64,8 +64,22 @@ no paging. The search box is how a long list gets narrowed.
         </tbody>
       </table>
 
-      <form method="post" action="">
+      <form method="post" action="" data-busy-overlay="confirm-busy">
         {% csrf_token %}
+
+        <div class="sso-busy" id="confirm-busy" hidden>
+          <div class="sso-busy-message" role="status" aria-live="polite">
+            <span class="sso-busy-spinner" aria-hidden="true"></span>
+            <p class="has-text-weight-semibold">{% trans "Creating the accounts" %}</p>
+            <p class="is-size-7">
+              {% blocktrans trimmed %}
+                Each account is created at auth.qgis.org one at a time, so this
+                takes a moment for a large wave. Stay on this page.
+              {% endblocktrans %}
+            </p>
+          </div>
+        </div>
+
         <input type="hidden" name="confirm" value="yes">
         {% for pk in selected %}
           <input type="hidden" name="selected" value="{{ pk }}">
@@ -98,8 +112,22 @@ no paging. The search box is how a long list gets narrowed.
     </div>
   </form>
 
-  <form method="post" action="">
+  <form method="post" action="" data-busy-overlay="invite-busy">
     {% csrf_token %}
+
+    <div class="sso-busy" id="invite-busy" hidden>
+      <div class="sso-busy-message" role="status" aria-live="polite">
+        <span class="sso-busy-spinner" aria-hidden="true"></span>
+        <p class="has-text-weight-semibold">{% trans "Checking with auth.qgis.org" %}</p>
+        <p class="is-size-7">
+          {% blocktrans trimmed %}
+            We look up each person before we create anything, so this takes a
+            moment for a large wave. Stay on this page.
+          {% endblocktrans %}
+        </p>
+      </div>
+    </div>
+
     <table class="table is-fullwidth is-hoverable sso-table">
       <thead>
         <tr>

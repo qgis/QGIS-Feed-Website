@@ -1,0 +1,66 @@
+{% load i18n %}
+{% if unreachable %}
+  <div class="notification is-warning">
+    {% blocktrans trimmed %}
+      We could not reach the QGIS account service, so your passkeys are not
+      listed. Try again in a moment.
+    {% endblocktrans %}
+  </div>
+{% else %}
+  <div class="box-content">
+    <form method="post" action="{% url 'qgis_sso:profile' %}">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="add-passkey">
+      <div class="is-flex is-justify-content-end mb-3">
+        <button class="button is-primary1" type="submit">
+          <span class="icon is-small"><i class="fas fa-key"></i></span>
+          <span>{% trans "Add a passkey" %}</span>
+        </button>
+      </div>
+    </form>
+    <table class="table is-fullwidth is-hoverable sso-table">
+      <thead>
+        <tr>
+          <th scope="col" class="sso-account">{% trans "Passkey" %}</th>
+          <th scope="col">{% trans "Enrolled" %}</th>
+          <th scope="col">{% trans "Remove" %}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for passkey in passkeys %}
+          <tr>
+            <td class="sso-account">{{ passkey.label }}</td>
+            <td>{{ passkey.created_at|date:"Y-m-d"|default:"—" }}</td>
+            <td>
+              {% if passkeys|length > 1 %}
+                {% blocktrans trimmed asvar remove_label with label=passkey.label %}
+                  Remove {{ label }}
+                {% endblocktrans %}
+                <form method="post" action="{% url 'qgis_sso:profile' %}">
+                  {% csrf_token %}
+                  <input type="hidden" name="action" value="remove-passkey">
+                  <input type="hidden" name="credential" value="{{ passkey.id }}">
+                  <button class="button is-small is-danger is-outlined" type="submit"
+                          title="{{ remove_label }}" aria-label="{{ remove_label }}">
+                    <span class="icon is-small"><i class="fas fa-trash"></i></span>
+                  </button>
+                </form>
+              {% else %}
+                <span class="help">{% trans "Your only one" %}</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="3">
+              {% blocktrans trimmed %}
+                No passkeys yet. Add one now, or you cannot sign in after
+                your setup link expires.
+              {% endblocktrans %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endif %}

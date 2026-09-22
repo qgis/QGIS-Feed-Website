@@ -163,6 +163,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Inviting a wave of people is faster, and the page says it is working.**
+  Deciding about somebody is a read against auth.qgis.org, and a wave made
+  those reads one after another while the administrator watched a page that had
+  not changed. They now run together, up to eight at a time, with the answers
+  still in the order the people were picked. The feed client's UUID and role
+  list are cached for ten minutes instead of being fetched twice on every
+  button press, and resolving the publish permission once for the whole
+  selection removes two database queries per person. Every form on the site now
+  shows its button working and refuses a second press while the first is in
+  flight, which also closes a hole where double clicking "Create QGIS accounts"
+  sent the run twice. The invite pages cover the list with a short note saying
+  what is happening and why it takes a moment.
+- **The profile page paints before it has heard from auth.qgis.org.** Listing
+  somebody's passkeys is two round trips, and the page used to hold everything
+  for them, so a slow account service delayed the name and permissions that
+  were already to hand. The list now arrives on its own straight afterwards.
+  Read only, answered from the signed in account, and never from anything in
+  the URL.
+- **Reads against the account service give up sooner and retry once.** A lookup
+  now waits five seconds to connect and ten to be answered, rather than thirty,
+  so a page recovers with a message instead of sitting there. A GET that fails
+  on the way out, or comes back from a tired gateway, is retried twice. Writes
+  are never retried: creating an account twice is worse than reporting that it
+  failed.
 - **The SSO documentation splits in two, and gets diagrams.** `docs/sso.md` is
   now the guide you read while doing the job: what each page does, who may act,
   and how to migrate a wave. It carries a sign-in sequence diagram, the account

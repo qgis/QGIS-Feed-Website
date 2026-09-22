@@ -91,6 +91,68 @@
   justify-content: center;
 }
 
+// Creating a wave of accounts takes a moment for each person, which is long
+// enough that a spinner inside the button is too quiet to be reassuring. It
+// covers the whole screen, because until the run comes back there is nothing
+// on the page worth pressing and a half available interface invites a second
+// press.
+.sso-busy {
+  position: fixed;
+  inset: 0;
+  // Above the navbar (30) and Bulma's modal (200).
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  // Dark enough to put the interface out of reach, light enough to keep the
+  // page behind it legible as context.
+  background: rgba(0, 0, 0, 0.5);
+
+  &[hidden] {
+    display: none;
+  }
+
+  .sso-busy-message {
+    max-width: 28rem;
+    margin: 1.5rem;
+    padding: 2rem;
+    background: #fff;
+    border-radius: 6px;
+    text-align: center;
+  }
+}
+
+// Set on the root while a full screen busy overlay is up.
+.sso-busy-locked {
+  overflow: hidden;
+}
+
+// Also used on its own, by the profile page while the passkey list loads.
+.sso-busy-spinner {
+  display: block;
+  width: 2.5rem;
+  height: 2.5rem;
+  margin: 0 auto 1rem;
+  border: 3px solid $light2;
+  border-top-color: $primary1;
+  border-radius: 50%;
+  animation: sso-busy-spin 0.9s linear infinite;
+}
+
+@keyframes sso-busy-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+// Somebody who asked for less movement still needs to know we are working, so
+// the message stays and only the spinning stops.
+@media (prefers-reduced-motion: reduce) {
+  .sso-busy-spinner {
+    animation: none;
+  }
+}
+
 // Header and body centred together. Only the account column stays left: names
 // and addresses are read, not compared, and ragged left is harder to scan.
 // Bulma leaves th left-aligned and td top-aligned, and a cell holding two lines

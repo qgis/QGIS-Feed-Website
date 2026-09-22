@@ -71,73 +71,65 @@ to auth.qgis.org and no other site can create or delete one.
         then does not lock you out.
       {% endblocktrans %}
     </div>
+    <div id="passkey-list"
+         data-passkey-url="{% url 'qgis_sso:passkey_list' %}"
+         aria-live="polite" aria-busy="true">
+      <div class="box-content has-text-centered">
+        <span class="sso-busy-spinner" aria-hidden="true"></span>
+        <p class="is-size-7">{% trans "Loading your passkeys" %}</p>
+      </div>
+    </div>
 
-    {% if unreachable %}
+    <noscript>
       <div class="notification is-warning">
         {% blocktrans trimmed %}
-          We could not reach the QGIS account service, so your passkeys are not
-          listed. Try again in a moment.
+          Your passkeys need JavaScript to load. Turn it on for this site, or
+          manage your passkeys at your QGIS account instead.
         {% endblocktrans %}
       </div>
-    {% else %}
-    <div class="box-content">
-    <form method="post" action="">
-      {% csrf_token %}
-      <input type="hidden" name="action" value="add-passkey">
-      <div class="is-flex is-justify-content-end mb-3">
-        <button class="button is-primary1" type="submit">
-          <span class="icon is-small"><i class="fas fa-key"></i></span>
-          <span>{% trans "Add a passkey" %}</span>
-        </button>
-      </div>
-    </form>
-      <table class="table is-fullwidth is-hoverable sso-table">
-        <thead>
-          <tr>
-            <th scope="col" class="sso-account">{% trans "Passkey" %}</th>
-            <th scope="col">{% trans "Enrolled" %}</th>
-            <th scope="col">{% trans "Remove" %}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for passkey in passkeys %}
-            <tr>
-              <td class="sso-account">{{ passkey.label }}</td>
-              <td>{{ passkey.created_at|date:"Y-m-d"|default:"—" }}</td>
-              <td>
-                {% if passkeys|length > 1 %}
-                  {% blocktrans trimmed asvar remove_label with label=passkey.label %}
-                    Remove {{ label }}
-                  {% endblocktrans %}
-                  <form method="post" action="">
-                    {% csrf_token %}
-                    <input type="hidden" name="action" value="remove-passkey">
-                    <input type="hidden" name="credential" value="{{ passkey.id }}">
-                    <button class="button is-small is-danger is-outlined" type="submit"
-                            title="{{ remove_label }}" aria-label="{{ remove_label }}">
-                      <span class="icon is-small"><i class="fas fa-trash"></i></span>
-                    </button>
-                  </form>
-                {% else %}
-                  <span class="help">{% trans "Your only one" %}</span>
-                {% endif %}
-              </td>
-            </tr>
-          {% empty %}
-            <tr>
-              <td colspan="3">
-                {% blocktrans trimmed %}
-                  No passkeys yet. Add one now, or you cannot sign in after
-                  your setup link expires.
-                {% endblocktrans %}
-              </td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-
-    </div>
-        {% endif %}
+    </noscript>
         {% endif %}
 </div>
 {% endblock content %}
+
+{% block javascripts %}
+{% blocktrans trimmed asvar passkey_error %}
+  We could not load your passkeys. Reload the page to try again.
+{% endblocktrans %}
+<script>
+  // The passkey list comes from the server already rendered, so every string
+  // stays in the translation catalogue and the markup lives in one template.
+  (function () {
+    const slot = document.getElementById('passkey-list');
+    if (!slot) {
+      return;
+    }
+    fetch(slot.dataset.passkeyUrl, {
+      credentials: 'same-origin',
+      headers: { 'X-Requested-With': 'XMLHttpRequest' },
+    })
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error('passkeys');
+        }
+        return response.text();
+      })
+      .then((html) => {
+        slot.innerHTML = html;
+      })
+      .catch(() => {
+        // The endpoint renders its own warning when the realm is unreachable,
+        // so getting here means the request itself did not arrive.
+        // escapejs, because a translation is free to contain an apostrophe
+        // and that would otherwise end the string early.
+        slot.innerHTML =
+          '<div class="notification is-warning">' +
+          '{{ passkey_error|escapejs }}' +
+          '</div>';
+      })
+      .finally(() => {
+        slot.setAttribute('aria-busy', 'false');
+      });
+  })();
+</script>
+{% endblock javascripts %}

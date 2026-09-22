@@ -10,7 +10,7 @@ carrying ``kc_action``, Keycloak runs the action, and the user comes back.
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import SESSION_KEY
-from django.http import HttpResponseRedirect
+from django.http import HttpResponseForbidden, HttpResponseRedirect
 from django.shortcuts import render
 from django.urls import reverse
 from django.utils.decorators import method_decorator
@@ -150,23 +150,45 @@ class ProfileView(View):
         return HttpResponseRedirect(f"{target}?next={reverse('qgis_sso:profile')}")
 
     def page_context(self, request):
-        identity = getattr(request.user, "keycloak_identity", None)
-        context = {
-            "identity": identity,
-            "permissions": self.permissions(request.user),
-            "passkeys": [],
-            "unreachable": False,
-        }
-        if identity is None:
-            return context
+        """What the page can show without asking Keycloak anything.
 
-        try:
-            context["passkeys"] = passkeys_for(identity)
-        except KeycloakError:
-            # The rest of the page is still worth showing, and the realm being
-            # briefly unreachable is not the user's problem to solve.
-            context["unreachable"] = True
-        return context
+        The passkey list is deliberately absent. Fetching it is two round trips
+        to the realm, and holding the render for them means a slow realm delays
+        the name and the permissions too, which are already here. The page
+        paints, then :class:`PasskeyListView` fills the list in.
+        """
+        return {
+            "identity": getattr(request.user, "keycloak_identity", None),
+            "permissions": self.permissions(request.user),
+        }
+
+
+@method_decorator(never_cache, name="dispatch")
+class PasskeyListView(View):
+    """The passkey list on its own, for the profile page to fetch.
+
+    Whose passkeys is never a parameter. It is read from the signed in account,
+    so this cannot be pointed at somebody else's by changing a URL.
+    """
+
+    template_name = "qgis_sso/_passkeys.html"
+
+    def dispatch(self, request, *args, **kwargs):
+        if not signed_in(request):
+            return HttpResponseForbidden()
+        return super().dispatch(request, *args, **kwargs)
+
+    def get(self, request):
+        identity = getattr(request.user, "keycloak_identity", None)
+        context = {"passkeys": [], "unreachable": False}
+        if identity is not None:
+            try:
+                context["passkeys"] = passkeys_for(identity)
+            except KeycloakError:
+                # The realm being briefly unreachable is not the reader's
+                # problem to solve, and the rest of the page still stands.
+                context["unreachable"] = True
+        return render(request, self.template_name, context)
 
 
 class ActionAuthenticationRequestView(OIDCAuthenticationRequestView):

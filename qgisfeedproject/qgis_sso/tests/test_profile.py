@@ -18,6 +18,7 @@ from ..models import KeycloakIdentity
 from ..passkeys import ACTION_SESSION_KEY
 
 PROFILE = reverse("qgis_sso:profile")
+PASSKEYS = reverse("qgis_sso:passkey_list")
 
 LOCAL_BACKEND = "django.contrib.auth.backends.ModelBackend"
 
@@ -77,13 +78,31 @@ class ProfileTest(TestCase):
                 return self.client.post(PROFILE, data)
             return self.client.get(PROFILE)
 
+    def passkeys(self):
+        """The passkey list, which the page fetches after it has painted."""
+        with mock.patch(
+            "qgis_sso.passkeys.KeycloakAdminClient", return_value=self.realm
+        ):
+            return self.client.get(PASSKEYS)
+
     # -- what it shows -----------------------------------------------------
 
     def test_it_lists_the_passkeys_on_the_account(self):
-        response = self.visit()
+        response = self.passkeys()
 
         self.assertContains(response, "Phone")
         self.assertEqual(self.realm.asked, ["sub-alice"])
+
+    def test_the_page_itself_asks_the_realm_nothing(self):
+        """The name and permissions must not wait on auth.qgis.org.
+
+        Holding the render for the passkey list is two round trips before
+        anything reaches the browser, and a slow realm delayed the whole page.
+        """
+        response = self.visit()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.realm.asked, [])
 
     @override_settings(SSO_GROUP_LABELS={"qgisfeedentry_authors": "Write news items"})
     def test_it_says_what_the_account_may_do_rather_than_naming_a_group(self):
@@ -108,14 +127,14 @@ class ProfileTest(TestCase):
             link_method="pre-sso-migration",
         )
 
-        self.visit()
+        self.passkeys()
 
         self.assertEqual(self.realm.asked, ["sub-alice"])
 
     def test_a_password_credential_is_not_shown_as_a_passkey(self):
         self.realm.credentials = [credential(type="password", label="Old password")]
 
-        response = self.visit()
+        response = self.passkeys()
 
         self.assertNotContains(response, "Old password")
 
@@ -125,10 +144,18 @@ class ProfileTest(TestCase):
 
         self.realm.user_credentials = mock.Mock(side_effect=KeycloakError("down"))
 
-        response = self.visit()
+        self.assertEqual(self.visit().status_code, 200)
+
+        response = self.passkeys()
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "could not reach")
+
+    def test_the_passkey_list_refuses_an_anonymous_visitor(self):
+        """It answers about whoever is signed in, so nobody must be a caller."""
+        self.client.logout()
+
+        self.assertEqual(self.client.get(PASSKEYS).status_code, 403)
 
     def test_a_local_only_account_is_told_there_is_nothing_to_manage(self):
         self.identity.delete()
