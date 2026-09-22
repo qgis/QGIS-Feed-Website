@@ -9,15 +9,36 @@ site would otherwise be a compromise of the realm.
 """
 
 import logging
+import threading
 import time
 from urllib.parse import quote, urljoin
 
 import requests
 from django.conf import settings
 
+# Retry is urllib3's, re-exported here. Taken from requests so that urllib3
+# stays a transitive dependency rather than one we import without declaring.
+from requests.adapters import HTTPAdapter, Retry
+
 logger = logging.getLogger(__name__)
 
+#: Right for a management command working through a long list.
 DEFAULT_TIMEOUT = 30
+
+#: Right for a page somebody is watching: give up long before the reader does,
+#: and long before gunicorn's 120 second ceiling. Connect, then read.
+INTERACTIVE_TIMEOUT = (5, 10)
+
+#: Retry a read that failed on the way out or came back from a tired gateway.
+#: GET only, and that restriction is the point: retrying ``create_user`` after
+#: a reply we failed to read would create the account twice.
+RETRY_POLICY = Retry(
+    total=2,
+    backoff_factor=0.3,
+    status_forcelist=(502, 503, 504),
+    allowed_methods=frozenset(["GET"]),
+    raise_on_status=False,
+)
 
 
 class KeycloakError(RuntimeError):
@@ -45,8 +66,19 @@ class KeycloakAdminClient:
         )
         self.timeout = timeout
         self._session = requests.Session()
+        # Enough pooled connections for the lookup fan-out to keep every
+        # worker on a live socket instead of opening one per call.
+        adapter = HTTPAdapter(
+            pool_connections=4, pool_maxsize=16, max_retries=RETRY_POLICY
+        )
+        self._session.mount("https://", adapter)
+        self._session.mount("http://", adapter)
         self._token = None
         self._token_expires_at = 0.0
+        # The lookups run across a thread pool. Only the token cache is shared
+        # mutable state; headers are passed per call and never set on the
+        # session, and urllib3's pool is itself thread-safe.
+        self._token_lock = threading.Lock()
 
         missing = [
             name
@@ -72,10 +104,22 @@ class KeycloakAdminClient:
         return f"{self.server_url}/admin/realms/{self.realm}/"
 
     def access_token(self):
-        """Fetch, and cache until shortly before expiry, a service-account token."""
+        """Fetch, and cache until shortly before expiry, a service-account token.
+
+        Safe to call from several threads: they fetch one token between them
+        rather than one each.
+        """
         if self._token and time.monotonic() < self._token_expires_at:
             return self._token
 
+        with self._token_lock:
+            # Another thread may have fetched one while we waited for the lock.
+            if self._token and time.monotonic() < self._token_expires_at:
+                return self._token
+            return self._fetch_token()
+
+    def _fetch_token(self):
+        """The token request itself. Call with the lock held."""
         response = self._session.post(
             f"{self.server_url}/realms/{self.realm}/protocol/openid-connect/token",
             data={
@@ -84,6 +128,8 @@ class KeycloakAdminClient:
                 "client_secret": self.client_secret,
             },
             timeout=self.timeout,
+            verify=settings.DEBUG
+            == False,  # pragma: no cover - DEBUG is never True in production
         )
         if response.status_code != 200:
             # The response body can echo the request; it is not logged.
@@ -98,12 +144,18 @@ class KeycloakAdminClient:
         )
         return self._token
 
-    def request(self, method, path, **kwargs):
+    def request(self, method, path, timeout=None, **kwargs):
         url = urljoin(self.admin_base, path.lstrip("/"))
         headers = kwargs.pop("headers", {})
         headers["Authorization"] = f"Bearer {self.access_token()}"
         response = self._session.request(
-            method, url, headers=headers, timeout=self.timeout, **kwargs
+            method,
+            url,
+            headers=headers,
+            timeout=timeout or self.timeout,
+            verify=settings.DEBUG
+            == False,  # pragma: no cover - DEBUG is never True in production
+            **kwargs,
         )
         if response.status_code >= 400:
             raise KeycloakError(
@@ -121,7 +173,10 @@ class KeycloakAdminClient:
         ``alice`` would match ``alice2``.
         """
         response = self.request(
-            "GET", "users", params={"username": username, "exact": "true", "max": 2}
+            "GET",
+            "users",
+            params={"username": username, "exact": "true", "max": 2},
+            timeout=INTERACTIVE_TIMEOUT,
         )
         users = response.json()
         if not users:
@@ -137,7 +192,10 @@ class KeycloakAdminClient:
         Keycloak matches on prefix.
         """
         response = self.request(
-            "GET", "users", params={"email": email, "exact": "true", "max": 2}
+            "GET",
+            "users",
+            params={"email": email, "exact": "true", "max": 2},
+            timeout=INTERACTIVE_TIMEOUT,
         )
         users = response.json()
         return users[0] if users else None
@@ -148,7 +206,11 @@ class KeycloakAdminClient:
         Read-only. Credentials are never changed from here: the user does that
         themselves at Keycloak, through an application-initiated action.
         """
-        return self.request("GET", f"users/{quote(user_id)}/credentials").json()
+        return self.request(
+            "GET",
+            f"users/{quote(user_id)}/credentials",
+            timeout=INTERACTIVE_TIMEOUT,
+        ).json()
 
     def create_user(self, payload):
         """Create a realm user and return the generated subject.
@@ -226,7 +288,12 @@ class KeycloakAdminClient:
 
     def client_uuid(self, client_id):
         """Resolve a client id to the internal UUID the role endpoints want."""
-        response = self.request("GET", "clients", params={"clientId": client_id})
+        response = self.request(
+            "GET",
+            "clients",
+            params={"clientId": client_id},
+            timeout=INTERACTIVE_TIMEOUT,
+        )
         clients = response.json()
         if not clients:
             raise KeycloakError(f"No client {client_id!r} in realm {self.realm!r}")
@@ -234,7 +301,9 @@ class KeycloakAdminClient:
 
     def client_roles(self, client_uuid):
         """Map role name to role representation for one client."""
-        response = self.request("GET", f"clients/{quote(client_uuid)}/roles")
+        response = self.request(
+            "GET", f"clients/{quote(client_uuid)}/roles", timeout=INTERACTIVE_TIMEOUT
+        )
         return {role["name"]: role for role in response.json()}
 
     def assign_client_roles(self, user_id, client_uuid, roles):

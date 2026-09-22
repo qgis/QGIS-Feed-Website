@@ -14,6 +14,7 @@ a preview path that could drift from what actually happens.
 from dataclasses import dataclass, field
 
 from django.conf import settings
+from django.core.cache import cache
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
@@ -31,6 +32,42 @@ CREATE = "create"
 LINK = "link"
 SKIP = "skip"
 ERROR = "error"
+
+#: How long the feed client's UUID and role list stay good for. They change
+#: when we deploy a role, not when somebody presses a button, so re-reading
+#: them on every action was two round trips spent on the same answer.
+CLIENT_CACHE_SECONDS = 600
+
+
+def _client_cache_key(client_id):
+    return f"qgis_sso:client-catalogue:{client_id}"
+
+
+def clear_client_cache(client_id=None):
+    """Forget the cached client UUID and role list.
+
+    Call this after changing roles in the realm, and between tests: the cache
+    is per process, so one test's role catalogue would otherwise answer the
+    next one's question.
+    """
+    cache.delete(_client_cache_key(client_id or feed_client_id()))
+
+
+def client_catalogue(client, client_id):
+    """``(client_uuid, available_roles)`` for one client, cached.
+
+    A miss costs the two round trips this always cost, so a cold worker is
+    never worse off than before.
+    """
+    key = _client_cache_key(client_id)
+    cached = cache.get(key)
+    if cached is not None:
+        return cached
+
+    client_uuid = client.client_uuid(client_id)
+    catalogue = (client_uuid, client.client_roles(client_uuid))
+    cache.set(key, catalogue, CLIENT_CACHE_SECONDS)
+    return catalogue
 
 
 @dataclass
@@ -78,7 +115,8 @@ class Provisioner:
     """A Keycloak session plus the feed client's role catalogue.
 
     Constructed once per run: the client lookup and role list are two HTTP
-    round trips that must not be repeated per user.
+    round trips that must not be repeated per user. They are cached across
+    runs too, for :data:`CLIENT_CACHE_SECONDS`.
 
     Raises :class:`~qgis_sso.keycloak.KeycloakError` if the realm cannot be
     reached or the service account lacks ``view-clients``.
@@ -87,11 +125,19 @@ class Provisioner:
     def __init__(self, client=None):
         self.client = client or KeycloakAdminClient()
         self.client_id = feed_client_id()
-        self.client_uuid = self.client.client_uuid(self.client_id)
-        self.available_roles = self.client.client_roles(self.client_uuid)
+        self.client_uuid, self.available_roles = client_catalogue(
+            self.client, self.client_id
+        )
 
     def inspect(
-        self, user, flags=(), include_flagged=False, linked_ids=None, roles=None
+        self,
+        user,
+        flags=(),
+        include_flagged=False,
+        linked_ids=None,
+        roles=None,
+        can_publish=None,
+        linked_subs=None,
     ):
         """Decide about one user without writing anything.
 
@@ -101,6 +147,12 @@ class Provisioner:
         ``roles`` overrides what the account would get. Migration derives roles
         from the Django groups an account already has; somebody arriving on an
         invitation has none, and the invitation says what they were offered.
+
+        ``can_publish`` answers the publish permission for this user up front.
+        Without it ``proposed_roles`` falls back to ``user.has_perm``, which is
+        two queries per account and cannot be prefetched. Passing it is also
+        what makes this safe to call from a worker thread, because it leaves no
+        query for the thread to open a connection for.
         """
         decision = Decision(
             user=user,
@@ -126,7 +178,9 @@ class Provisioner:
         # Before considering a new account, see whether the realm already knows
         # this person. In a realm shared with hub and plugins that is the
         # common case, not the exception.
-        linked = self._consider_link(decision, roles)
+        linked = self._consider_link(
+            decision, roles, can_publish=can_publish, linked_subs=linked_subs
+        )
         if linked is not None:
             return linked
 
@@ -144,7 +198,11 @@ class Provisioner:
                 % {"username": decision.username},
             )
 
-        decision.roles = list(roles) if roles is not None else proposed_roles(user)
+        decision.roles = (
+            list(roles)
+            if roles is not None
+            else proposed_roles(user, can_publish=can_publish)
+        )
         unknown = [role for role in decision.roles if role not in self.available_roles]
         if unknown:
             return self._error(
@@ -158,7 +216,7 @@ class Provisioner:
 
         return decision
 
-    def _consider_link(self, decision, roles=None):
+    def _consider_link(self, decision, roles=None, can_publish=None, linked_subs=None):
         """Whether this account can be bound to one the realm already has.
 
         Matched on an exact email address that Keycloak reports as **verified**,
@@ -167,6 +225,10 @@ class Provisioner:
         have proved they control that address. A username is not evidence - it
         can belong to somebody else entirely, which is why claiming one was
         refused outright before this existed.
+
+        ``linked_subs`` is the set of realm subjects already bound to an account
+        here, resolved once by the caller. Like ``linked_ids`` it saves a query
+        per user, and it leaves this safe to run in a worker thread.
 
         Returns a decision when there is something to say, or None to carry on
         and consider creating an account.
@@ -200,7 +262,12 @@ class Provisioner:
             return self._error(
                 decision, _("the QGIS account service gave no account id")
             )
-        if KeycloakIdentity.objects.filter(sub=sub).exists():
+        already_bound = (
+            sub in linked_subs
+            if linked_subs is not None
+            else KeycloakIdentity.objects.filter(sub=sub).exists()
+        )
+        if already_bound:
             # Two local accounts on one subject would break the assumption
             # every lookup in this app rests on.
             return self._skip(
@@ -211,7 +278,11 @@ class Provisioner:
         # Same override as the create path: a caller that names the roles
         # means them, and silently substituting derived ones on one branch
         # would make the argument mean two different things.
-        roles = list(roles) if roles is not None else proposed_roles(decision.user)
+        roles = (
+            list(roles)
+            if roles is not None
+            else proposed_roles(decision.user, can_publish=can_publish)
+        )
         missing = [role for role in roles if role not in self.available_roles]
         if missing:
             # Linking assigns a role; it does not create one. Returning early

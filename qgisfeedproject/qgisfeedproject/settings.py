@@ -142,6 +142,19 @@ DATABASES = {
     }
 }
 
+# Stated rather than left to the default, because two things now depend on
+# what this is. It lives in the worker process, so each gunicorn worker keeps
+# its own copy and nothing here is shared between them or survives a restart.
+# That is fine for both users - the SSO client role catalogue and the login
+# rate limiter - but neither may be treated as a single source of truth. Point
+# this at a shared backend before anything relies on one.
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "qgisfeed",
+    }
+}
+
 # Local password login is a migration fallback with a bounded life, not a
 # standing second front door. One flag gates all three of its effects: the
 # ModelBackend below, the password form on the login page, and what Django

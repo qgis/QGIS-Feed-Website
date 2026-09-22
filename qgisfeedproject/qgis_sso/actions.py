@@ -11,12 +11,14 @@ account outcomes. Turning an outcome into an admin message or a table row is
 the caller's business.
 """
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
 from django.conf import settings
 from django.contrib.auth.models import User
 from django.utils.translation import gettext_lazy as _
 
+from .enrolment import publishers
 from .keycloak import KeycloakError
 from .migration import flag_users
 from .models import KeycloakIdentity
@@ -33,6 +35,12 @@ from .provisioning import (
 #: request. Work in waves of this size; there is no task queue here.
 DEFAULT_MAX_USERS_PER_ACTION = 25
 
+#: How many lookups to have in flight at once while deciding. The realm is
+#: answering reads, and the limit is politeness rather than capacity: enough to
+#: turn a wave from a queue into a handful of rounds, not enough to look like a
+#: flood to auth.qgis.org.
+DEFAULT_LOOKUP_CONCURRENCY = 8
+
 #: Outcome levels, named after what the reader should do about them.
 OK = "ok"
 HELD_BACK = "held-back"
@@ -41,6 +49,33 @@ FAILED = "failed"
 
 def max_users_per_action():
     return getattr(settings, "SSO_ADMIN_ACTION_MAX_USERS", DEFAULT_MAX_USERS_PER_ACTION)
+
+
+def lookup_concurrency():
+    return getattr(settings, "SSO_LOOKUP_CONCURRENCY", DEFAULT_LOOKUP_CONCURRENCY)
+
+
+def inspect_concurrently(decide, users):
+    """Run ``decide`` over ``users`` at the same time, answers in order.
+
+    Deciding about somebody is one or two reads against the realm and no write
+    at either end, so the waiting is the only part that has to be serial and it
+    does not. Order is the caller's, because the confirmation screen lists
+    people in the order they were picked.
+
+    A single user is not worth a thread pool, and the tests that count calls
+    read better without one.
+    """
+    if len(users) < 2:
+        return [decide(user) for user in users]
+
+    workers = min(lookup_concurrency(), len(users))
+    with ThreadPoolExecutor(
+        max_workers=workers, thread_name_prefix="sso-inspect"
+    ) as pool:
+        # map keeps the input order and re-raises whatever a worker raised, so
+        # a realm that goes away mid-wave still reaches the caller's handler.
+        return list(pool.map(decide, users))
 
 
 def is_sso_administrator(user):
@@ -102,21 +137,42 @@ def plan_provisioning(users, include_flagged=False):
     :class:`~qgis_sso.keycloak.KeycloakError` if the realm cannot be reached,
     because there is nothing useful to show without it.
     """
+    # Re-fetch with groups prefetched, then restore the caller's order: the
+    # confirmation screen lists people in the order they were picked.
     users = list(users)
+    prefetched = (
+        User.objects.filter(pk__in=[user.pk for user in users])
+        .prefetch_related("groups")
+        .in_bulk()
+    )
+    users = [prefetched[user.pk] for user in users if user.pk in prefetched]
+
     session = Provisioner()
     flags = flag_users(User.objects.all().prefetch_related("groups"))
-    linked = set(KeycloakIdentity.objects.values_list("user_id", flat=True))
 
-    decisions = [
-        session.inspect(
+    # Everything the per-user decision needs from the database, resolved once.
+    # Nothing below may issue a query: the lookups run in worker threads, and a
+    # query from a thread opens a connection of its own.
+    linked = set(KeycloakIdentity.objects.values_list("user_id", flat=True))
+    linked_subs = set(KeycloakIdentity.objects.values_list("sub", flat=True))
+    can_publish = publishers()
+
+    # Warm the service-account token on this thread. The catalogue above may
+    # have come from the cache without touching the realm, and without this
+    # every worker would arrive at an empty token cache at once.
+    session.client.access_token()
+
+    def decide(user):
+        return session.inspect(
             user,
             flags=flags.get(user.pk, []),
             include_flagged=include_flagged,
             linked_ids=linked,
+            linked_subs=linked_subs,
+            can_publish=user.pk in can_publish,
         )
-        for user in users
-    ]
-    return session, decisions
+
+    return session, inspect_concurrently(decide, users)
 
 
 def run_provisioning(session, decisions, sponsor=None):

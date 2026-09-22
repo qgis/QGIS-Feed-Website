@@ -14,6 +14,7 @@ from django.test import TestCase
 
 from ..auth import QGISOIDCAuthenticationBackend
 from ..keycloak import KeycloakError
+from ..provisioning import clear_client_cache
 
 ISSUER = "https://auth.example.org/realms/qgis"
 CLIENT_ID = "feed-qgis-org"
@@ -83,6 +84,12 @@ class FakeRealm:
     realm = "qgis"
 
     def __init__(self, existing_usernames=(), fail_on=(), realm_users=()):
+        # The client UUID and role list are cached in the process for ten
+        # minutes. Standing up a new realm is exactly the moment to forget the
+        # previous one's answers, or a test that deploys no roles reads the
+        # three roles the last test had.
+        clear_client_cache()
+
         #: Realm accounts keyed by address, as Keycloak would return them:
         #: {"id", "username", "email", "emailVerified"}. Linking is matched on
         #: a verified address, so the flag has to be modelled.
@@ -101,6 +108,11 @@ class FakeRealm:
         #: Set to answer a magic-link request with a different subject, the
         #: case where a username has resolved to somebody else in the realm.
         self.answer_with_subject = None
+
+    def access_token(self):
+        #: The real client fetches and caches one here. Callers warm it before
+        #: fanning lookups out across threads, so the double has to answer.
+        return "fake-token"
 
     def client_uuid(self, client_id):
         return "client-uuid"
