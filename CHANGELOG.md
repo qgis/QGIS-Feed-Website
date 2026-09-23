@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Invitation limits count the invitations you have open, not the ones you
+  have ever sent.** That was always the intent, and `tiers.remaining()` already
+  subtracted the people who had signed in. In practice it still behaved like a
+  lifetime cap, because nothing else ever gave a place back: a mistyped
+  address, somebody who changed their mind, or an invitation that was simply
+  never taken up held one of your places for good. An author with three places
+  could be out of invitations after three invitations, for ever. Two things
+  free a place now. An inviter can give back the place an invitation is
+  holding, from the row on the people page, which leaves the account and its
+  setup link exactly as they were and is audited. And a place held by an
+  account whose trust has been withdrawn stops counting, because nobody could
+  ever use it. Anybody may now invite as many people as they need over time, as
+  long as they are not all waiting at once. The copy on the invite form, the
+  people page and the contributor guide says so, and the tier 4 lifetime cap in
+  the design document, which was never built, is gone.
+
 ### Added
 
 - **Move an account to a new sponsor** (US-5.4), at

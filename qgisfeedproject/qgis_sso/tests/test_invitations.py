@@ -19,7 +19,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from .. import tiers
-from ..models import KeycloakIdentity, LinkMethod, SsoAuditEvent
+from ..models import KeycloakIdentity, LinkMethod, SsoAuditEvent, TrustState
 from ..provisioning import Provisioner
 from .base import FakeRealm
 
@@ -151,6 +151,48 @@ class TierTest(TestCase):
         identity = invitee.keycloak_identity
         identity.first_sso_login_at = timezone.now()
         identity.save(update_fields=["first_sso_login_at"])
+
+        self.assertEqual(tiers.remaining(reviewer), 1)
+
+    @override_settings(SSO_TIER_QUOTAS={0: None, 1: 25, 2: 1, 3: 10, 4: 3})
+    def test_a_place_the_sponsor_gives_back_frees_up(self):
+        """The quota limits invitations open at once, not invitations ever.
+
+        Somebody who is never going to sign in would otherwise hold a place
+        for good, which turns the limit into a lifetime cap.
+        """
+        reviewer = contributor("rita", ["reviewer"])
+        invitee = contributor("one", ["author"], sponsor=reviewer)
+        self.assertEqual(tiers.remaining(reviewer), 0)
+
+        identity = invitee.keycloak_identity
+        identity.invitation_released_at = timezone.now()
+        identity.invitation_released_by = reviewer
+        identity.save(
+            update_fields=["invitation_released_at", "invitation_released_by"]
+        )
+
+        self.assertEqual(tiers.remaining(reviewer), 1)
+
+    @override_settings(SSO_TIER_QUOTAS={0: None, 1: 25, 2: 1, 3: 10, 4: 3})
+    def test_signing_in_after_the_place_was_freed_changes_nothing(self):
+        reviewer = contributor("rita", ["reviewer"])
+        invitee = contributor("one", ["author"], sponsor=reviewer)
+        identity = invitee.keycloak_identity
+        identity.invitation_released_at = timezone.now()
+        identity.first_sso_login_at = timezone.now()
+        identity.save(update_fields=["invitation_released_at", "first_sso_login_at"])
+
+        self.assertEqual(tiers.remaining(reviewer), 1)
+
+    @override_settings(SSO_TIER_QUOTAS={0: None, 1: 25, 2: 1, 3: 10, 4: 3})
+    def test_a_place_held_by_an_untrusted_account_does_not_count(self):
+        """Nobody can ever use it, so charging the sponsor for it is a leak."""
+        reviewer = contributor("rita", ["reviewer"])
+        invitee = contributor("one", ["author"], sponsor=reviewer)
+        identity = invitee.keycloak_identity
+        identity.trust_state = TrustState.REVOKED
+        identity.save(update_fields=["trust_state"])
 
         self.assertEqual(tiers.remaining(reviewer), 1)
 
@@ -340,7 +382,7 @@ class InviteNewTest(TestCase):
 
         response = self.invite()
 
-        self.assertContains(response, "no invitations left", status_code=400)
+        self.assertContains(response, "waiting for somebody", status_code=400)
         self.assertFalse(User.objects.filter(username="newbie").exists())
 
     def test_a_realm_failure_leaves_nothing_behind(self):
@@ -490,3 +532,116 @@ class WhoMayDoWhatTest(TestCase):
 
         self.assertEqual(self.client.get(INVITE_NEW).status_code, 302)
         self.assertEqual(self.client.get(INVITE_EXISTING).status_code, 302)
+
+
+@override_settings(**TRUST_SETTINGS)
+class FreeingAPlaceTest(TestCase):
+    """Giving back the place an invitation holds.
+
+    The route that makes the quota a limit on invitations open at once rather
+    than a lifetime cap: an invitation nobody ever takes up is given back by
+    the sponsor, and the account it made is left exactly as it was.
+    """
+
+    def setUp(self):
+        self.superuser = User.objects.create_superuser("root", "root@example.org", "x")
+        KeycloakIdentity.objects.create(
+            user=self.superuser,
+            sub="sub-root",
+            issuer="https://auth.example.org/realms/qgis",
+            link_method=LinkMethod.PRE_SSO_MIGRATION,
+            last_seen_roles=["admin"],
+            is_root=True,
+        )
+        self.reviewer = contributor("rita", ["reviewer"])
+        self.invitee = contributor("one", ["author"], sponsor=self.reviewer)
+        self.client.force_login(self.reviewer, backend=LOCAL_BACKEND)
+
+    def free(self, identity, confirm="yes"):
+        data = {"action": "release-place", "identity": str(identity.pk)}
+        if confirm:
+            data["confirm"] = confirm
+        return self.client.post(MANAGE, data, follow=True)
+
+    def test_it_asks_before_it_acts(self):
+        response = self.free(self.invitee.keycloak_identity, confirm=None)
+
+        self.assertContains(response, "Free the place this invitation holds?")
+        self.invitee.keycloak_identity.refresh_from_db()
+        self.assertIsNone(self.invitee.keycloak_identity.invitation_released_at)
+
+    @override_settings(SSO_TIER_QUOTAS={0: None, 1: 25, 2: 1, 3: 10, 4: 3})
+    def test_freeing_a_place_lets_the_sponsor_invite_again(self):
+        self.assertEqual(tiers.remaining(self.reviewer), 0)
+
+        response = self.free(self.invitee.keycloak_identity)
+
+        self.assertContains(response, "is free again")
+        self.assertEqual(tiers.remaining(self.reviewer), 1)
+
+    def test_the_account_is_left_alone(self):
+        self.free(self.invitee.keycloak_identity)
+
+        identity = self.invitee.keycloak_identity
+        identity.refresh_from_db()
+        self.assertEqual(identity.sponsor, self.reviewer)
+        self.assertEqual(identity.trust_state, TrustState.ACTIVE)
+        self.assertEqual(identity.invitation_released_by, self.reviewer)
+        self.assertTrue(User.objects.filter(username="one").exists())
+
+    def test_it_is_audited(self):
+        self.free(self.invitee.keycloak_identity)
+
+        event = SsoAuditEvent.objects.get(
+            action=SsoAuditEvent.Action.INVITATION_RELEASED
+        )
+        self.assertEqual(event.username, "one")
+        self.assertEqual(event.detail["released_by"], "rita")
+
+    def test_a_place_that_is_already_free_is_refused(self):
+        identity = self.invitee.keycloak_identity
+        self.free(identity)
+
+        response = self.free(identity)
+
+        self.assertContains(response, "already free")
+
+    def test_there_is_no_place_to_free_once_they_have_signed_in(self):
+        identity = self.invitee.keycloak_identity
+        identity.first_sso_login_at = timezone.now()
+        identity.save(update_fields=["first_sso_login_at"])
+
+        response = self.free(identity)
+
+        self.assertContains(response, "has already signed in")
+        identity.refresh_from_db()
+        self.assertIsNone(identity.invitation_released_at)
+
+    def test_the_button_is_gone_once_they_have_signed_in(self):
+        identity = self.invitee.keycloak_identity
+        identity.first_sso_login_at = timezone.now()
+        identity.save(update_fields=["first_sso_login_at"])
+
+        response = self.client.get(MANAGE)
+
+        self.assertNotContains(response, "release-place")
+
+    def test_nobody_frees_a_place_outside_their_own_branch(self):
+        """Somebody else's invitation is not theirs to give back."""
+        theirs = contributor("theirs", ["author"], sponsor=self.superuser)
+
+        response = self.free(theirs.keycloak_identity)
+
+        self.assertContains(response, "could not find that account")
+        theirs.keycloak_identity.refresh_from_db()
+        self.assertIsNone(theirs.keycloak_identity.invitation_released_at)
+
+    def test_an_administrator_may_free_any_place(self):
+        self.client.force_login(self.superuser, backend=LOCAL_BACKEND)
+
+        self.free(self.invitee.keycloak_identity)
+
+        identity = self.invitee.keycloak_identity
+        identity.refresh_from_db()
+        self.assertIsNotNone(identity.invitation_released_at)
+        self.assertEqual(identity.invitation_released_by, self.superuser)

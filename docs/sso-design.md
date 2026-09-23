@@ -91,9 +91,17 @@ governs invitations and nothing else. What somebody may do to a feed entry
 comes from the mirrored Django permissions, not from where they sit in the
 tree.
 
-Quota counts the invitations still outstanding rather than every account
-somebody ever invited, so a sponsor is not punished for the people who arrived
-and got to work.
+Quota counts the invitations still open rather than every account somebody
+ever invited, so a sponsor is not punished for the people who arrived and got
+to work. It is a limit on how many people may be waiting at one time, not on
+how many anybody may ever invite.
+
+Three things end an open invitation. The person signs in. The sponsor frees
+the place on the people page, which is the answer for somebody who is never
+going to sign in, and which leaves the account and its setup link untouched.
+Or trust in the account is withdrawn, leaving a place nobody could use. Without
+the second of those the quota was a lifetime cap wearing another name: a
+mistyped address held a place for good.
 
 ## Withdrawing trust
 

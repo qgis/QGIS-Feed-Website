@@ -106,6 +106,31 @@ class Row:
         return bool(getattr(self.identity, "local_password_disabled_at", None))
 
     @property
+    def place_released(self):
+        """True once the sponsor has given back the place this account held.
+
+        A marker rather than a state: it says nothing about how far the
+        account has got, only that nobody is waiting for it any more.
+        """
+        return bool(getattr(self.identity, "invitation_released_at", None))
+
+    @property
+    def holds_a_place(self):
+        """True while this account still counts against its sponsor's quota.
+
+        The one question the row action asks, kept here so the template does
+        not have to assemble it from three fields.
+        """
+        identity = self.identity
+        if identity is None:
+            return False
+        return (
+            identity.first_sso_login_at is None
+            and identity.invitation_released_at is None
+            and identity.trust_state == TrustState.ACTIVE
+        )
+
+    @property
     def enrollable(self):
         """False for an account no invitation could ever reach."""
         return not HIDDEN_FLAGS.intersection(self.flags)

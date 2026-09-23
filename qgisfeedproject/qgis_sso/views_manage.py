@@ -26,6 +26,7 @@ from django.db import transaction
 from django.http import HttpResponseRedirect
 from django.shortcuts import render
 from django.urls import reverse
+from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.utils.safestring import mark_safe
 from django.utils.translation import gettext as _
@@ -54,6 +55,7 @@ logger = logging.getLogger(__name__)
 SEND_EMAIL = "send-email"
 ISSUE_LINK = "issue-link"
 RESTORE = "restore"
+RELEASE_PLACE = "release-place"
 
 #: Where a freshly issued setup link waits for the page it is shown on. It
 #: cannot go through messages: that framework's fallback storage is a cookie,
@@ -135,6 +137,8 @@ class EnrolmentView(View):
             return self.send_email(request, identity, context)
         if action == RESTORE:
             return self.restore(request, identity)
+        if action == RELEASE_PLACE:
+            return self.release_place(request, identity, context)
 
         messages.error(request, _("Unknown action."))
         return render(request, self.template_name, context)
@@ -218,6 +222,52 @@ class EnrolmentView(View):
                 _("%(username)s and everyone they invited can sign in again.")
                 % {"username": identity.user.username},
             )
+        return self.back(request)
+
+    def release_place(self, request, identity, context):
+        """Give back the place an invitation is holding, after confirming.
+
+        Confirmed because the reader has to know what stays behind: the
+        account, the link, and the sponsor. Only the place goes.
+
+        Nothing is asked of Keycloak. The account is exactly as it was a
+        moment ago; the sponsor has simply stopped waiting for them.
+        """
+        if identity.has_logged_in_via_sso:
+            messages.error(
+                request,
+                _("%(username)s has already signed in, so no place is held.")
+                % {"username": identity.user.username},
+            )
+            return self.back(request)
+        if identity.invitation_released_at is not None:
+            messages.error(request, _("That place is already free."))
+            return self.back(request)
+
+        if request.POST.get("confirm") != "yes":
+            context.update({"confirming": RELEASE_PLACE, "subject": identity})
+            return render(request, self.template_name, context)
+
+        with transaction.atomic():
+            identity.invitation_released_at = timezone.now()
+            identity.invitation_released_by = request.user
+            identity.save(
+                update_fields=["invitation_released_at", "invitation_released_by"]
+            )
+            SsoAuditEvent.record(
+                SsoAuditEvent.Action.INVITATION_RELEASED,
+                user=identity.user,
+                sub=identity.sub,
+                # The sponsor is the person whose quota this returns to, and
+                # an administrator can free a place they never held.
+                sponsor=getattr(identity.sponsor, "username", ""),
+                released_by=request.user.username,
+            )
+        messages.success(
+            request,
+            _("The place held for %(username)s is free again.")
+            % {"username": identity.user.username},
+        )
         return self.back(request)
 
     def session(self, request):
@@ -546,8 +596,9 @@ class InviteNewView(View):
         left = remaining(user)
         if left is not None and left <= 0:
             return _(
-                "You have no invitations left. They free up as the people you "
-                "have already invited sign in."
+                "Every place you have is waiting for somebody. A place comes "
+                "back when one of them signs in, or you can free one yourself "
+                "on the people page."
             )
 
         if not form["username"]:

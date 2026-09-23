@@ -92,7 +92,7 @@ def tier_of(identity):
 
 
 def quota(user):
-    """How many invitations this account may have open at once.
+    """How many invitations this account may have open at one time.
 
     ``None`` is unlimited. The allowance is the *largest* of the roles held,
     not their total: holding two roles is not a reason to invite twice as many
@@ -122,24 +122,38 @@ def invitable_roles(user):
     )
 
 
-def sponsored_not_yet_arrived(user):
-    """Accounts this person created that have never signed in.
+def open_invitations(user):
+    """The places this person is still holding for somebody.
 
-    The analogue of an outstanding invitation, read from the graph rather than
-    from a second table: an account whose holder has not turned up yet is a
-    place still being held for them.
+    An outstanding invitation, read from the graph rather than from a second
+    table: an account whose holder has not turned up yet is a place still
+    being held for them.
+
+    Three things end that. They sign in, so the place has done its job. The
+    sponsor frees it by hand, because the person is never coming. Or trust in
+    the account is withdrawn, which leaves a place nobody could ever use.
     """
-    from .models import KeycloakIdentity
+    from .models import KeycloakIdentity, TrustState
 
-    return KeycloakIdentity.objects.filter(sponsor=user, first_sso_login_at=None)
+    return KeycloakIdentity.objects.filter(
+        sponsor=user,
+        first_sso_login_at=None,
+        invitation_released_at=None,
+        trust_state=TrustState.ACTIVE,
+    )
 
 
 def remaining(user):
-    """How many more accounts this person may create. ``None`` is unlimited."""
+    """How many more accounts this person may create. ``None`` is unlimited.
+
+    A limit on invitations open at once, not on how many somebody may ever
+    send: anybody may invite as many people as they need, as long as they are
+    not all waiting at the same time.
+    """
     allowance = quota(user)
     if allowance is None:
         return None
-    return max(0, allowance - sponsored_not_yet_arrived(user).count())
+    return max(0, allowance - open_invitations(user).count())
 
 
 def may_invite(user, role):

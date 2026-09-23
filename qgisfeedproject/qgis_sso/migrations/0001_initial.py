@@ -130,6 +130,12 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 (
+                    "invitation_released_at",
+                    models.DateTimeField(
+                        blank=True, null=True, verbose_name="place freed at"
+                    ),
+                ),
+                (
                     "setup_email_sent_at",
                     models.DateTimeField(
                         blank=True, null=True, verbose_name="setup email last sent at"
@@ -169,6 +175,17 @@ class Migration(migrations.Migration):
                     "local_password_disabled_at",
                     models.DateTimeField(
                         blank=True, null=True, verbose_name="local password disabled at"
+                    ),
+                ),
+                (
+                    "invitation_released_by",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="invitations_released",
+                        to=settings.AUTH_USER_MODEL,
+                        verbose_name="place freed by",
                     ),
                 ),
                 (
@@ -254,6 +271,10 @@ class Migration(migrations.Migration):
                             ("suspended", "Suspended: their sponsor was revoked"),
                             ("restored", "Trust restored"),
                             ("re-parented", "Moved to a different sponsor"),
+                            (
+                                "invitation-released",
+                                "Place freed: an invitation given up",
+                            ),
                             ("local-password-disabled", "Local password made unusable"),
                         ],
                         db_index=True,

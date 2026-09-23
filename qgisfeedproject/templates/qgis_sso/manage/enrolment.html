@@ -79,6 +79,31 @@ cannot survive paging, and a whole wave is what the Django admin is for.
     </div>
   {% endif %}
 
+  {% if confirming == 'release-place' %}
+    <div class="box-content sso-confirm mb-4">
+      <h2 class="title is-5">{% trans "Free the place this invitation holds?" %}</h2>
+      <div class="notification is-warning">
+        {% blocktrans trimmed with username=subject.user.username %}
+          The account for {{ username }} stays exactly as it is, and their
+          setup link still works. It stops holding a place open, so whoever
+          invited them can invite somebody else.
+        {% endblocktrans %}
+      </div>
+      <form method="post" action="">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="release-place">
+        <input type="hidden" name="identity" value="{{ subject.pk }}">
+        <input type="hidden" name="confirm" value="yes">
+        <div class="buttons">
+          <button class="button is-primary1" type="submit">{% trans "Yes, free the place" %}</button>
+          <a class="button is-light" href="{% url 'qgis_sso:enrolment' %}">
+            {% trans "Cancel" %}
+          </a>
+        </div>
+      </form>
+    </div>
+  {% endif %}
+
   <form method="get" action="" class="mb-4">
     <div class="field has-addons">
       <div class="control">
@@ -150,6 +175,9 @@ cannot survive paging, and a whole wave is what the Django admin is for.
             {% if row.password_retired %}
               <br><small class="has-text-grey">{% trans "old password switched off" %}</small>
             {% endif %}
+            {% if row.place_released %}
+              <br><small class="has-text-grey">{% trans "place freed, the link still works" %}</small>
+            {% endif %}
           </td>
           <td>
             {# Icon buttons, so aria-label carries the name the icon only hints at. #}
@@ -173,6 +201,16 @@ cannot survive paging, and a whole wave is what the Django admin is for.
                         name="action" value="issue-link"
                         title="{{ link_label }}" aria-label="{{ link_label }}">
                   <span class="icon is-small"><i class="fas fa-link"></i></span>
+                </button>
+              {% endif %}
+              {% if row.holds_a_place %}
+                {% blocktrans trimmed asvar free_label with username=row.user.username %}
+                  Free the place held for {{ username }}
+                {% endblocktrans %}
+                <button class="button is-small is-primary1 is-outlined" type="submit"
+                        name="action" value="release-place"
+                        title="{{ free_label }}" aria-label="{{ free_label }}">
+                  <span class="icon is-small"><i class="fas fa-hourglass-end"></i></span>
                 </button>
               {% endif %}
               {% if row.identity.trust_state == 'active' and row.may_revoke %}

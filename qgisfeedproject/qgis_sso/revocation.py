@@ -470,14 +470,18 @@ def reparent(actor, identity, new_sponsor, reason):
             % {"username": new_sponsor.username, "roles": ", ".join(refused)}
         )
 
-    # Quota counts invitations still outstanding, which means accounts that
-    # have never signed in. Moving somebody who has already arrived costs their
-    # new sponsor nothing, so it is only checked for those who have not.
-    if identity.first_sso_login_at is None:
+    # Quota counts invitations still open, which means accounts that have
+    # never signed in and whose place has not been given back. Moving somebody
+    # who has already arrived, or whose place is already free, costs their new
+    # sponsor nothing, so it is only checked for the rest.
+    if identity.first_sso_login_at is None and identity.invitation_released_at is None:
         left = remaining(new_sponsor)
         if left is not None and left < 1:
             raise RevocationError(
-                _("%(username)s has no invitations left.")
+                _(
+                    "%(username)s has no free place for this account. They can "
+                    "free one on the people page."
+                )
                 % {"username": new_sponsor.username}
             )
 
