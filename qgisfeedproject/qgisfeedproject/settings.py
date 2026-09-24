@@ -446,7 +446,14 @@ SSO_ON_REVOKE = "qgisfeed.trust.on_revoke"
 
 # --- account provisioning ---------------------------------------------------
 # None of this is read by the request path.
-SSO_KEYCLOAK_SERVER_URL = QGIS_AUTH_URL
+#
+# Where this site reaches Keycloak's admin API. Usually the same host a browser
+# uses, and not always the same host: a maintainer working through a VPN
+# reaches the admin API on an internal address while tokens keep arriving from
+# the public one. Set it when the two differ, and leave QGIS_AUTH_URL as the
+# public address, because that is the one every token is checked against and
+# the one recorded on each identity.
+SSO_KEYCLOAK_SERVER_URL = os.environ.get("SSO_KEYCLOAK_SERVER_URL", QGIS_AUTH_URL)
 # A dedicated service-account client holding view-users and manage-users. The
 # web client must never hold them: a compromise of the site would otherwise be
 # a compromise of the realm.
@@ -476,14 +483,19 @@ SSO_ADMIN_ACTION_MAX_USERS = int(os.environ.get("SSO_ADMIN_ACTION_MAX_USERS", "2
 # hand back a setup link, so this is the fallback when email does not arrive.
 # The console itself lives in the master realm regardless of the target realm.
 SSO_KEYCLOAK_CONSOLE_REALM = os.environ.get("SSO_KEYCLOAK_CONSOLE_REALM", "master")
+# Built on the admin address, not the public one: whoever can reach the admin
+# API is who this link is for, and where the two differ the console usually
+# lives with the API.
 SSO_KEYCLOAK_USER_CONSOLE_URL = (
-    f"{QGIS_AUTH_URL}/admin/{SSO_KEYCLOAK_CONSOLE_REALM}/console/"
+    f"{SSO_KEYCLOAK_SERVER_URL}/admin/{SSO_KEYCLOAK_CONSOLE_REALM}/console/"
     f"#/{SSO_KEYCLOAK_REALM}/users/{{sub}}/credentials"
 )
 
 # Returns a sign-in link instead of emailing one. Added to the realm by
-# PhaseTwo's magic-link extension; not part of Keycloak.
-SSO_MAGIC_LINK_URL = f"{QGIS_AUTH_URL}/realms/{SSO_KEYCLOAK_REALM}/magic-link"
+# PhaseTwo's magic-link extension; not part of Keycloak. We call it, so it is on
+# the admin address. The link it hands back is built by Keycloak from the
+# realm's frontend URL, and stays the public one a person can open.
+SSO_MAGIC_LINK_URL = f"{SSO_KEYCLOAK_SERVER_URL}/realms/{SSO_KEYCLOAK_REALM}/magic-link"
 
 # Passkey only. No password is ever set on a provisioned account, so there is
 # none to phish or reuse, and no one-time code because a passkey already

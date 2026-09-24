@@ -361,7 +361,29 @@ action to count how many are left.
 | `SSO_LOOKUP_CONCURRENCY` | Lookups in flight at once while deciding about a wave (8). Reads only; the writes stay one at a time. |
 | `SSO_SETUP_REDIRECT_URI` | Where Keycloak returns somebody who has finished setting up. Points at `/oidc/authenticate/` so they arrive signed in, and **must be registered as a valid redirect URI on the `feed-qgis-org` client**. |
 | `SSO_REVOCATION_GRACE_DAYS` | How long a revocation can be undone in one action (7). |
-| `SSO_MAGIC_LINK_URL` | Derived from `QGIS_AUTH_URL`, like the OIDC endpoints. Answered by PhaseTwo's magic-link extension. |
+| `QGIS_AUTH_URL` | The public address of the account service. The OIDC endpoints, the issuer we assert on every token, and the issuer recorded on each identity all come from it. |
+| `SSO_KEYCLOAK_SERVER_URL` | Where this site reaches the admin API, when that is not the public address. Defaults to `QGIS_AUTH_URL`. See "Two addresses for one Keycloak" below. |
+| `SSO_MAGIC_LINK_URL` | Derived from `SSO_KEYCLOAK_SERVER_URL`, because we call it. Answered by PhaseTwo's magic-link extension. |
+
+### Two addresses for one Keycloak
+
+Keycloak can sit behind two addresses: a public one that browsers and tokens
+use, and an internal one for the admin API, for example when the admin API is
+only reachable through a VPN. They are two different jobs and two different
+settings.
+
+Set `QGIS_AUTH_URL` to the public address and `SSO_KEYCLOAK_SERVER_URL` to the
+internal one. Do not swap `QGIS_AUTH_URL` over to the internal address to make
+an invitation work. It is the address every token is checked against, so an
+account invited while it points somewhere else is refused the first time its
+holder signs in, with `Subject is linked to a different issuer` in the log.
+
+The setup link an invitation hands back is built by Keycloak itself, from the
+realm's frontend URL, so it stays the public address whichever one we called.
+
+An account already created against the wrong address carries it in the
+`issuer` field of its Keycloak identity, and no amount of correcting the
+settings afterwards will let that account sign in. Invite the person again.
 
 ---
 

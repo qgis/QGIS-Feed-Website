@@ -327,7 +327,7 @@ class Provisioner:
         identity = KeycloakIdentity.objects.create(
             user=decision.user,
             sub=decision.sub,
-            issuer=f"{self.client.server_url}/realms/{self.client.realm}",
+            issuer=issuer_of_record(),
             preferred_username=decision.realm_username or decision.username,
             email_at_link=decision.email,
             link_method=link_method,
@@ -385,7 +385,7 @@ class Provisioner:
         identity = KeycloakIdentity.objects.create(
             user=decision.user,
             sub=sub,
-            issuer=f"{self.client.server_url}/realms/{self.client.realm}",
+            issuer=issuer_of_record(),
             preferred_username=decision.username,
             email_at_link=decision.email,
             link_method=link_method,
@@ -528,6 +528,24 @@ DEFAULT_LIFESPAN_SECONDS = 1209600
 
 def setup_link_lifespan():
     return getattr(settings, "SSO_SETUP_LINK_LIFESPAN", DEFAULT_LIFESPAN_SECONDS)
+
+
+def issuer_of_record():
+    """The issuer to write against an account this module creates.
+
+    The same string the request path asserts on every token, rather than the
+    base URL the admin API happens to be reached on. The two are usually equal
+    and are not the same fact: a deployment that talks to Keycloak on an
+    internal address, or that points ``SSO_ISSUER`` somewhere else, would
+    record an issuer that refuses every account it just created, on the first
+    sign-in and with no way back but a hand-written UPDATE.
+
+    Imported here rather than at the top: :mod:`qgis_sso.auth` imports this
+    module, so the dependency can only run in this direction at call time.
+    """
+    from .auth import expected_issuer
+
+    return expected_issuer()
 
 
 def setup_redirect_uri():

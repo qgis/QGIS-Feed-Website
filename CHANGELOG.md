@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **An invitation no longer refuses its own holder when Keycloak sits behind
+  two addresses.** `QGIS_AUTH_URL` was doing two jobs: the public address that
+  browsers use and tokens come from, and the address this site calls the admin
+  API on. Where those differ, for example an admin API reachable only through a
+  VPN, the only way to create an invitation was to point `QGIS_AUTH_URL` at the
+  internal address. The new account then recorded that address as its issuer,
+  and the first sign-in refused it, because the token said the public one. The
+  two jobs are two settings now: `QGIS_AUTH_URL` stays public, and
+  `SSO_KEYCLOAK_SERVER_URL` says where the admin API is, defaulting to
+  `QGIS_AUTH_URL`. Provisioning records the issuer the request path asserts
+  rather than the address it called, so the two can no longer drift. The
+  refusal also logs both issuers, since the message cannot carry them. An
+  account already created against the wrong address keeps it and has to be
+  invited again.
+
 ### Changed
 
 - **Invitation limits count the invitations you have open, not the ones you

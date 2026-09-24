@@ -19,6 +19,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from .. import tiers
+from ..auth import expected_issuer
 from ..models import KeycloakIdentity, LinkMethod, SsoAuditEvent, TrustState
 from ..provisioning import Provisioner
 from .base import FakeRealm
@@ -320,6 +321,24 @@ class InviteNewTest(TestCase):
         self.assertEqual(identity.sponsor, self.reviewer)
         self.assertEqual(identity.link_method, LinkMethod.INVITATION)
         self.assertFalse(identity.is_root)
+
+    @override_settings(
+        SSO_ISSUER="https://auth.example.org/realms/qgis",
+        SSO_KEYCLOAK_SERVER_URL="http://keycloak.internal:8080",
+    )
+    def test_the_issuer_recorded_is_the_one_sign_in_asserts(self):
+        """The regression test for an invitation that refuses itself.
+
+        The address the admin API is reached on and the issuer inside a token
+        are two different facts. Recording the first and checking the second
+        turned every new account into one that could never sign in, and the
+        only way back was an UPDATE by hand.
+        """
+        self.invite()
+
+        identity = KeycloakIdentity.objects.get(user__username="newbie")
+        self.assertEqual(identity.issuer, expected_issuer())
+        self.assertEqual(identity.issuer, "https://auth.example.org/realms/qgis")
 
     def test_the_account_is_passkey_only_like_every_other(self):
         self.invite()

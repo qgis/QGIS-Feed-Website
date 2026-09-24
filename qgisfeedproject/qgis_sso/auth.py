@@ -298,6 +298,16 @@ class QGISOIDCAuthenticationBackend(OIDCAuthenticationBackend):
         if identity.issuer and identity.issuer.rstrip("/") != issuer:
             # The subject namespace belongs to the issuer; the same sub from a
             # different realm is a different person.
+            #
+            # Logged with both values, because the message cannot carry them:
+            # the only way to tell a genuine cross-realm subject from a record
+            # written against a stale QGIS_AUTH_URL is to read the two strings.
+            logger.warning(
+                "Refusing %s: identity carries issuer %r, this token came from %r",
+                identity.sub,
+                identity.issuer,
+                issuer,
+            )
             raise SuspiciousOperation(
                 "Subject is linked to a different issuer than the one that "
                 "issued this token"
