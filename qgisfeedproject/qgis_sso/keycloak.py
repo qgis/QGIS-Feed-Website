@@ -281,6 +281,8 @@ class KeycloakAdminClient:
                 "send_email": False,
             },
             timeout=self.timeout,
+            verify=settings.DEBUG
+            == False,  # pragma: no cover - DEBUG is never True in production
         )
         if response.status_code >= 400:
             # Only the status: a body can echo the request, and a successful
