@@ -11,10 +11,13 @@ handed. That is what lets the admin show an accurate confirmation page without
 a preview path that could drift from what actually happens.
 """
 
+import logging
 from dataclasses import dataclass, field
 
 from django.conf import settings
 from django.core.cache import cache
+from django.db import transaction
+from django.db.models import ProtectedError
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
@@ -27,6 +30,8 @@ from .migration import (
     required_actions,
 )
 from .models import KeycloakIdentity, LinkMethod, SsoAuditEvent
+
+logger = logging.getLogger(__name__)
 
 CREATE = "create"
 LINK = "link"
@@ -528,6 +533,65 @@ DEFAULT_LIFESPAN_SECONDS = 1209600
 
 def setup_link_lifespan():
     return getattr(settings, "SSO_SETUP_LINK_LIFESPAN", DEFAULT_LIFESPAN_SECONDS)
+
+
+class CancelError(Exception):
+    """Cancelling could not be finished, and nothing here was changed."""
+
+
+def cancel_invitation(identity, actor, client=None):
+    """Undo an invitation completely: the realm account, the identity, the user.
+
+    The inverse of :meth:`Provisioner.provision` as ``InviteNewView`` calls it,
+    and only that: an invitation to somebody who already had an account here
+    created no user to remove, and an account somebody has signed into has a
+    history that must not be deleted. The caller checks both.
+
+    The realm goes first. If the local half then fails, the person keeps an
+    account they cannot use and cancelling again finishes the job, because
+    deleting a realm user tolerates one that has already gone. The other order
+    would leave an enabled realm account holding the username and the address,
+    so the same person could never be invited again - which is the whole reason
+    this exists.
+
+    Raises :class:`CancelError` with nothing changed.
+    """
+    from .keycloak import KeycloakAdminClient
+
+    try:
+        realm = client or KeycloakAdminClient()
+        realm.delete_user(identity.sub)
+    except KeycloakError as error:
+        logger.warning("Could not remove %s from the realm: %s", identity.sub, error)
+        raise CancelError(
+            _("We could not reach the QGIS account service, so nothing was changed.")
+        )
+
+    user = identity.user
+    username = user.username
+    try:
+        with transaction.atomic():
+            # Written before the deletes, so the trail survives them. The event
+            # keeps the username and lets its user go null.
+            SsoAuditEvent.record(
+                SsoAuditEvent.Action.INVITATION_CANCELLED,
+                user=user,
+                sub=identity.sub,
+                username=username,
+                sponsor=getattr(identity.sponsor, "username", ""),
+                cancelled_by=actor.username,
+            )
+            identity.delete()
+            user.delete()
+    except ProtectedError:
+        logger.warning("Could not remove %s: something here refers to them", username)
+        raise CancelError(
+            _(
+                "%(username)s has work on this site, so their account was kept. "
+                "Withdraw trust from them instead."
+            )
+            % {"username": username}
+        )
 
 
 def issuer_of_record():

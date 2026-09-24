@@ -18,8 +18,9 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from .. import tiers
+from .. import revocation, tiers
 from ..auth import expected_issuer
+from ..keycloak import KeycloakAdminClient, KeycloakError
 from ..models import KeycloakIdentity, LinkMethod, SsoAuditEvent, TrustState
 from ..provisioning import Provisioner
 from .base import FakeRealm
@@ -156,33 +157,18 @@ class TierTest(TestCase):
         self.assertEqual(tiers.remaining(reviewer), 1)
 
     @override_settings(SSO_TIER_QUOTAS={0: None, 1: 25, 2: 1, 3: 10, 4: 3})
-    def test_a_place_the_sponsor_gives_back_frees_up(self):
+    def test_a_place_frees_up_when_the_account_goes(self):
         """The quota limits invitations open at once, not invitations ever.
 
-        Somebody who is never going to sign in would otherwise hold a place
-        for good, which turns the limit into a lifetime cap.
+        Cancelling an invitation deletes the account, so the place comes back
+        with nothing left to mark. Without that the limit was a lifetime cap:
+        a mistyped address held a place for good.
         """
         reviewer = contributor("rita", ["reviewer"])
         invitee = contributor("one", ["author"], sponsor=reviewer)
         self.assertEqual(tiers.remaining(reviewer), 0)
 
-        identity = invitee.keycloak_identity
-        identity.invitation_released_at = timezone.now()
-        identity.invitation_released_by = reviewer
-        identity.save(
-            update_fields=["invitation_released_at", "invitation_released_by"]
-        )
-
-        self.assertEqual(tiers.remaining(reviewer), 1)
-
-    @override_settings(SSO_TIER_QUOTAS={0: None, 1: 25, 2: 1, 3: 10, 4: 3})
-    def test_signing_in_after_the_place_was_freed_changes_nothing(self):
-        reviewer = contributor("rita", ["reviewer"])
-        invitee = contributor("one", ["author"], sponsor=reviewer)
-        identity = invitee.keycloak_identity
-        identity.invitation_released_at = timezone.now()
-        identity.first_sso_login_at = timezone.now()
-        identity.save(update_fields=["invitation_released_at", "first_sso_login_at"])
+        invitee.keycloak_identity.delete()
 
         self.assertEqual(tiers.remaining(reviewer), 1)
 
@@ -554,15 +540,17 @@ class WhoMayDoWhatTest(TestCase):
 
 
 @override_settings(**TRUST_SETTINGS)
-class FreeingAPlaceTest(TestCase):
-    """Giving back the place an invitation holds.
+class CancellingAnInvitationTest(TestCase):
+    """Undoing an invitation, and what each row is allowed to offer.
 
-    The route that makes the quota a limit on invitations open at once rather
-    than a lifetime cap: an invitation nobody ever takes up is given back by
-    the sponsor, and the account it made is left exactly as it was.
+    Cancelling puts things back as they were before anybody pressed Invite: the
+    realm account, the identity and the local user all go. The place comes back
+    because the account it stood for is gone, and the same person can be invited
+    again with the same name and address.
     """
 
     def setUp(self):
+        self.realm = InvitingRealm()
         self.superuser = User.objects.create_superuser("root", "root@example.org", "x")
         KeycloakIdentity.objects.create(
             user=self.superuser,
@@ -576,91 +564,222 @@ class FreeingAPlaceTest(TestCase):
         self.invitee = contributor("one", ["author"], sponsor=self.reviewer)
         self.client.force_login(self.reviewer, backend=LOCAL_BACKEND)
 
-    def free(self, identity, confirm="yes"):
-        data = {"action": "release-place", "identity": str(identity.pk)}
+    def cancel(self, identity, confirm="yes"):
+        data = {"action": "cancel-invitation", "identity": str(identity.pk)}
         if confirm:
             data["confirm"] = confirm
-        return self.client.post(MANAGE, data, follow=True)
+        with mock.patch(
+            "qgis_sso.keycloak.KeycloakAdminClient", return_value=self.realm
+        ):
+            return self.client.post(MANAGE, data, follow=True)
 
     def test_it_asks_before_it_acts(self):
-        response = self.free(self.invitee.keycloak_identity, confirm=None)
+        response = self.cancel(self.invitee.keycloak_identity, confirm=None)
 
-        self.assertContains(response, "Free the place this invitation holds?")
-        self.invitee.keycloak_identity.refresh_from_db()
-        self.assertIsNone(self.invitee.keycloak_identity.invitation_released_at)
-
-    @override_settings(SSO_TIER_QUOTAS={0: None, 1: 25, 2: 1, 3: 10, 4: 3})
-    def test_freeing_a_place_lets_the_sponsor_invite_again(self):
-        self.assertEqual(tiers.remaining(self.reviewer), 0)
-
-        response = self.free(self.invitee.keycloak_identity)
-
-        self.assertContains(response, "is free again")
-        self.assertEqual(tiers.remaining(self.reviewer), 1)
-
-    def test_the_account_is_left_alone(self):
-        self.free(self.invitee.keycloak_identity)
-
-        identity = self.invitee.keycloak_identity
-        identity.refresh_from_db()
-        self.assertEqual(identity.sponsor, self.reviewer)
-        self.assertEqual(identity.trust_state, TrustState.ACTIVE)
-        self.assertEqual(identity.invitation_released_by, self.reviewer)
+        self.assertContains(response, "Cancel this invitation?")
+        self.assertEqual(self.realm.deleted, [])
         self.assertTrue(User.objects.filter(username="one").exists())
 
-    def test_it_is_audited(self):
-        self.free(self.invitee.keycloak_identity)
+    def test_everything_the_invitation_made_is_removed(self):
+        self.cancel(self.invitee.keycloak_identity)
+
+        self.assertEqual(self.realm.deleted, ["sub-one"])
+        self.assertFalse(KeycloakIdentity.objects.filter(sub="sub-one").exists())
+        self.assertFalse(User.objects.filter(username="one").exists())
+
+    @override_settings(SSO_TIER_QUOTAS={0: None, 1: 25, 2: 1, 3: 10, 4: 3})
+    def test_the_place_comes_back(self):
+        self.assertEqual(tiers.remaining(self.reviewer), 0)
+
+        response = self.cancel(self.invitee.keycloak_identity)
+
+        self.assertContains(response, "is cancelled and the account is gone")
+        self.assertEqual(tiers.remaining(self.reviewer), 1)
+
+    def test_the_same_person_can_be_invited_again(self):
+        """Nothing is kept, so the name and the address are free."""
+        self.cancel(self.invitee.keycloak_identity)
+
+        real_init = Provisioner.__init__
+
+        def init(instance, client=None):
+            real_init(instance, client=self.realm)
+
+        with mock.patch.object(Provisioner, "__init__", init):
+            self.client.post(
+                INVITE_NEW,
+                {
+                    "username": "one",
+                    "email": "one@example.org",
+                    "first_name": "One",
+                    "last_name": "Again",
+                    "role": "author",
+                },
+                follow=True,
+            )
+
+        identity = KeycloakIdentity.objects.get(user__username="one")
+        self.assertEqual(identity.sponsor, self.reviewer)
+
+    def test_a_realm_that_refuses_removes_nothing(self):
+        """The realm goes first, so a refusal leaves everything standing."""
+        with mock.patch(
+            "qgis_sso.keycloak.KeycloakAdminClient", side_effect=KeycloakError("no")
+        ):
+            response = self.client.post(
+                MANAGE,
+                {
+                    "action": "cancel-invitation",
+                    "identity": str(self.invitee.keycloak_identity.pk),
+                    "confirm": "yes",
+                },
+                follow=True,
+            )
+
+        self.assertContains(response, "could not reach")
+        self.assertTrue(KeycloakIdentity.objects.filter(sub="sub-one").exists())
+        self.assertTrue(User.objects.filter(username="one").exists())
+
+    def test_it_is_audited_and_the_record_outlives_the_account(self):
+        self.cancel(self.invitee.keycloak_identity)
 
         event = SsoAuditEvent.objects.get(
-            action=SsoAuditEvent.Action.INVITATION_RELEASED
+            action=SsoAuditEvent.Action.INVITATION_CANCELLED
         )
         self.assertEqual(event.username, "one")
-        self.assertEqual(event.detail["released_by"], "rita")
+        self.assertIsNone(event.user)
+        self.assertEqual(event.detail["cancelled_by"], "rita")
+        self.assertEqual(event.detail["sponsor"], "rita")
 
-    def test_a_place_that_is_already_free_is_refused(self):
-        identity = self.invitee.keycloak_identity
-        self.free(identity)
+    def test_an_account_that_did_not_arrive_on_an_invitation_is_refused(self):
+        """A migrated account keeps its own records, whoever sponsors it."""
+        migrated = contributor("mira", ["author"], sponsor=self.reviewer)
+        identity = migrated.keycloak_identity
+        identity.link_method = LinkMethod.PRE_SSO_MIGRATION
+        identity.save(update_fields=["link_method"])
 
-        response = self.free(identity)
+        response = self.cancel(identity)
 
-        self.assertContains(response, "already free")
+        self.assertContains(response, "no invitation to cancel")
+        self.assertEqual(self.realm.deleted, [])
+        self.assertTrue(User.objects.filter(username="mira").exists())
 
-    def test_there_is_no_place_to_free_once_they_have_signed_in(self):
+    def test_there_is_nothing_to_cancel_once_they_have_signed_in(self):
         identity = self.invitee.keycloak_identity
         identity.first_sso_login_at = timezone.now()
         identity.save(update_fields=["first_sso_login_at"])
 
-        response = self.free(identity)
+        response = self.cancel(identity)
 
-        self.assertContains(response, "has already signed in")
-        identity.refresh_from_db()
-        self.assertIsNone(identity.invitation_released_at)
+        self.assertContains(response, "Withdraw trust from them instead")
+        self.assertEqual(self.realm.deleted, [])
+        self.assertTrue(User.objects.filter(username="one").exists())
 
-    def test_the_button_is_gone_once_they_have_signed_in(self):
+    def test_nobody_cancels_an_invitation_outside_their_own_branch(self):
+        theirs = contributor("theirs", ["author"], sponsor=self.superuser)
+
+        response = self.cancel(theirs.keycloak_identity)
+
+        self.assertContains(response, "could not find that account")
+        self.assertEqual(self.realm.deleted, [])
+        self.assertTrue(User.objects.filter(username="theirs").exists())
+
+    def test_an_administrator_may_cancel_any_invitation(self):
+        self.client.force_login(self.superuser, backend=LOCAL_BACKEND)
+
+        self.cancel(self.invitee.keycloak_identity)
+
+        self.assertFalse(User.objects.filter(username="one").exists())
+
+    # -- what each row offers ---------------------------------------------
+
+    def test_a_pending_invitation_offers_setting_up_and_cancelling(self):
+        response = self.client.get(MANAGE)
+
+        self.assertContains(response, "send-email")
+        self.assertContains(response, "issue-link")
+        self.assertContains(response, "cancel-invitation")
+        self.assertNotContains(response, "Withdraw trust from one")
+
+    def test_an_account_that_signed_in_offers_withdrawing_trust_only(self):
         identity = self.invitee.keycloak_identity
         identity.first_sso_login_at = timezone.now()
         identity.save(update_fields=["first_sso_login_at"])
 
         response = self.client.get(MANAGE)
 
-        self.assertNotContains(response, "release-place")
+        self.assertContains(response, "Withdraw trust from one")
+        self.assertNotContains(response, "send-email")
+        self.assertNotContains(response, "issue-link")
+        self.assertNotContains(response, "cancel-invitation")
 
-    def test_nobody_frees_a_place_outside_their_own_branch(self):
-        """Somebody else's invitation is not theirs to give back."""
-        theirs = contributor("theirs", ["author"], sponsor=self.superuser)
-
-        response = self.free(theirs.keycloak_identity)
-
-        self.assertContains(response, "could not find that account")
-        theirs.keycloak_identity.refresh_from_db()
-        self.assertIsNone(theirs.keycloak_identity.invitation_released_at)
-
-    def test_an_administrator_may_free_any_place(self):
-        self.client.force_login(self.superuser, backend=LOCAL_BACKEND)
-
-        self.free(self.invitee.keycloak_identity)
-
+    def test_nothing_is_set_up_for_somebody_who_has_signed_in(self):
+        """Refused on the post too, not only hidden on the row."""
         identity = self.invitee.keycloak_identity
-        identity.refresh_from_db()
-        self.assertIsNotNone(identity.invitation_released_at)
-        self.assertEqual(identity.invitation_released_by, self.superuser)
+        identity.first_sso_login_at = timezone.now()
+        identity.save(update_fields=["first_sso_login_at"])
+
+        for action in ("send-email", "issue-link"):
+            with mock.patch(
+                "qgis_sso.keycloak.KeycloakAdminClient", return_value=self.realm
+            ):
+                response = self.client.post(
+                    MANAGE,
+                    {"action": action, "identity": str(identity.pk), "confirm": "yes"},
+                    follow=True,
+                )
+
+            self.assertContains(response, "signed in already")
+        self.assertEqual(self.realm.emailed, [])
+
+    def test_trust_cannot_be_withdrawn_from_somebody_who_never_arrived(self):
+        """Cancelling the invitation is what is meant, and the reason says so."""
+        reason = revocation.refusal(self.reviewer, self.invitee.keycloak_identity)
+
+        self.assertIn("Cancel their invitation instead", str(reason))
+
+
+CLIENT_SETTINGS = {
+    "SSO_KEYCLOAK_SERVER_URL": "https://auth.example.org",
+    "SSO_KEYCLOAK_REALM": "qgis",
+    "SSO_PROVISIONER_CLIENT_ID": "feed-qgis-org-provisioner",
+    "SSO_PROVISIONER_CLIENT_SECRET": "not-a-real-secret",
+}
+
+
+@override_settings(**CLIENT_SETTINGS)
+class DeletingARealmUserTest(TestCase):
+    """The one realm call cancelling makes, and its one tolerance.
+
+    Everything else this client does treats a 404 as a failure. Deleting has to
+    treat it as the job already being done, or finishing a cancel that stopped
+    halfway would be impossible.
+    """
+
+    def setUp(self):
+        self.realm = KeycloakAdminClient()
+        self.realm._token = "service-account-token"
+        self.realm._token_expires_at = float("inf")
+
+    def reply(self, status):
+        answer = mock.Mock()
+        answer.status_code = status
+        answer.text = ""
+        return mock.patch.object(self.realm._session, "request", return_value=answer)
+
+    def test_it_asks_keycloak_to_delete_the_subject(self):
+        with self.reply(204) as asked:
+            self.realm.delete_user("sub-one")
+
+        method, url = asked.call_args.args
+        self.assertEqual(method, "DELETE")
+        self.assertTrue(url.endswith("/users/sub-one"))
+
+    def test_an_account_already_gone_is_not_an_error(self):
+        with self.reply(404):
+            self.assertIsNone(self.realm.delete_user("sub-one"))
+
+    def test_any_other_refusal_still_raises(self):
+        with self.reply(403):
+            with self.assertRaises(KeycloakError):
+                self.realm.delete_user("sub-one")

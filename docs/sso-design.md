@@ -96,12 +96,47 @@ ever invited, so a sponsor is not punished for the people who arrived and got
 to work. It is a limit on how many people may be waiting at one time, not on
 how many anybody may ever invite.
 
-Three things end an open invitation. The person signs in. The sponsor frees
-the place on the people page, which is the answer for somebody who is never
-going to sign in, and which leaves the account and its setup link untouched.
-Or trust in the account is withdrawn, leaving a place nobody could use. Without
-the second of those the quota was a lifetime cap wearing another name: a
-mistyped address held a place for good.
+Three things end an open invitation. The person signs in. The sponsor cancels
+it, which is the answer for somebody who is never going to sign in. Or trust in
+the account is withdrawn, leaving a place nobody could use. Without the second
+of those the quota was a lifetime cap wearing another name: a mistyped address
+held a place for good.
+
+### Cancelling an invitation undoes it
+
+A place is not a number. In this design an invitation *is* an account, created
+in the shared realm at the moment of invitation, so a place stands for a real
+username and a real address. Anything short of removing that account would
+leave the name and the address taken, and the limit would be counting something
+the inviter can reset at will.
+
+So cancelling removes the lot: the realm account, the identity row and the local
+user. The place comes back because what held it is gone, and the same person can
+be invited again with the same name and address. Only the audit trail stays:
+`SsoAuditEvent` keeps the username and lets its user go null, so the record that
+an account existed and who ended it survives the account.
+
+The realm goes first, and the local half follows in one transaction. If the
+local half fails, the person keeps an account they cannot use and cancelling
+again finishes the job, because deleting a realm user tolerates one that has
+already gone. The other order would leave an enabled realm account holding the
+name and the address, which is the state this exists to avoid.
+
+Cancelling is only for an invitation this site created in full, and only before
+anybody has used it. `link_method` is written as `invitation` in one place only,
+the invite form, which is also the only path that creates the Django user and
+the realm account together; the migration wave and invitations to people who
+already have accounts here keep their own records. Somebody who has signed in
+has a history, so trust is withdrawn from them instead, and
+`revocation.refusal` says exactly that to anybody who tries it the other way
+round.
+
+What this bounds is how many live, unused accounts one sponsor can be holding at
+a time. It does not bound how many accounts somebody creates over the years, and
+nothing here does: an inviter can cancel and invite again as often as they like.
+That is a deliberate limit of this model, not an oversight. What stands behind it
+is the graph rather than the count, since every account names who vouched for it
+and revoking a sponsor suspends their whole subtree.
 
 ## Withdrawing trust
 

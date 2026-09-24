@@ -144,7 +144,7 @@ class KeycloakAdminClient:
         )
         return self._token
 
-    def request(self, method, path, timeout=None, **kwargs):
+    def request(self, method, path, timeout=None, allow_missing=False, **kwargs):
         url = urljoin(self.admin_base, path.lstrip("/"))
         headers = kwargs.pop("headers", {})
         headers["Authorization"] = f"Bearer {self.access_token()}"
@@ -157,6 +157,10 @@ class KeycloakAdminClient:
             == False,  # pragma: no cover - DEBUG is never True in production
             **kwargs,
         )
+        if response.status_code == 404 and allow_missing:
+            # For the callers whose job is done if the thing is already gone.
+            # Undoing something halfway through has to be safe to repeat.
+            return None
         if response.status_code >= 400:
             raise KeycloakError(
                 f"{method} {path} failed: HTTP {response.status_code} "
@@ -227,6 +231,15 @@ class KeycloakAdminClient:
                 "Keycloak accepted the user but returned no Location header"
             )
         return sub
+
+    def delete_user(self, user_id):
+        """Remove a realm account, and say nothing if it has already gone.
+
+        Only for undoing an account this site created moments ago and nobody
+        ever used. Withdrawing trust from somebody who has arrived disables
+        their account instead, because their history has to stay readable.
+        """
+        self.request("DELETE", f"users/{quote(user_id)}", allow_missing=True)
 
     def execute_actions_email(
         self, user_id, actions, client_id, redirect_uri, lifespan

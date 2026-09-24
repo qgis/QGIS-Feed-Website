@@ -18,7 +18,7 @@ from django.utils.translation import gettext_lazy as _
 
 from . import tiers
 from .migration import flag_users, proposed_roles, proposed_username
-from .models import KeycloakIdentity, TrustState
+from .models import KeycloakIdentity, LinkMethod, TrustState
 
 #: The permission that makes somebody a reviewer in Keycloak. Matched on the
 #: app label too, so a same-named permission in another app cannot grant it.
@@ -106,28 +106,40 @@ class Row:
         return bool(getattr(self.identity, "local_password_disabled_at", None))
 
     @property
-    def place_released(self):
-        """True once the sponsor has given back the place this account held.
+    def pending(self):
+        """True for an account that exists in the realm and nobody has used.
 
-        A marker rather than a state: it says nothing about how far the
-        account has got, only that nobody is waiting for it any more.
-        """
-        return bool(getattr(self.identity, "invitation_released_at", None))
+        What the setup email and the enrolment link are for, and what holds a
+        place against a sponsor's quota. Grandfathered accounts count: they have
+        no sponsor, and the migration wave still has to reach them.
 
-    @property
-    def holds_a_place(self):
-        """True while this account still counts against its sponsor's quota.
-
-        The one question the row action asks, kept here so the template does
-        not have to assemble it from three fields.
+        Neither is offered once somebody has signed in. There is nothing left to
+        set up, and a link handed to them then would authenticate with no
+        passkey.
         """
         identity = self.identity
         if identity is None:
             return False
         return (
             identity.first_sso_login_at is None
-            and identity.invitation_released_at is None
             and identity.trust_state == TrustState.ACTIVE
+        )
+
+    @property
+    def cancellable(self):
+        """True for a pending invitation this site created in full.
+
+        ``INVITATION`` is written in one place only, the invite form, which is
+        also the only path that creates the Django user and the realm account
+        together. Everything else - the migration wave, an invitation to
+        somebody who already had an account here - keeps its own records, so
+        cancelling must not reach them.
+        """
+        identity = self.identity
+        return (
+            self.pending
+            and identity.sponsor_id is not None
+            and identity.link_method == LinkMethod.INVITATION
         )
 
     @property

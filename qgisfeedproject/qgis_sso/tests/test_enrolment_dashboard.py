@@ -594,11 +594,12 @@ class IssuedLinkTest(SuperuserPage):
         self.assertNotContains(response, "login-actions/token")
         self.assertContains(response, "already signed in")
 
-    def test_the_button_is_not_offered_once_they_have_signed_in(self):
+    def test_neither_button_is_offered_once_they_have_signed_in(self):
+        """Setting up is for somebody who has not arrived. Both go together."""
         self.identity.first_sso_login_at = timezone.now()
         self.identity.save(update_fields=["first_sso_login_at"])
 
         response = self.client.get(PAGE)
 
         self.assertNotContains(response, "Get the enrolment link")
-        self.assertContains(response, "Email the setup link")
+        self.assertNotContains(response, "Email the setup link")

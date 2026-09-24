@@ -14,8 +14,8 @@ cannot survive paging, and a whole wave is what the Django admin is for.
       <h1 class="title is-4">{% trans "People" %}</h1>
       <p class="subtitle is-6">
         {% blocktrans trimmed %}
-          Accounts here are created by invitation. Invite people, get the invitation link, and
-          withdraw trust when you need to.
+          Accounts here are created by invitation. Invite people, get the invitation link,
+          cancel one nobody takes up, and withdraw trust when you need to.
         {% endblocktrans %}
       </p>
       <p>
@@ -79,23 +79,24 @@ cannot survive paging, and a whole wave is what the Django admin is for.
     </div>
   {% endif %}
 
-  {% if confirming == 'release-place' %}
+  {% if confirming == 'cancel-invitation' %}
     <div class="box-content sso-confirm mb-4">
-      <h2 class="title is-5">{% trans "Free the place this invitation holds?" %}</h2>
+      <h2 class="title is-5">{% trans "Cancel this invitation?" %}</h2>
       <div class="notification is-warning">
         {% blocktrans trimmed with username=subject.user.username %}
-          The account for {{ username }} stays exactly as it is, and their
-          setup link still works. It stops holding a place open, so whoever
-          invited them can invite somebody else.
+          This removes the account for {{ username }} completely, here and from
+          QGIS accounts. Nothing is kept, so their place comes back and you can
+          invite them again with the same name and address. This cannot be
+          undone.
         {% endblocktrans %}
       </div>
       <form method="post" action="">
         {% csrf_token %}
-        <input type="hidden" name="action" value="release-place">
+        <input type="hidden" name="action" value="cancel-invitation">
         <input type="hidden" name="identity" value="{{ subject.pk }}">
         <input type="hidden" name="confirm" value="yes">
         <div class="buttons">
-          <button class="button is-primary1" type="submit">{% trans "Yes, free the place" %}</button>
+          <button class="button is-danger" type="submit">{% trans "Yes, cancel it" %}</button>
           <a class="button is-light" href="{% url 'qgis_sso:enrolment' %}">
             {% trans "Cancel" %}
           </a>
@@ -175,25 +176,21 @@ cannot survive paging, and a whole wave is what the Django admin is for.
             {% if row.password_retired %}
               <br><small class="has-text-grey">{% trans "old password switched off" %}</small>
             {% endif %}
-            {% if row.place_released %}
-              <br><small class="has-text-grey">{% trans "place freed, the link still works" %}</small>
-            {% endif %}
           </td>
           <td>
             {# Icon buttons, so aria-label carries the name the icon only hints at. #}
             <form method="post" action="" class="is-flex sso-row-actions">
               {% csrf_token %}
               <input type="hidden" name="identity" value="{{ row.identity.pk }}">
-              {% blocktrans trimmed asvar send_label with username=row.user.username %}
-                Email the setup link to {{ username }}
-              {% endblocktrans %}
-              <button class="button is-small is-primary1 is-outlined" type="submit"
-                      name="action" value="send-email"
-                      title="{{ send_label }}" aria-label="{{ send_label }}">
-                <span class="icon is-small"><i class="fas fa-envelope"></i></span>
-              </button>
-              {# Not once signed in: a link would then authenticate with no passkey. #}
-              {% if not row.identity.has_logged_in_via_sso %}
+              {% if row.pending %}
+                {% blocktrans trimmed asvar send_label with username=row.user.username %}
+                  Email the setup link to {{ username }}
+                {% endblocktrans %}
+                <button class="button is-small is-primary1 is-outlined" type="submit"
+                        name="action" value="send-email"
+                        title="{{ send_label }}" aria-label="{{ send_label }}">
+                  <span class="icon is-small"><i class="fas fa-envelope"></i></span>
+                </button>
                 {% blocktrans trimmed asvar link_label with username=row.user.username %}
                   Get the enrolment link for {{ username }}
                 {% endblocktrans %}
@@ -203,14 +200,14 @@ cannot survive paging, and a whole wave is what the Django admin is for.
                   <span class="icon is-small"><i class="fas fa-link"></i></span>
                 </button>
               {% endif %}
-              {% if row.holds_a_place %}
-                {% blocktrans trimmed asvar free_label with username=row.user.username %}
-                  Free the place held for {{ username }}
+              {% if row.cancellable %}
+                {% blocktrans trimmed asvar cancel_label with username=row.user.username %}
+                  Cancel the invitation for {{ username }}
                 {% endblocktrans %}
-                <button class="button is-small is-primary1 is-outlined" type="submit"
-                        name="action" value="release-place"
-                        title="{{ free_label }}" aria-label="{{ free_label }}">
-                  <span class="icon is-small"><i class="fas fa-hourglass-end"></i></span>
+                <button class="button is-small is-danger is-outlined" type="submit"
+                        name="action" value="cancel-invitation"
+                        title="{{ cancel_label }}" aria-label="{{ cancel_label }}">
+                  <span class="icon is-small"><i class="fas fa-user-xmark"></i></span>
                 </button>
               {% endif %}
               {% if row.identity.trust_state == 'active' and row.may_revoke %}

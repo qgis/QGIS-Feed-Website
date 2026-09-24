@@ -28,7 +28,13 @@ from .test_invitations import TRUST_SETTINGS, InvitingRealm
 REVOKE_SETTINGS = dict(TRUST_SETTINGS, SSO_ON_REVOKE="", SSO_REVOCATION_GRACE_DAYS=7)
 
 
-def person(username, roles, sponsor=None, is_root=False):
+def person(username, roles, sponsor=None, is_root=False, arrived=True):
+    """A contributor who has signed in at least once.
+
+    ``arrived`` is the default because withdrawing trust is about somebody who
+    has some: an invitation nobody has taken up is cancelled instead, and
+    ``revocation.refusal`` says so. Pass ``arrived=False`` for that case.
+    """
     user = User.objects.create_user(username, f"{username}@example.org", "x")
     KeycloakIdentity.objects.create(
         user=user,
@@ -38,6 +44,7 @@ def person(username, roles, sponsor=None, is_root=False):
         last_seen_roles=list(roles),
         sponsor=sponsor,
         is_root=is_root or sponsor is None,
+        first_sso_login_at=timezone.now() if arrived else None,
     )
     return user
 

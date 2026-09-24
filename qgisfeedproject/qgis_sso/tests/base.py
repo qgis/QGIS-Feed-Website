@@ -105,6 +105,7 @@ class FakeRealm:
         self.logged_out = []
         self.disabled = []
         self.enabled = []
+        self.deleted = []
         #: Set to answer a magic-link request with a different subject, the
         #: case where a username has resolved to somebody else in the realm.
         self.answer_with_subject = None
@@ -147,6 +148,12 @@ class FakeRealm:
 
     def set_user_enabled(self, user_id, enabled):
         (self.enabled if enabled else self.disabled).append(user_id)
+
+    def delete_user(self, user_id):
+        self.deleted.append(user_id)
+        # A deleted account stops being one the realm knows, so a name freed
+        # here can be taken again, as it can in a real realm.
+        self.existing.discard(user_id.removeprefix("sub-"))
 
     def execute_actions_email(self, sub, actions, **kwargs):
         self.emailed.append(sub)

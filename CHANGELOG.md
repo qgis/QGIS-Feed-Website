@@ -33,14 +33,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   address, somebody who changed their mind, or an invitation that was simply
   never taken up held one of your places for good. An author with three places
   could be out of invitations after three invitations, for ever. Two things
-  free a place now. An inviter can give back the place an invitation is
-  holding, from the row on the people page, which leaves the account and its
-  setup link exactly as they were and is audited. And a place held by an
-  account whose trust has been withdrawn stops counting, because nobody could
-  ever use it. Anybody may now invite as many people as they need over time, as
-  long as they are not all waiting at once. The copy on the invite form, the
-  people page and the contributor guide says so, and the tier 4 lifetime cap in
-  the design document, which was never built, is gone.
+  free a place now. An inviter can **cancel an invitation** from the row on the
+  people page, which removes everything the invitation created: the Keycloak
+  account, the identity record and the Django user. A place stands for a real
+  account in the shared realm, so giving the place back has to give back what it
+  took, or the count is a number the inviter can reset at will. Nothing is kept
+  but the audit record, which keeps the username after the account is gone, so
+  the same person can be invited again with the same name and address.
+  Cancelling reaches only invitations made through Invite → New user, where
+  every record was ours to create, and only before anybody has signed in. And a
+  place held by an account whose trust has been withdrawn stops counting,
+  because nobody could ever use it. Anybody may now invite as many people as
+  they need over time, as long as they are not all waiting at once. What this
+  bounds is the live, unused accounts one sponsor holds at a time, not how many
+  they create over the years. The copy on the invite form, the people page and
+  the contributor guide says all of it, and the tier 4 lifetime cap in the
+  design document, which was never built, is gone.
+- **Each row offers only the buttons that fit the account.** The setup email and
+  the enrolment link are for somebody who has not arrived, so they are gone once
+  an account has signed in, and posting either is refused. Withdraw trust is for
+  somebody who has, so it is gone before then, with `revocation.refusal` saying
+  to cancel the invitation instead: an account with a history is revoked, an
+  invitation nobody took up is cancelled.
 
 ### Added
 

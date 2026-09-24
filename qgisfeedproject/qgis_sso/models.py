@@ -136,22 +136,6 @@ class KeycloakIdentity(models.Model):
         ),
     )
 
-    # --- freeing the place an invitation holds ----------------------------
-    # A quota counts invitations open at once, so an invitation nobody ever
-    # takes up would hold a place for ever. The sponsor gives the place back
-    # here. The account is untouched and can still be set up.
-    invitation_released_at = models.DateTimeField(
-        null=True, blank=True, verbose_name=_("place freed at")
-    )
-    invitation_released_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        null=True,
-        blank=True,
-        on_delete=models.SET_NULL,
-        related_name="invitations_released",
-        verbose_name=_("place freed by"),
-    )
-
     # --- migration bookkeeping (Phase 4) ---------------------------------
     # Kept on the identity rather than in a side table because every one of
     # them is a fact about this binding, and the migration commands need to be
@@ -247,8 +231,8 @@ class SsoAuditEvent(models.Model):
         SUSPENDED = "suspended", _("Suspended: their sponsor was revoked")
         RESTORED = "restored", _("Trust restored")
         REPARENTED = "re-parented", _("Moved to a different sponsor")
-        INVITATION_RELEASED = "invitation-released", _(
-            "Place freed: an invitation given up"
+        INVITATION_CANCELLED = "invitation-cancelled", _(
+            "Invitation cancelled: the account it made was removed"
         )
         LOCAL_PASSWORD_DISABLED = "local-password-disabled", _(
             "Local password made unusable"

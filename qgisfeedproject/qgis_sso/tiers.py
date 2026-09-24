@@ -130,15 +130,15 @@ def open_invitations(user):
     being held for them.
 
     Three things end that. They sign in, so the place has done its job. The
-    sponsor frees it by hand, because the person is never coming. Or trust in
-    the account is withdrawn, which leaves a place nobody could ever use.
+    sponsor cancels the invitation, which deletes the account and takes this row
+    with it. Or trust in the account is withdrawn, which leaves a place nobody
+    could ever use.
     """
     from .models import KeycloakIdentity, TrustState
 
     return KeycloakIdentity.objects.filter(
         sponsor=user,
         first_sso_login_at=None,
-        invitation_released_at=None,
         trust_state=TrustState.ACTIVE,
     )
 

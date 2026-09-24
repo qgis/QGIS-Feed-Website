@@ -26,13 +26,12 @@ from django.db import transaction
 from django.http import HttpResponseRedirect
 from django.shortcuts import render
 from django.urls import reverse
-from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.utils.safestring import mark_safe
 from django.utils.translation import gettext as _
 from django.views import View
 
-from . import revocation
+from . import provisioning, revocation
 from .actions import (
     is_sso_administrator,
     issue_setup_links,
@@ -55,7 +54,7 @@ logger = logging.getLogger(__name__)
 SEND_EMAIL = "send-email"
 ISSUE_LINK = "issue-link"
 RESTORE = "restore"
-RELEASE_PLACE = "release-place"
+CANCEL_INVITATION = "cancel-invitation"
 
 #: Where a freshly issued setup link waits for the page it is shown on. It
 #: cannot go through messages: that framework's fallback storage is a cookie,
@@ -131,14 +130,28 @@ class EnrolmentView(View):
             )
             return render(request, self.template_name, context)
 
+        # Setting up is for somebody who has not arrived. The row offers
+        # neither of these once they have, and the row being right is not what
+        # makes it so.
+        if action in (SEND_EMAIL, ISSUE_LINK) and identity.has_logged_in_via_sso:
+            messages.error(
+                request,
+                _(
+                    "%(username)s has already signed in, so there is nothing to "
+                    "set up. They manage their passkeys from their own account."
+                )
+                % {"username": identity.user.username},
+            )
+            return render(request, self.template_name, context)
+
         if action == ISSUE_LINK:
             return self.issue_link(request, identity, context)
         if action == SEND_EMAIL:
             return self.send_email(request, identity, context)
         if action == RESTORE:
             return self.restore(request, identity)
-        if action == RELEASE_PLACE:
-            return self.release_place(request, identity, context)
+        if action == CANCEL_INVITATION:
+            return self.cancel_invitation(request, identity, context)
 
         messages.error(request, _("Unknown action."))
         return render(request, self.template_name, context)
@@ -224,49 +237,53 @@ class EnrolmentView(View):
             )
         return self.back(request)
 
-    def release_place(self, request, identity, context):
-        """Give back the place an invitation is holding, after confirming.
+    def cancel_invitation(self, request, identity, context):
+        """Undo an invitation entirely, after confirming.
 
-        Confirmed because the reader has to know what stays behind: the
-        account, the link, and the sponsor. Only the place goes.
+        The place comes back because the account it stood for is gone, not
+        because a column says to stop counting it. That is also what lets the
+        same person be invited again: their name and their address are free.
 
-        Nothing is asked of Keycloak. The account is exactly as it was a
-        moment ago; the sponsor has simply stopped waiting for them.
+        Only an invitation this site created in full, and only before anybody
+        has used it. :func:`cancel_invitation` does the work; this asks, checks
+        again, and reports.
         """
         if identity.has_logged_in_via_sso:
             messages.error(
                 request,
-                _("%(username)s has already signed in, so no place is held.")
+                _(
+                    "%(username)s signed in already. Withdraw trust from them "
+                    "instead of cancelling their invitation."
+                )
                 % {"username": identity.user.username},
             )
             return self.back(request)
-        if identity.invitation_released_at is not None:
-            messages.error(request, _("That place is already free."))
+        if identity.sponsor_id is None or identity.link_method != LinkMethod.INVITATION:
+            messages.error(
+                request,
+                _(
+                    "%(username)s did not arrive on an invitation from this "
+                    "page, so there is no invitation to cancel."
+                )
+                % {"username": identity.user.username},
+            )
             return self.back(request)
 
         if request.POST.get("confirm") != "yes":
-            context.update({"confirming": RELEASE_PLACE, "subject": identity})
+            context.update({"confirming": CANCEL_INVITATION, "subject": identity})
             return render(request, self.template_name, context)
 
-        with transaction.atomic():
-            identity.invitation_released_at = timezone.now()
-            identity.invitation_released_by = request.user
-            identity.save(
-                update_fields=["invitation_released_at", "invitation_released_by"]
-            )
-            SsoAuditEvent.record(
-                SsoAuditEvent.Action.INVITATION_RELEASED,
-                user=identity.user,
-                sub=identity.sub,
-                # The sponsor is the person whose quota this returns to, and
-                # an administrator can free a place they never held.
-                sponsor=getattr(identity.sponsor, "username", ""),
-                released_by=request.user.username,
-            )
+        username = identity.user.username
+        try:
+            provisioning.cancel_invitation(identity, request.user)
+        except provisioning.CancelError as error:
+            messages.error(request, str(error))
+            return self.back(request)
+
         messages.success(
             request,
-            _("The place held for %(username)s is free again.")
-            % {"username": identity.user.username},
+            _("The invitation for %(username)s is cancelled and the account is gone.")
+            % {"username": username},
         )
         return self.back(request)
 
@@ -597,8 +614,8 @@ class InviteNewView(View):
         if left is not None and left <= 0:
             return _(
                 "Every place you have is waiting for somebody. A place comes "
-                "back when one of them signs in, or you can free one yourself "
-                "on the people page."
+                "back when one of them signs in, or when you cancel an "
+                "invitation on the people page."
             )
 
         if not form["username"]:
