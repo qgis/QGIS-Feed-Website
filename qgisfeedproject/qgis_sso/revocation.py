@@ -32,7 +32,7 @@ from .keycloak import KeycloakError
 from .migration import feed_client_id
 from .models import KeycloakIdentity, SsoAuditEvent, TrustState
 from .roles import mirror_roles
-from .tiers import effective_tier, may_invite, remaining, tier_of
+from .tiers import NO_TIER, effective_tier, may_invite, remaining, tier_of
 
 logger = logging.getLogger(__name__)
 
@@ -473,6 +473,84 @@ def may_reparent(actor):
     return bool(actor.is_superuser) and effective_tier(actor) <= 1
 
 
+def sponsor_refusal(actor, identity, actor_ancestors=None):
+    """Why ``actor`` may not offer to sponsor ``identity``, or None.
+
+    A different authority from :func:`may_reparent`. That one moves other
+    people between sponsors, which is a maintainer's job. This one is somebody
+    offering to stand behind a suspended colleague themselves, so the rule is
+    their own standing rather than their rank: hold every role the account
+    holds, and have a place for them if they never arrived.
+
+    The reason is the useful part, so it is what this returns and
+    :func:`may_sponsor` is defined in terms of it, exactly as :func:`refusal`
+    and :func:`may_revoke` are.
+
+    ``actor_ancestors`` is the user ids above the actor, for a caller that has
+    already resolved them for a whole page with :func:`ancestor_user_ids`. Left
+    out, the chain is walked here.
+    """
+    actor_identity = getattr(actor, "keycloak_identity", None)
+    if actor_identity is None or actor_identity.trust_state != TrustState.ACTIVE:
+        return _("Your account cannot sponsor anybody.")
+    if effective_tier(actor) == NO_TIER:
+        # Holding no role this site knows is the same answer invitable_roles
+        # gives: nobody to invite, and so nobody to take on either.
+        return _("Your account holds no role here, so it cannot sponsor anybody.")
+
+    if identity.trust_state != TrustState.SUSPENDED or identity.revoked_directly:
+        # SUSPENDED is exactly the cascade: `revoke` writes REVOKED for the
+        # account it acted on and SUSPENDED for everybody below. Somebody
+        # revoked in their own right is not a rescue case, and offering to
+        # sponsor them would work around the decision rather than undo a
+        # side effect of it.
+        return _(
+            "Only an account suspended by somebody else's revocation can be "
+            "taken on."
+        )
+
+    if identity.user_id == actor.pk:
+        return _("You cannot sponsor your own account.")
+    if identity.sponsor_id == actor.pk:
+        return _("You already sponsor that account.")
+
+    # No cycles. Asking whether the account is above the actor is the same
+    # question as whether the actor is inside its subtree, and the ancestor
+    # chain is the one the page has already read.
+    if actor_ancestors is None:
+        actor_ancestors = {node.user_id for node in ancestors(actor_identity)}
+    if identity.user_id in actor_ancestors:
+        return _("That account is above yours in the tree, so you cannot sponsor it.")
+
+    roles = list(identity.last_seen_roles or [])
+    refused = [role for role in roles if not may_invite(actor, role)]
+    if refused:
+        return _(
+            "You cannot sponsor somebody with the role %(roles)s. Ask a feed "
+            "maintainer instead."
+        ) % {"roles": ", ".join(refused)}
+
+    # Quota counts places still being held, which means accounts nobody has
+    # signed in to. Taking on somebody who has already arrived costs nothing.
+    if identity.first_sso_login_at is None:
+        left = remaining(actor)
+        if left is not None and left < 1:
+            return _(
+                "You have no free place for this account. Cancel an invitation "
+                "on the people page to make one."
+            )
+    return None
+
+
+def may_sponsor(actor, identity, actor_ancestors=None):
+    """Whether ``actor`` may offer to sponsor ``identity``.
+
+    ``actor_ancestors`` means the same as in :func:`sponsor_refusal`: a caller
+    listing many rows resolves the chain once for the page.
+    """
+    return sponsor_refusal(actor, identity, actor_ancestors=actor_ancestors) is None
+
+
 def eligible_sponsors(identity):
     """Accounts that could take this one on, for the picker.
 
@@ -499,7 +577,7 @@ def eligible_sponsors(identity):
     return offered
 
 
-def reparent(actor, identity, new_sponsor, reason):
+def reparent(actor, identity, new_sponsor, reason, offer=None):
     """Move an account to a different sponsor, rescuing it if it was suspended.
 
     US-5.4, and the way out of a cascade once the grace window has closed. The
@@ -509,9 +587,29 @@ def reparent(actor, identity, new_sponsor, reason):
 
     Rescuing is the point, so a suspended account comes back together with
     everybody the same revocation suspended below it.
+
+    Two routes arrive here and the write is the same either way, so it is
+    written once. Without an ``offer`` this is a maintainer moving somebody
+    else, and the authority is :func:`may_reparent`. With one, ``actor`` is the
+    suspended person accepting a colleague's offer, and the authority is that
+    colleague's own standing, re-read now rather than trusted from when the
+    offer was made: somebody demoted or revoked in the meantime is refused.
     """
-    if not may_reparent(actor):
-        raise RevocationError(_("Your account cannot move people to a new sponsor."))
+    if offer is None:
+        if not may_reparent(actor):
+            raise RevocationError(
+                _("Your account cannot move people to a new sponsor.")
+            )
+    else:
+        if not offer.waiting:
+            raise RevocationError(_("That offer has already been answered."))
+        if offer.identity_id != identity.pk or offer.sponsor_id != new_sponsor.pk:
+            raise RevocationError(_("That offer is about somebody else."))
+        if actor.pk != identity.user_id:
+            raise RevocationError(
+                _("Only %(username)s can accept that offer.")
+                % {"username": identity.user.username}
+            )
     if not (reason or "").strip():
         raise RevocationError(_("Give a reason. It goes in the audit trail."))
 
@@ -525,6 +623,13 @@ def reparent(actor, identity, new_sponsor, reason):
     # Everything below reads the tier and the quota through the user, which
     # goes back to the same relation. Point it at the row just fetched.
     new_sponsor.keycloak_identity = sponsor_identity
+
+    if offer is not None:
+        # Their standing as it is now, not as it was when they offered, and read
+        # through the row just fetched rather than whatever the caller cached.
+        refused = sponsor_refusal(new_sponsor, identity)
+        if refused:
+            raise RevocationError(refused)
 
     if new_sponsor.pk == identity.user_id:
         raise RevocationError(_("An account cannot sponsor itself."))

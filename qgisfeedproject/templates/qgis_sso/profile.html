@@ -50,6 +50,68 @@ to auth.qgis.org and no other site can create or delete one.
       </table>
     </div>
 
+  {% if offers %}
+    <h2 class="title is-5">{% trans "Somebody has offered to sponsor you" %}</h2>
+    <p class="mb-3">
+      {% blocktrans trimmed %}
+        Your account is suspended because the person who invited you lost their
+        access. Accepting an offer makes that person your sponsor, and you can
+        work again.
+      {% endblocktrans %}
+    </p>
+    {% for offer in offers %}
+      <div class="box-content mb-4">
+        <h3 class="title is-6">
+          {% blocktrans trimmed with sponsor=offer.sponsor.get_full_name|default:offer.sponsor.username %}
+            {{ sponsor }} offers to sponsor you
+          {% endblocktrans %}
+        </h3>
+        <p class="mb-3">{{ offer.reason }}</p>
+        <form method="post" action="" class="buttons">
+          {% csrf_token %}
+          <input type="hidden" name="offer" value="{{ offer.pk }}">
+          <button class="button is-primary1" type="submit"
+                  name="action" value="accept-sponsorship">
+            <span class="icon is-small"><i class="fas fa-check"></i></span>
+            <span>{% trans "Accept" %}</span>
+          </button>
+          <button class="button is-light" type="submit"
+                  name="action" value="decline-sponsorship">
+            {% trans "Decline" %}
+          </button>
+        </form>
+      </div>
+    {% endfor %}
+  {% endif %}
+
+  {% if offers_made %}
+    <h2 class="title is-5">{% trans "Offers you have made" %}</h2>
+    <p class="mb-3">
+      {% blocktrans trimmed %}
+        Each of these is waiting for an answer. Nothing changes until the person
+        accepts.
+      {% endblocktrans %}
+    </p>
+    {% for offer in offers_made %}
+      <div class="box-content mb-4">
+        <h3 class="title is-6">
+          {% blocktrans trimmed with username=offer.identity.user.username %}
+            You offered to sponsor {{ username }}
+          {% endblocktrans %}
+        </h3>
+        <p class="mb-3">{{ offer.reason }}</p>
+        <form method="post" action="" class="buttons">
+          {% csrf_token %}
+          <input type="hidden" name="offer" value="{{ offer.pk }}">
+          <button class="button is-light" type="submit"
+                  name="action" value="withdraw-sponsorship">
+            {% trans "Withdraw the offer" %}
+          </button>
+        </form>
+      </div>
+    {% endfor %}
+  {% endif %}
+
   {% if not identity %}
     <div class="notification is-info">
       {% blocktrans trimmed %}

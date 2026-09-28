@@ -33,7 +33,7 @@ from django.utils.safestring import mark_safe
 from django.utils.translation import gettext as _
 from django.views import View
 
-from . import provisioning, revocation
+from . import provisioning, revocation, sponsorship
 from .actions import (
     is_sso_administrator,
     issue_setup_links,
@@ -384,9 +384,12 @@ class EnrolmentView(View):
 
         # A superuser sees the whole forest; everybody else sees their own
         # branch of it. Everything from here to the paginator is a queryset, so
-        # a page of ten costs a page of ten however many accounts exist.
+        # a page of ten costs a page of ten however many accounts exist. A full
+        # username also reaches one suspended account outside their branch, so
+        # they can offer to sponsor somebody they know.
         matching = linked_identities(
-            sponsored_by=None if request.user.is_superuser else request.user
+            sponsored_by=None if request.user.is_superuser else request.user,
+            suspended_named=search,
         )
 
         # Before the search and the filter, so the numbers beside each state
@@ -463,6 +466,12 @@ class EnrolmentView(View):
             )
             row.may_reparent = (
                 moves_people and row.identity.trust_state == TrustState.SUSPENDED
+            )
+            row.may_sponsor = revocation.may_sponsor(
+                actor, row.identity, actor_ancestors=above_actor
+            )
+            row.hide_contact = not (
+                actor.is_superuser or row.identity.sponsor_id == actor.pk
             )
 
 
@@ -926,6 +935,97 @@ class ReparentView(View):
     def refuse(request):
         messages.error(request, _("You cannot move that account to a new sponsor."))
         return HttpResponseRedirect(reverse("qgis_sso:enrolment"))
+
+
+class SponsorOfferView(View):
+    """Offering to take on somebody a suspension reached.
+
+    The peer's half of :class:`ReparentView`. A maintainer moves other people
+    between sponsors and it happens at once; a colleague of the same standing
+    offers, and the suspended person answers from their own profile page.
+
+    Authority depends on who the offer is about, so it cannot be settled in
+    ``dispatch`` before the id is read. The refusal carries the reason, because
+    "you cannot do that" leaves somebody with nothing to act on.
+    """
+
+    template_name = "qgis_sso/manage/sponsor.html"
+
+    def dispatch(self, request, *args, **kwargs):
+        if not signed_in(request):
+            return HttpResponseRedirect(f"{reverse('login')}?next={request.path}")
+        return super().dispatch(request, *args, **kwargs)
+
+    def get(self, request, pk):
+        identity = self.target_or_none(pk)
+        refused = self.refusal_for(request, identity)
+        if refused:
+            return refused
+        return render(request, self.template_name, self.context(identity))
+
+    def post(self, request, pk):
+        identity = self.target_or_none(pk)
+        refused = self.refusal_for(request, identity)
+        if refused:
+            return refused
+
+        reason = request.POST.get("reason", "").strip()
+        if not reason:
+            return render(
+                request,
+                self.template_name,
+                dict(self.context(identity), reason=reason, reason_missing=True),
+                status=400,
+            )
+
+        try:
+            sponsorship.offer(request.user, identity, reason)
+        except revocation.RevocationError as error:
+            messages.error(request, str(error))
+            return HttpResponseRedirect(reverse("qgis_sso:enrolment"))
+
+        messages.success(
+            request,
+            _("We asked %(username)s. They decide, and you will see their answer here.")
+            % {"username": identity.user.username},
+        )
+        return HttpResponseRedirect(reverse("qgis_sso:enrolment"))
+
+    def refusal_for(self, request, identity):
+        """A redirect saying why this is refused, or None to carry on."""
+        if identity is None:
+            messages.error(
+                request,
+                _("We could not find that account. Reload the list and try again."),
+            )
+            return HttpResponseRedirect(reverse("qgis_sso:enrolment"))
+        refused = revocation.sponsor_refusal(request.user, identity)
+        if refused:
+            messages.error(request, str(refused))
+            return HttpResponseRedirect(reverse("qgis_sso:enrolment"))
+        return None
+
+    @staticmethod
+    def context(identity):
+        return {
+            "subject": identity,
+            "roles": [role_label(role) for role in identity.last_seen_roles or []],
+            "rescued": [
+                node
+                for node in revocation.subtree(identity)
+                if node.trust_state == TrustState.SUSPENDED
+                and node.revoked_at == identity.revoked_at
+            ],
+            "reason": "",
+        }
+
+    @staticmethod
+    def target_or_none(pk):
+        return (
+            KeycloakIdentity.objects.select_related("user", "sponsor")
+            .filter(pk=pk)
+            .first()
+        )
 
 
 class RevokeView(View):

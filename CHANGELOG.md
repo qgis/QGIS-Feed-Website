@@ -97,6 +97,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Offer to sponsor a suspended colleague** (US-5.6), at
+  `/sso/manage/sponsor/<id>/`. Until now a cascade could only be lifted by an
+  administrator or a web maintainer, so a contributor whose sponsor lost their
+  access waited for a maintainer to notice. Anybody who holds every role the
+  suspended account holds can now offer to become their sponsor. Rank grants
+  nothing here: an author can take on an author, a reviewer can take on an
+  author or a reviewer, and nobody can take on somebody more senior, so the tier
+  ladder still cannot be climbed from below. Nothing changes until the suspended
+  person accepts. They read the offer and the reason on their own account page
+  and can decline it; the sponsor can withdraw it until then. Several people may
+  offer at once, and accepting one withdraws the rest. Accepting re-parents the
+  account and brings back anyone the same revocation suspended below it, exactly
+  as moving somebody does. We check the sponsor's standing again at acceptance,
+  so an offer from somebody since demoted or revoked is refused rather than
+  honoured. Only an account suspended by somebody else's revocation can be taken
+  on: a person revoked in their own right still needs a maintainer. Every step
+  is audited.
+- **Find a suspended colleague by their full username.** A contributor who is
+  not an administrator sees only the accounts they invited, which left them
+  unable to make the offer above. Typing a username in full now also reaches one
+  suspended account outside their own branch. Part of a name searches only their
+  own branch, an email address never reaches outside it, and the row a full name
+  returns shows the username without the email address. Browsing every suspended
+  account is still not possible: that would hand every contributor a directory
+  of who is in trouble.
 - **Move an account to a new sponsor** (US-5.4), at
   `/sso/manage/reparent/<id>/`. Revoking somebody suspends everyone they
   invited, and until now the only way to lift that was to restore the person

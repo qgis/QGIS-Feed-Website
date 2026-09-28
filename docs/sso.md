@@ -82,6 +82,7 @@ stateDiagram-v2
     state "Needs a decision" as Decision
     state "Created" as Created
     state "Link sent" as LinkSent
+    state "Offered a sponsor" as Offered
 
     [*] --> NoAccount : local account only
     NoAccount --> Decision : no email address, or deactivated
@@ -92,12 +93,17 @@ stateDiagram-v2
     Active --> Revoked : withdraw trust
     Active --> Suspended : their sponsor was revoked
     Revoked --> Active : reverse (7d)
-    Suspended --> Active : give them a new sponsor
+    Suspended --> Offered : a colleague offers to sponsor them
+    Offered --> Active : they accept
+    Offered --> Suspended : they decline
+    Suspended --> Active : a maintainer gives them a new sponsor
 ```
 
 Every button on a row acts on that row alone. If the account sits outside your
 own branch of the tree, the action is refused, whether or not the listing
-happened to show it.
+happened to show it. Offering to sponsor somebody is the one exception, and it
+has its own rule: see [Offering to sponsor
+somebody](#offering-to-sponsor-somebody).
 
 | Action | What it does |
 |---|---|
@@ -105,6 +111,7 @@ happened to show it.
 | Get the link | Shows the setup link on a page of its own. See [Handing over a link](#handing-over-a-link). |
 | Withdraw trust | Opens `/sso/manage/revoke/<id>/`. See [Withdrawing trust](#withdrawing-trust). |
 | New sponsor | Opens `/sso/manage/reparent/<id>/`. See [Rescuing a suspended account](#rescuing-a-suspended-account). |
+| Offer to sponsor | Opens `/sso/manage/sponsor/<id>/`. See [Offering to sponsor somebody](#offering-to-sponsor-somebody). |
 
 Some accounts cannot be invited at all, because they have no email address or
 somebody deactivated them. The invite page leaves those out and counts them in
@@ -218,12 +225,45 @@ Give the account a new sponsor instead, at `/sso/manage/reparent/<id>/`, which
 you reach from the row. The page asks for a reason and names everybody it
 brings back. It reactivates the account, and anybody the same revocation
 suspended below it, while the person you actually revoked stays revoked. Only
-administrators and web maintainers can do this.
+administrators and web maintainers can move somebody else between sponsors this
+way.
 
 The picker lists only people who qualify as a sponsor. They have to be active,
 senior enough to have invited the account in the first place, and outside the
 account's own part of the tree. The grace window does not apply here, so this
 route stays open long after reversal has expired.
+
+### Offering to sponsor somebody
+
+You do not have to be a maintainer to bring a colleague back. If you do the
+same work they do, you can offer to become their sponsor yourself, and they
+decide whether to accept.
+
+You need to hold every role their account holds. An author can take on an
+author, a reviewer can take on an author or another reviewer, and nobody can
+take on somebody more senior than themselves. The account has to be suspended
+by somebody else's revocation, not revoked in its own right, and it cannot be
+anybody above you in the tree. If they have never signed in, taking them on
+uses one of your free places.
+
+To make the offer:
+
+1. Go to the people page and type their username in full in the search box. A
+   partial name only searches the people you invited, and the row shows their
+   username without their email address.
+2. Press **Offer to sponsor** on their row.
+3. Say why you vouch for them. They read it, so do maintainers, and it goes in
+   the audit trail.
+4. Press **Send the offer**.
+
+Nothing changes yet. The offer waits on their account page, where they accept
+or decline it. Accepting makes you their sponsor and brings them back, along
+with anybody the same revocation suspended below them. Until they answer you
+can take the offer back from your own account page. Several people may offer at
+once, and accepting one withdraws the rest.
+
+We check your standing again when they accept, not only when you offer. If you
+lose your own access in between, the offer is refused rather than honoured.
 
 ## Handing over a link
 

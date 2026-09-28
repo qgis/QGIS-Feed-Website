@@ -156,6 +156,17 @@ class ReparentTest(TestCase):
                 otto, self.identity(self.nils), self.maria, "not mine to do"
             )
 
+    def test_the_same_reviewer_may_offer_to_take_them_on(self):
+        """Moving other people is a maintainer's job; offering yourself is not.
+
+        The counterpart to the test above, so the two authorities stay told
+        apart. The offer itself lives in :mod:`qgis_sso.sponsorship`.
+        """
+        otto = person("otto", ["reviewer"], sponsor=self.maria)
+        self.cascade()
+
+        self.assertTrue(revocation.may_sponsor(otto, self.identity(self.nils)))
+
     def test_it_refuses_without_a_reason(self):
         self.cascade()
 

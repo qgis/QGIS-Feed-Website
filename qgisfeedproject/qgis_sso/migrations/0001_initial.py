@@ -1,5 +1,5 @@
 # coding=utf-8
-"""Tables for Keycloak identities, invitations and the SSO audit trail.
+"""Tables for Keycloak identities, invitations, sponsorship offers and the SSO audit trail.
 
 Purely additive: it creates new tables and touches nothing that exists, so
 the reverse migration drops them. Rolling back before any account has been
@@ -208,17 +208,66 @@ class Migration(migrations.Migration):
                 "verbose_name": "Keycloak identity",
                 "verbose_name_plural": "Keycloak identities",
                 "ordering": ("-linked_at",),
-                "constraints": [
-                    models.CheckConstraint(
-                        condition=models.Q(
-                            ("sponsor__isnull", False),
-                            ("is_root", True),
-                            ("link_method", "pre-sso-migration"),
-                            _connector="OR",
-                        ),
-                        name="identity_has_a_sponsor_or_is_a_root",
-                    )
-                ],
+            },
+        ),
+        migrations.CreateModel(
+            name="SponsorshipOffer",
+            fields=[
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                ("reason", models.TextField(verbose_name="reason")),
+                (
+                    "state",
+                    models.CharField(
+                        choices=[
+                            ("pending", "Waiting for an answer"),
+                            ("accepted", "Accepted"),
+                            ("declined", "Declined"),
+                            ("withdrawn", "Withdrawn"),
+                        ],
+                        db_index=True,
+                        default="pending",
+                        max_length=16,
+                        verbose_name="state",
+                    ),
+                ),
+                ("created_at", models.DateTimeField(auto_now_add=True, db_index=True)),
+                (
+                    "responded_at",
+                    models.DateTimeField(
+                        blank=True, null=True, verbose_name="answered at"
+                    ),
+                ),
+                (
+                    "identity",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="sponsorship_offers",
+                        to="qgis_sso.keycloakidentity",
+                        verbose_name="account offered a sponsor",
+                    ),
+                ),
+                (
+                    "sponsor",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="sponsorships_offered",
+                        to=settings.AUTH_USER_MODEL,
+                        verbose_name="would-be sponsor",
+                    ),
+                ),
+            ],
+            options={
+                "verbose_name": "sponsorship offer",
+                "verbose_name_plural": "sponsorship offers",
+                "ordering": ("-created_at",),
             },
         ),
         migrations.CreateModel(
@@ -255,6 +304,13 @@ class Migration(migrations.Migration):
                             ("restored", "Trust restored"),
                             ("re-parented", "Moved to a different sponsor"),
                             (
+                                "sponsorship-offered",
+                                "Offered to sponsor a suspended account",
+                            ),
+                            ("sponsorship-accepted", "Offer to sponsor accepted"),
+                            ("sponsorship-declined", "Offer to sponsor declined"),
+                            ("sponsorship-withdrawn", "Offer to sponsor withdrawn"),
+                            (
                                 "invitation-cancelled",
                                 "Invitation cancelled: the account it made was removed",
                             ),
@@ -282,12 +338,32 @@ class Migration(migrations.Migration):
                 "verbose_name": "SSO audit event",
                 "verbose_name_plural": "SSO audit events",
                 "ordering": ("-created_at",),
-                "indexes": [
-                    models.Index(
-                        fields=["action", "created_at"],
-                        name="qgis_sso_ss_action_528fa0_idx",
-                    )
-                ],
             },
+        ),
+        migrations.AddConstraint(
+            model_name="keycloakidentity",
+            constraint=models.CheckConstraint(
+                condition=models.Q(
+                    ("sponsor__isnull", False),
+                    ("is_root", True),
+                    ("link_method", "pre-sso-migration"),
+                    _connector="OR",
+                ),
+                name="identity_has_a_sponsor_or_is_a_root",
+            ),
+        ),
+        migrations.AddConstraint(
+            model_name="sponsorshipoffer",
+            constraint=models.UniqueConstraint(
+                condition=models.Q(("state", "pending")),
+                fields=("identity", "sponsor"),
+                name="one_open_sponsorship_offer",
+            ),
+        ),
+        migrations.AddIndex(
+            model_name="ssoauditevent",
+            index=models.Index(
+                fields=["action", "created_at"], name="qgis_sso_ss_action_528fa0_idx"
+            ),
         ),
     ]

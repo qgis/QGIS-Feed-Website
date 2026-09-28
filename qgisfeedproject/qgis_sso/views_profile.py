@@ -19,11 +19,20 @@ from django.views import View
 from django.views.decorators.cache import never_cache
 from mozilla_django_oidc.views import OIDCAuthenticationRequestView
 
+from . import revocation, sponsorship
 from .keycloak import KeycloakError
 from .passkeys import ACTION_SESSION_KEY, REGISTER, delete_action, passkeys_for
 
 ADD_PASSKEY = "add-passkey"
 REMOVE_PASSKEY = "remove-passkey"
+ACCEPT_SPONSORSHIP = "accept-sponsorship"
+DECLINE_SPONSORSHIP = "decline-sponsorship"
+WITHDRAW_SPONSORSHIP = "withdraw-sponsorship"
+
+#: The three offer actions, which a suspended account must be able to reach.
+#: Everything else on this page needs standing; accepting a new sponsor is how
+#: somebody gets their standing back.
+OFFER_ACTIONS = (ACCEPT_SPONSORSHIP, DECLINE_SPONSORSHIP, WITHDRAW_SPONSORSHIP)
 
 
 def signed_in(request):
@@ -88,12 +97,52 @@ class ProfileView(View):
             return HttpResponseRedirect(reverse("qgis_sso:profile"))
 
         action = request.POST.get("action", "")
+        if action in OFFER_ACTIONS:
+            return self.answer_offer(request, identity, action)
         if action == ADD_PASSKEY:
             return self.start(request, REGISTER)
         if action == REMOVE_PASSKEY:
             return self.remove(request, identity)
 
         messages.error(request, _("Unknown action."))
+        return HttpResponseRedirect(reverse("qgis_sso:profile"))
+
+    def answer_offer(self, request, identity, action):
+        """Accept, decline or withdraw one offer to sponsor somebody.
+
+        The offer is resolved against the reader's own two lists rather than
+        read by id, so a hand made POST cannot answer somebody else's.
+        """
+        wanted = request.POST.get("offer", "")
+        if action == WITHDRAW_SPONSORSHIP:
+            waiting = sponsorship.pending_by(request.user)
+        else:
+            waiting = sponsorship.pending_for(identity)
+        made = waiting.filter(pk=wanted).first() if wanted.isdigit() else None
+        if made is None:
+            messages.error(request, _("That offer is no longer waiting."))
+            return HttpResponseRedirect(reverse("qgis_sso:profile"))
+
+        try:
+            if action == ACCEPT_SPONSORSHIP:
+                rescued = sponsorship.accept(request.user, made)
+                messages.success(
+                    request,
+                    _("%(sponsor)s is your sponsor now, with %(count)d other(s).")
+                    % {
+                        "sponsor": made.sponsor.username,
+                        # This account is in the list, so it is not "other".
+                        "count": max(0, len(rescued) - 1),
+                    },
+                )
+            elif action == DECLINE_SPONSORSHIP:
+                sponsorship.decline(request.user, made)
+                messages.success(request, _("We told them no. Nothing has changed."))
+            else:
+                sponsorship.withdraw(request.user, made)
+                messages.success(request, _("We took your offer back."))
+        except revocation.RevocationError as error:
+            messages.error(request, str(error))
         return HttpResponseRedirect(reverse("qgis_sso:profile"))
 
     def remove(self, request, identity):
@@ -157,9 +206,12 @@ class ProfileView(View):
         the name and the permissions too, which are already here. The page
         paints, then :class:`PasskeyListView` fills the list in.
         """
+        identity = getattr(request.user, "keycloak_identity", None)
         return {
-            "identity": getattr(request.user, "keycloak_identity", None),
+            "identity": identity,
             "permissions": self.permissions(request.user),
+            "offers": sponsorship.pending_for(identity) if identity else [],
+            "offers_made": sponsorship.pending_by(request.user),
         }
 
 

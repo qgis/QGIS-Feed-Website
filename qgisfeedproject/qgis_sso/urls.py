@@ -4,8 +4,11 @@
 The login journey, the account's own profile, the help page, and the
 maintenance screens. They share one namespace because they are one app.
 ``help/`` is open to anybody, because the reader who needs it most is often the
-one who cannot sign in. ``manage/`` is the only superuser-only part, and the
-views enforce that themselves.
+one who cannot sign in. Under ``manage/``, each view says for itself who may
+use it: the list is open to anybody with a realm account and shows them their
+own branch, inviting an existing user is for administrators, and withdrawing
+trust, moving somebody to a new sponsor and offering to sponsor somebody each
+have their own rule.
 """
 
 from django.urls import path
@@ -48,5 +51,10 @@ urlpatterns = [
         "manage/reparent/<int:pk>/",
         views_manage.ReparentView.as_view(),
         name="reparent",
+    ),
+    path(
+        "manage/sponsor/<int:pk>/",
+        views_manage.SponsorOfferView.as_view(),
+        name="sponsor_offer",
     ),
 ]

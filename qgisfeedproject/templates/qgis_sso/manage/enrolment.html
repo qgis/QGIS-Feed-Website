@@ -129,6 +129,14 @@ cannot survive paging, and a whole wave is what the Django admin is for.
         <button class="button is-primary1" type="submit">{% trans "Filter" %}</button>
       </div>
     </div>
+    {% if not everyone %}
+      <p class="help">
+        {% blocktrans trimmed %}
+          To offer to sponsor somebody a suspension reached, type their username
+          in full. Part of a name only searches the people you invited.
+        {% endblocktrans %}
+      </p>
+    {% endif %}
   </form>
 
   <table class="table is-fullwidth is-hoverable sso-table">
@@ -152,8 +160,11 @@ cannot survive paging, and a whole wave is what the Django admin is for.
       {% for row in rows %}
         <tr>
           <td class="sso-account">
-            {{ row.user.username }}<br>
-            <small>{{ row.user.email }}</small>
+            {{ row.user.username }}
+            {% if not row.hide_contact %}
+              <br>
+              <small>{{ row.user.email }}</small>
+            {% endif %}
           </td>
           <td>
             <span class="tag {{ row.css_class }}">{{ row.label }}</span>
@@ -228,6 +239,15 @@ cannot survive paging, and a whole wave is what the Django admin is for.
                    href="{% url 'qgis_sso:reparent' row.identity.pk %}"
                    title="{{ move_label }}" aria-label="{{ move_label }}">
                   <span class="icon is-small"><i class="fas fa-people-arrows"></i></span>
+                </a>
+              {% elif row.may_sponsor %}
+                {% blocktrans trimmed asvar sponsor_label with username=row.user.username %}
+                  Offer to sponsor {{ username }}
+                {% endblocktrans %}
+                <a class="button is-small is-primary1 is-outlined"
+                   href="{% url 'qgis_sso:sponsor_offer' row.identity.pk %}"
+                   title="{{ sponsor_label }}" aria-label="{{ sponsor_label }}">
+                  <span class="icon is-small"><i class="fas fa-hand-holding-heart"></i></span>
                 </a>
               {% endif %}
             </form>

@@ -82,6 +82,11 @@ class Row:
     #: row built anywhere else never offers the action by accident.
     may_revoke: bool = False
     may_reparent: bool = False
+    may_sponsor: bool = False
+    #: True for a row the reader neither vouched for nor administers, which is
+    #: only ever a suspended account they found by typing the name in full. They
+    #: need the name to make the offer and nothing else, so nothing else shows.
+    hide_contact: bool = False
 
     @property
     def label(self):
@@ -210,7 +215,7 @@ SPONSOR_NAME = Coalesce(
 )
 
 
-def linked_identities(sponsored_by=None):
+def linked_identities(sponsored_by=None, suspended_named=""):
     """Accounts that exist in the realm, as a queryset the database can page.
 
     Everything the list filters or sorts on is resolved here, so answering a
@@ -219,12 +224,24 @@ def linked_identities(sponsored_by=None):
 
     ``sponsored_by`` narrows the list to the accounts one person vouched for,
     which is what everybody who is not a superuser sees.
+
+    ``suspended_named`` adds back one suspended account, by its full username.
+    A colleague may offer to sponsor somebody a cascade suspended, and they
+    cannot do that without finding them, but a contributor has no business
+    browsing accounts they had nothing to do with. So the name has to be typed
+    in full: a partial match returns nothing, and the row hides the address.
     """
     identities = KeycloakIdentity.objects.annotate(
         state=STATE_EXPRESSION, sponsor_name=SPONSOR_NAME
     )
     if sponsored_by is not None:
-        identities = identities.filter(sponsor=sponsored_by)
+        mine = Q(sponsor=sponsored_by)
+        if suspended_named:
+            mine |= Q(
+                trust_state=TrustState.SUSPENDED,
+                user__username__iexact=suspended_named,
+            )
+        identities = identities.filter(mine)
     return identities
 
 

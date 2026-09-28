@@ -33,6 +33,20 @@ class TrustState(models.TextChoices):
     SUSPENDED = "suspended", _("Suspended")
 
 
+class OfferState(models.TextChoices):
+    """Where an offer to sponsor a suspended account has got to.
+
+    Only ``PENDING`` is waiting for anybody. The other three are kept so that
+    the profile page and the audit trail can say what became of an offer,
+    rather than letting it disappear.
+    """
+
+    PENDING = "pending", _("Waiting for an answer")
+    ACCEPTED = "accepted", _("Accepted")
+    DECLINED = "declined", _("Declined")
+    WITHDRAWN = "withdrawn", _("Withdrawn")
+
+
 class KeycloakIdentity(models.Model):
     """The binding between a Django user and a Keycloak subject.
 
@@ -206,6 +220,15 @@ class KeycloakIdentity(models.Model):
         """
         return self.first_sso_login_at is not None
 
+    @property
+    def is_offered_a_sponsor(self):
+        """Whether somebody is waiting for this account to answer an offer.
+
+        A query, so it is only ever asked inside the suspension banner: nobody
+        else is offered a sponsor, and the banner is on every page.
+        """
+        return self.sponsorship_offers.filter(state=OfferState.PENDING).exists()
+
 
 class SsoAuditEvent(models.Model):
     """An append-only record of authentication and migration events.
@@ -231,6 +254,12 @@ class SsoAuditEvent(models.Model):
         SUSPENDED = "suspended", _("Suspended: their sponsor was revoked")
         RESTORED = "restored", _("Trust restored")
         REPARENTED = "re-parented", _("Moved to a different sponsor")
+        SPONSORSHIP_OFFERED = "sponsorship-offered", _(
+            "Offered to sponsor a suspended account"
+        )
+        SPONSORSHIP_ACCEPTED = "sponsorship-accepted", _("Offer to sponsor accepted")
+        SPONSORSHIP_DECLINED = "sponsorship-declined", _("Offer to sponsor declined")
+        SPONSORSHIP_WITHDRAWN = "sponsorship-withdrawn", _("Offer to sponsor withdrawn")
         INVITATION_CANCELLED = "invitation-cancelled", _(
             "Invitation cancelled: the account it made was removed"
         )
@@ -285,3 +314,64 @@ class SsoAuditEvent(models.Model):
                 "Could not write SSO audit event %s", action
             )
             return None
+
+
+class SponsorshipOffer(models.Model):
+    """One person offering to stand behind an account a cascade suspended.
+
+    A suspended account comes back by getting a new sponsor. A maintainer can
+    do that outright, because moving other people between sponsors is part of
+    the job. A colleague of the same standing can only *offer*, and the
+    suspended person decides: taking somebody on is a claim about them, and
+    being taken on is a claim about who vouches for you, so both have to agree.
+
+    The offer carries the reason, so the reason reaches the audit trail as the
+    sponsor wrote it rather than being asked for twice.
+    """
+
+    identity = models.ForeignKey(
+        KeycloakIdentity,
+        on_delete=models.CASCADE,
+        related_name="sponsorship_offers",
+        verbose_name=_("account offered a sponsor"),
+    )
+    sponsor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="sponsorships_offered",
+        verbose_name=_("would-be sponsor"),
+    )
+    reason = models.TextField(verbose_name=_("reason"))
+    state = models.CharField(
+        max_length=16,
+        choices=OfferState.choices,
+        default=OfferState.PENDING,
+        db_index=True,
+        verbose_name=_("state"),
+    )
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    responded_at = models.DateTimeField(
+        null=True, blank=True, verbose_name=_("answered at")
+    )
+
+    class Meta:
+        verbose_name = _("sponsorship offer")
+        verbose_name_plural = _("sponsorship offers")
+        ordering = ("-created_at",)
+        constraints = [
+            # One open offer per pair, in the database rather than in a view: a
+            # double-clicked form would otherwise leave two rows waiting, and
+            # accepting one of them would leave the other looking live.
+            models.UniqueConstraint(
+                fields=["identity", "sponsor"],
+                condition=models.Q(state=OfferState.PENDING),
+                name="one_open_sponsorship_offer",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.sponsor} → {self.identity.user} ({self.state})"
+
+    @property
+    def waiting(self):
+        return self.state == OfferState.PENDING
