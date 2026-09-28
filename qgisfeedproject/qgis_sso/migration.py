@@ -14,6 +14,8 @@ from django.conf import settings
 from django.contrib.auth.models import User
 from django.utils import timezone
 
+from . import validation
+
 #: Roles on the feed client, most privileged first.
 ROLE_ADMIN = "admin"
 ROLE_WEB_MAINTAINER = "web-maintainer"
@@ -55,7 +57,7 @@ def proposed_username(user):
     taken here whatever its case, and why provisioning refuses to claim a realm
     account it did not create.
     """
-    return user.username.strip().lower()
+    return validation.clean_username(user.username)
 
 
 def proposed_roles(user, can_publish=None):

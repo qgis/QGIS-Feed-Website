@@ -348,6 +348,58 @@ class InviteNewTest(TestCase):
         )
         self.assertFalse(User.objects.filter(username="newbie").exists())
 
+    # -- what the realm would refuse, refused here -------------------------
+
+    def test_a_username_with_a_space_is_refused_before_the_realm_sees_it(self):
+        """The realm refuses it, and its refusal reads as an outage."""
+        response = self.invite(username="ana silva")
+
+        self.assertContains(response, "cannot contain spaces", status_code=400)
+        self.assertEqual(self.realm.created, [])
+        self.assertFalse(User.objects.filter(username="ana silva").exists())
+
+    def test_a_username_of_two_characters_is_refused(self):
+        response = self.invite(username="ab")
+
+        self.assertContains(response, "at least three characters", status_code=400)
+        self.assertEqual(self.realm.created, [])
+
+    def test_a_username_with_a_prohibited_character_is_refused(self):
+        for name in ("o'brien", 'a"b', "a<b", "a&b"):
+            with self.subTest(name=name):
+                response = self.invite(username=name)
+
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(self.realm.created, [])
+
+    def test_a_name_from_another_script_is_accepted(self):
+        """Keycloak allows it, so refusing it here would be our own rule."""
+        self.invite(username="maría")
+
+        self.assertTrue(User.objects.filter(username="maría").exists())
+
+    def test_the_username_is_saved_in_lowercase(self):
+        """Keycloak lowercases it, so both accounts carry one name."""
+        self.invite(username="NewBie")
+
+        self.assertTrue(User.objects.filter(username="newbie").exists())
+        self.assertEqual(
+            [payload["username"] for payload in self.realm.created], ["newbie"]
+        )
+
+    def test_a_first_name_with_a_prohibited_character_is_refused(self):
+        response = self.invite(first_name='New"')
+
+        self.assertContains(response, "first name", status_code=400)
+        self.assertEqual(self.realm.created, [])
+
+    def test_no_role_chosen_is_refused_by_name(self):
+        """The tier refusal is deliberately vague, and this is not that."""
+        response = self.invite(role="")
+
+        self.assertContains(response, "Choose a role", status_code=400)
+        self.assertEqual(self.realm.created, [])
+
     def test_a_username_already_taken_here_is_refused(self):
         User.objects.create_user("newbie", "other@example.org", "x")
 

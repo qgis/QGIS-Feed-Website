@@ -31,13 +31,23 @@ suggestion.
 
       <form method="post" action="">
       {% csrf_token %}
+      {% blocktrans trimmed asvar username_rule %}
+        A username cannot contain spaces, or any of < > & " '.
+      {% endblocktrans %}
       <div class="field">
         <label class="label" for="username">{% trans "Username" %}</label>
         <div class="control">
           <input class="input" type="text" id="username" name="username"
-                 required value="{{ form.username|default:"" }}">
+                 required minlength="3" maxlength="255"
+                 pattern="[^&lt;&gt;&amp;&quot;'\s]{3,255}"
+                 title="{{ username_rule }}"
+                 value="{{ form.username|default:"" }}">
         </div>
-        <p class="help">{% trans "What their entries will be credited to." %}</p>
+        <p class="help">
+          {% trans "What their entries will be credited to." %}
+          {{ username_rule }}
+          {% trans "We save it in lowercase, so NewBie becomes newbie." %}
+        </p>
       </div>
       <div class="field">
         <label class="label" for="email">{% trans "Email" %}</label>
@@ -67,7 +77,10 @@ suggestion.
         <label class="label" for="role">{% trans "Role" %}</label>
         <div class="control">
           <div class="select">
-            <select id="role" name="role">
+            <select id="role" name="role" required>
+              <option value="" disabled {% if not form.role %}selected{% endif %}>
+                {% trans "Choose a role" %}
+              </option>
               {% for value, name in roles %}
                 <option value="{{ value }}"
                         {% if form.role == value %}selected{% endif %}>{{ name }}</option>

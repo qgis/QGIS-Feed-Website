@@ -33,7 +33,7 @@ from django.utils.safestring import mark_safe
 from django.utils.translation import gettext as _
 from django.views import View
 
-from . import provisioning, revocation, sponsorship
+from . import provisioning, revocation, sponsorship, validation
 from .actions import (
     is_sso_administrator,
     issue_setup_links,
@@ -672,6 +672,9 @@ class InviteNewView(View):
             key: request.POST.get(key, "").strip()
             for key in ("username", "email", "first_name", "last_name", "role")
         }
+        # Cleaned before anything reads it, so the uniqueness checks, the realm
+        # lookup and the account that gets created all see one name.
+        form["username"] = validation.clean_username(form["username"])
 
         error = self.check_locally(request.user, form)
         if error:
@@ -707,6 +710,9 @@ class InviteNewView(View):
 
     def check_locally(self, user, form):
         """Whatever is wrong with the form, one message at a time."""
+        # Said before the tier check, whose one message is deliberately vague.
+        if not form["role"]:
+            return _("Choose a role for them.")
         if not may_invite(user, form["role"]):
             # One message for "no such role" and "above your tier": neither
             # tells a prober anything about the ladder.
@@ -724,6 +730,17 @@ class InviteNewView(View):
             return _("Choose a username.")
         if not form["email"]:
             return _("An email address is needed to send the setup link.")
+
+        # What the realm would refuse, said here instead of there.
+        for problem in (
+            validation.username_error(form["username"]),
+            validation.email_error(form["email"]),
+            validation.person_name_error(form["first_name"], _("first name")),
+            validation.person_name_error(form["last_name"], _("last name")),
+        ):
+            if problem:
+                return problem
+
         if User.objects.filter(username__iexact=form["username"]).exists():
             return _("That username is taken here. Choose another.")
         if User.objects.filter(email__iexact=form["email"]).exists():
@@ -738,7 +755,7 @@ class InviteNewView(View):
         belongs to somebody, and enrolling a second account onto it would send
         them a setup link they never asked for.
         """
-        if provisioner.client.find_user_by_username(form["username"].lower()):
+        if provisioner.client.find_user_by_username(form["username"]):
             return _("That name is taken on another QGIS site. Choose another.")
         if provisioner.client.find_user_by_email(form["email"]):
             return _(
