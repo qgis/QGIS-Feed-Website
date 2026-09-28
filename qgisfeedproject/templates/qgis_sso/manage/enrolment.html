@@ -134,11 +134,17 @@ cannot survive paging, and a whole wave is what the Django admin is for.
   <table class="table is-fullwidth is-hoverable sso-table">
     <thead>
       <tr>
-        <th scope="col" class="sso-account">{% trans "Account" %}</th>
-        <th scope="col">{% trans "State" %}</th>
-        <th scope="col">{% trans "Invited by" %}</th>
+        {% trans "Account" as account_label %}
+        {% include 'layouts/sort_header.html' with key='account' label=account_label natural='asc' classes='sso-account' %}
+        {% trans "State" as state_label %}
+        {% include 'layouts/sort_header.html' with key='state' label=state_label natural='asc' %}
+        {% if everyone %}
+          {% trans "Invited by" as sponsor_label %}
+          {% include 'layouts/sort_header.html' with key='sponsor' label=sponsor_label natural='asc' %}
+        {% endif %}
         <th scope="col">{% trans "Roles" %}</th>
-        <th scope="col">{% trans "Last step" %}</th>
+        {% trans "Date of invitation" as invited_label %}
+        {% include 'layouts/sort_header.html' with key='invited' label=invited_label natural='desc' %}
         <th scope="col">{% trans "Invite" %}</th>
       </tr>
     </thead>
@@ -151,32 +157,18 @@ cannot survive paging, and a whole wave is what the Django admin is for.
           </td>
           <td>
             <span class="tag {{ row.css_class }}">{{ row.label }}</span>
-            {% if row.flags %}
-              <br><small>{{ row.flags|join:", " }}</small>
-            {% endif %}
           </td>
-          <td>
-            {% if row.sponsor %}
-              {{ row.sponsor.get_full_name|default:row.sponsor.username }}
-            {% else %}
-              <span title="{% trans 'Nobody. This account was created before invitations existed.' %}">—</span>
-            {% endif %}
-          </td>
+          {% if everyone %}
+            <td>
+              {% if row.sponsor %}
+                {{ row.sponsor.get_full_name|default:row.sponsor.username }}
+              {% else %}
+                <span title="{% trans 'Nobody. This account was created before invitations existed.' %}">—</span>
+              {% endif %}
+            </td>
+          {% endif %}
           <td>{{ row.role_labels|join:", "|default:"—" }}</td>
-          <td>
-            {% if row.identity.first_sso_login_at %}
-              {% trans "Signed in" %} {{ row.identity.first_sso_login_at|date:"Y-m-d" }}
-            {% elif row.identity.setup_link_issued_at %}
-              {% trans "Link issued" %} {{ row.identity.setup_link_issued_at|date:"Y-m-d" }}
-            {% elif row.identity.setup_email_sent_at %}
-              {% trans "Emailed" %} {{ row.identity.setup_email_sent_at|date:"Y-m-d" }}
-            {% else %}
-              {% trans "Created" %} {{ row.identity.linked_at|date:"Y-m-d" }}
-            {% endif %}
-            {% if row.password_retired %}
-              <br><small class="has-text-grey">{% trans "old password switched off" %}</small>
-            {% endif %}
-          </td>
+          <td>{{ row.identity.linked_at|date:"Y-m-d" }}</td>
           <td>
             {# Icon buttons, so aria-label carries the name the icon only hints at. #}
             <form method="post" action="" class="is-flex sso-row-actions">
@@ -243,7 +235,7 @@ cannot survive paging, and a whole wave is what the Django admin is for.
         </tr>
       {% empty %}
         <tr>
-          <td colspan="6">
+          <td colspan="{% if everyone %}6{% else %}5{% endif %}">
             {% blocktrans trimmed %}
               No accounts match. Nobody has a QGIS account yet, or the filter is
               too narrow.

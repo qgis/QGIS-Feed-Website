@@ -23,6 +23,8 @@ from django.contrib.auth.decorators import user_passes_test
 from django.contrib.auth.models import User
 from django.core.paginator import EmptyPage, PageNotAnInteger, Paginator
 from django.db import transaction
+from django.db.models import Count, F, Q
+from django.db.models.functions import Lower
 from django.http import HttpResponseRedirect
 from django.shortcuts import render
 from django.urls import reverse
@@ -40,7 +42,14 @@ from .actions import (
     run_provisioning,
     send_setup_emails,
 )
-from .enrolment import LINKED_STATES, STATES, candidate_rows, linked_rows
+from .enrolment import (
+    LINKED_STATES,
+    STATE_ORDER,
+    STATES,
+    candidate_rows,
+    linked_identities,
+    rows_for,
+)
 from .keycloak import KeycloakError
 from .models import KeycloakIdentity, LinkMethod, SsoAuditEvent, TrustState
 from .provisioning import Provisioner, setup_redirect_uri
@@ -65,6 +74,37 @@ ISSUED_SESSION_KEY = "qgis_sso_issued_link"
 #: page: that exists because each account costs several synchronous calls to
 #: Keycloak, which has nothing to do with how much fits on a screen.
 PER_PAGE = 10
+
+
+#: The columns the list may be sorted by: what each one orders on, and the
+#: direction a first click gives it. An allowlist, because the key arrives in
+#: the URL and anything else falls back rather than raising.
+SORT_KEYS = {
+    "account": (Lower("user__username"), "asc"),
+    "state": (STATE_ORDER, "asc"),
+    "invited": (F("linked_at"), "desc"),
+    "sponsor": (Lower("sponsor_name"), "asc"),
+}
+
+#: The newest invitation first, which is what people come to this page for.
+DEFAULT_SORT = "invited"
+
+
+def ordering(sort_by, order):
+    """How to order the list, as arguments for ``order_by``.
+
+    Two things a Python sort gave for free and SQL does not. Accounts from
+    before invitations existed have no sponsor, and stay together at the far
+    end whichever way the column is turned. And every ordering ends on the
+    primary key, because without a tiebreaker two rows that compare equal can
+    swap places between one page and the next, so a row appears twice or not
+    at all.
+    """
+    column = SORT_KEYS[sort_by][0]
+    if order == "desc":
+        return [column.desc(nulls_last=True), "-pk"]
+    return [column.asc(nulls_last=True), "pk"]
+
 
 superuser_only = method_decorator(
     user_passes_test(is_sso_administrator), name="dispatch"
@@ -312,7 +352,7 @@ class EnrolmentView(View):
         """
         query = {
             key: request.GET[key]
-            for key in ("state", "q", "page")
+            for key in ("state", "q", "page", "sort_by", "order")
             if request.GET.get(key)
         }
         url = reverse("qgis_sso:enrolment")
@@ -320,29 +360,57 @@ class EnrolmentView(View):
             url = f"{url}?{urlencode(query)}"
         return HttpResponseRedirect(url)
 
+    @staticmethod
+    def sorting(request):
+        """The column and the direction to sort by, read from the query string.
+
+        A key the allowlist does not name falls back to the default, and so does
+        the sponsor column for somebody who never sees it: everybody who is not
+        a superuser only sees the accounts they vouched for.
+        """
+        sort_by = request.GET.get("sort_by", "")
+        if sort_by not in SORT_KEYS:
+            sort_by = DEFAULT_SORT
+        if sort_by == "sponsor" and not request.user.is_superuser:
+            sort_by = DEFAULT_SORT
+        order = request.GET.get("order", "")
+        if order not in ("asc", "desc"):
+            order = SORT_KEYS[sort_by][1]
+        return sort_by, order
+
     def page_context(self, request):
         state = request.GET.get("state", "")
         search = request.GET.get("q", "").strip()
 
         # A superuser sees the whole forest; everybody else sees their own
-        # branch of it.
-        matching = linked_rows(
+        # branch of it. Everything from here to the paginator is a queryset, so
+        # a page of ten costs a page of ten however many accounts exist.
+        matching = linked_identities(
             sponsored_by=None if request.user.is_superuser else request.user
         )
-        counts = {key: 0 for key in LINKED_STATES}
-        for row in matching:
-            counts[row.state] += 1
+
+        # Before the search and the filter, so the numbers beside each state
+        # keep saying how many there are rather than how many are showing.
+        # order_by() first, or the model's own ordering joins the grouping and
+        # the counts come back one row per account.
+        counted = dict(
+            matching.order_by().values_list("state").annotate(total=Count("pk"))
+        )
+        counts = {key: counted.get(key, 0) for key in LINKED_STATES}
 
         if search:
-            needle = search.lower()
-            matching = [
-                row
-                for row in matching
-                if needle in row.user.username.lower()
-                or needle in (row.user.email or "").lower()
-            ]
+            matching = matching.filter(
+                Q(user__username__icontains=search) | Q(user__email__icontains=search)
+            )
         if state in STATES:
-            matching = [row for row in matching if row.state == state]
+            matching = matching.filter(state=state)
+
+        sort_by, order = self.sorting(request)
+        matching = matching.order_by(*ordering(sort_by, order)).select_related(
+            "user", "sponsor"
+        )
+        # proposed_roles reads the groups, so a page without this is an N+1.
+        matching = matching.prefetch_related("user__groups")
 
         paginator = Paginator(matching, PER_PAGE)
         try:
@@ -352,25 +420,50 @@ class EnrolmentView(View):
         except EmptyPage:
             page = paginator.page(paginator.num_pages)
 
-        # Mark the rows this person may actually act on, so the page does not
-        # offer a button that the view will refuse. Cheap: the actor's own
-        # ancestors are walked once here rather than once per row.
-        moves_people = revocation.may_reparent(request.user)
-        for row in page.object_list:
-            row.may_revoke = revocation.may_revoke(request.user, row.identity)
-            row.may_reparent = (
-                moves_people and row.identity.trust_state == TrustState.SUSPENDED
-            )
+        rows = rows_for(page.object_list)
+        self.mark_actions(request.user, rows)
 
         return {
             "page": page,
-            "rows": page.object_list,
+            "rows": rows,
             "state": state,
             "search": search,
             "totals": [(key, STATES[key][0], counts[key]) for key in LINKED_STATES],
             "may_invite_new": bool(invitable_roles(request.user)),
             "everyone": request.user.is_superuser,
+            "sort_by": sort_by,
+            "order": order,
         }
+
+    @staticmethod
+    def mark_actions(actor, rows):
+        """Say which buttons each row may offer, without a query per row.
+
+        The page must not offer a button the view will then refuse. Answering
+        that walks the trust tree twice per row, upwards from the row and
+        upwards from the actor, so every chain the page needs is read first, in
+        the one recursive query, and the loop below issues none.
+        """
+        actor_identity = getattr(actor, "keycloak_identity", None)
+        above = revocation.ancestor_user_ids(
+            [row.identity.pk for row in rows]
+            + ([actor_identity.pk] if actor_identity is not None else [])
+        )
+        above_actor = (
+            above.get(actor_identity.pk, set()) if actor_identity is not None else set()
+        )
+        moves_people = revocation.may_reparent(actor)
+
+        for row in rows:
+            row.may_revoke = revocation.may_revoke(
+                actor,
+                row.identity,
+                actor_ancestors=above_actor,
+                subject_ancestors=above.get(row.identity.pk, set()),
+            )
+            row.may_reparent = (
+                moves_people and row.identity.trust_state == TrustState.SUSPENDED
+            )
 
 
 class IssuedLinkView(View):

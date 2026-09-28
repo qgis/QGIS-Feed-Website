@@ -63,6 +63,19 @@ what they are entitled to see. A superuser sees every account that has a
 Keycloak identity. Everybody else sees the accounts they vouched for. The page
 shows ten rows at a time, and you can filter by state or search by name.
 
+The newest invitation is at the top. Click **Account**, **State**, **Date of
+invitation** or **Invited by** to sort by that column, and click it again to
+turn the order around. **State** sorts in the order people move through it,
+from created to revoked, rather than by the alphabet. Sorting covers the whole
+list, not just the page you are looking at, and it keeps whatever you searched
+for or filtered by. **Invited by** only appears for a superuser, because
+everybody else sees their own invitations and would read their own name on
+every row.
+
+The filtering, the search, the sorting and the paging all happen in the
+database, so the page costs the same whether the site has a hundred accounts or
+a hundred thousand.
+
 ```mermaid
 stateDiagram-v2
     state "No QGIS account" as NoAccount
@@ -71,7 +84,7 @@ stateDiagram-v2
     state "Link sent" as LinkSent
 
     [*] --> NoAccount : local account only
-    NoAccount --> Decision : email missing or name collides
+    NoAccount --> Decision : no email address, or deactivated
     Decision --> Created : a human resolves it
     NoAccount --> Created : invite, or create in bulk
     Created --> LinkSent : send the setup email
@@ -94,10 +107,12 @@ happened to show it.
 | New sponsor | Opens `/sso/manage/reparent/<id>/`. See [Rescuing a suspended account](#rescuing-a-suspended-account). |
 
 Some accounts cannot be invited at all, because they have no email address or
-somebody deactivated them. The page leaves those out and counts them in a line
-under the table. Deal with them in the admin user list, using its **SSO
+somebody deactivated them. The invite page leaves those out and counts them in
+a line under its table. Deal with them in the admin user list, using its **SSO
 account** filter. Dormant accounts and accounts that have never been used do
-appear, with the flag shown beside them.
+appear there, with the warning shown beside them. Those warnings belong to the
+invite page, where the question is whether to create an account. The people
+page is about accounts that already exist, so it does not repeat them.
 
 ## Invitations
 
@@ -280,9 +295,9 @@ one does a single thing, so no step happens as a side effect of another.
 
 **1. Read the report first.** The CSV tells you the Keycloak username and the
 client roles each account would get. It also flags the accounts that need a
-person to decide: names that collide once they are lowercased, duplicate or
-missing email addresses, and accounts that are dormant or have never been used.
-Keep the file as your record of the migration.
+person to decide: a missing email address, a deactivated account, and accounts
+that are dormant or have never been used. Keep the file as your record of the
+migration.
 
 **2. Create the accounts.** A confirmation page lists the outcome for each
 person before we write anything, and that page is the only preview you get. We

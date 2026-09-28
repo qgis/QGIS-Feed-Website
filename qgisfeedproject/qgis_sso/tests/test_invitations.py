@@ -714,7 +714,11 @@ class CancellingAnInvitationTest(TestCase):
         self.assertNotContains(response, "cancel-invitation")
 
     def test_nothing_is_set_up_for_somebody_who_has_signed_in(self):
-        """Refused on the post too, not only hidden on the row."""
+        """Refused on the post too, not only hidden on the row.
+
+        Setting up and cancelling refuse this for different reasons and say so
+        differently, so the string asserted here is the setup one.
+        """
         identity = self.invitee.keycloak_identity
         identity.first_sso_login_at = timezone.now()
         identity.save(update_fields=["first_sso_login_at"])
@@ -729,7 +733,7 @@ class CancellingAnInvitationTest(TestCase):
                     follow=True,
                 )
 
-            self.assertContains(response, "signed in already")
+            self.assertContains(response, "has already signed in")
         self.assertEqual(self.realm.emailed, [])
 
     def test_trust_cannot_be_withdrawn_from_somebody_who_never_arrived(self):

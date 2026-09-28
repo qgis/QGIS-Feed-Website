@@ -18,11 +18,12 @@ No view code here, so the rules are testable without a browser.
 """
 
 import logging
+from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import timedelta
 
 from django.conf import settings
-from django.db import transaction
+from django.db import connection, transaction
 from django.utils import timezone
 from django.utils.module_loading import import_string
 from django.utils.translation import gettext_lazy as _
@@ -126,7 +127,48 @@ def ancestors(identity):
     return chain
 
 
-def refusal(actor, identity):
+def ancestor_user_ids(identity_ids):
+    """The users above each of these identities, for a whole page in one query.
+
+    Returns ``{identity_id: {user_id, ...}}``. :func:`ancestors` answers the
+    same question one identity at a time and costs a round trip per level of
+    the tree, which a list of ten rows pays ten times over. A recursive query
+    asks it once for all of them.
+
+    Only the user ids, because that is all the reach checks compare. Anything
+    wanting the identities themselves still uses :func:`ancestors`.
+
+    Bounded by ``MAX_DEPTH`` like the walk it replaces, so a cycle stops rather
+    than running the database out of memory.
+    """
+    identity_ids = list(identity_ids)
+    if not identity_ids:
+        return {}
+
+    table = KeycloakIdentity._meta.db_table
+    statement = f"""
+        WITH RECURSIVE chain(root_id, user_id, sponsor_id, depth) AS (
+            SELECT node.id, node.user_id, node.sponsor_id, 0
+            FROM {table} AS node
+            WHERE node.id = ANY(%s)
+          UNION ALL
+            SELECT chain.root_id, parent.user_id, parent.sponsor_id, chain.depth + 1
+            FROM chain
+            JOIN {table} AS parent ON parent.user_id = chain.sponsor_id
+            WHERE chain.depth < %s
+        )
+        SELECT root_id, user_id FROM chain WHERE depth > 0
+    """
+
+    found = defaultdict(set)
+    with connection.cursor() as cursor:
+        cursor.execute(statement, [identity_ids, MAX_DEPTH])
+        for root_id, user_id in cursor.fetchall():
+            found[root_id].add(user_id)
+    return dict(found)
+
+
+def refusal(actor, identity, actor_ancestors=None, subject_ancestors=None):
     """Why ``actor`` may not withdraw trust from ``identity``, or None.
 
     The reason is the useful part, so it is what this returns and
@@ -136,6 +178,11 @@ def refusal(actor, identity):
     An inviter reaches their own subtree and nowhere else. An administrator
     reaches the whole forest. Neither reaches upwards, and neither reaches
     another administrator.
+
+    ``actor_ancestors`` and ``subject_ancestors`` are the user ids above each
+    of the two, for a caller that has already resolved them for a whole page
+    with :func:`ancestor_user_ids`. Left out, the chains are walked here, which
+    is what a page about one account does.
     """
     if identity.user_id == actor.pk:
         # Standing down is US-5.3 and behaves differently: descendants are
@@ -159,7 +206,9 @@ def refusal(actor, identity):
     # Never upwards. This used to sit after the administrator branch below,
     # which returns early, so it never ran for an administrator: they could
     # revoke whoever invited them and be suspended by their own cascade.
-    if any(node.user_id == identity.user_id for node in ancestors(actor_identity)):
+    if actor_ancestors is None:
+        actor_ancestors = {node.user_id for node in ancestors(actor_identity)}
+    if identity.user_id in actor_ancestors:
         return _(
             "You cannot withdraw trust from the person who invited you. "
             "Ask another administrator."
@@ -175,12 +224,12 @@ def refusal(actor, identity):
             "administrator role first, or ask another administrator."
         )
 
-    if out_of_reach(actor, identity):
+    if out_of_reach(actor, identity, subject_ancestors):
         return _("You can only withdraw trust from people you invited.")
     return None
 
 
-def out_of_reach(actor, identity):
+def out_of_reach(actor, identity, subject_ancestors=None):
     """Whether ``identity`` is outside what ``actor`` may act on at all.
 
     Reach only, shared by withdrawing and restoring. An administrator reaches
@@ -194,12 +243,26 @@ def out_of_reach(actor, identity):
         return True
     if actor.is_superuser and effective_tier(actor) == 0:
         return False
-    return not any(node.user_id == actor.pk for node in ancestors(identity))
+    if subject_ancestors is None:
+        subject_ancestors = {node.user_id for node in ancestors(identity)}
+    return actor.pk not in subject_ancestors
 
 
-def may_revoke(actor, identity):
-    """Whether ``actor`` may withdraw trust from ``identity``."""
-    return refusal(actor, identity) is None
+def may_revoke(actor, identity, actor_ancestors=None, subject_ancestors=None):
+    """Whether ``actor`` may withdraw trust from ``identity``.
+
+    The two chains are optional and mean the same as in :func:`refusal`: a
+    caller listing many rows resolves them once for the page.
+    """
+    return (
+        refusal(
+            actor,
+            identity,
+            actor_ancestors=actor_ancestors,
+            subject_ancestors=subject_ancestors,
+        )
+        is None
+    )
 
 
 def preview(actor, identity):

@@ -95,8 +95,9 @@ class LinkingEnabledTest(SsoTestCase):
         self.assertEqual(KeycloakIdentity.objects.count(), 0)
 
     def test_ambiguous_match_is_refused(self):
-        """Two accounts differing only in case are exactly the collision the
-        export report exists to surface. Neither may be picked automatically."""
+        """Two accounts differing only in case both want the same realm
+        account. Neither may be picked automatically, and this refusal is what
+        keeps that true however they came to exist."""
         self.make_user(username="alice", email="alice@example.org")
         self.make_user(username="Alice", email="alice@example.org")
 

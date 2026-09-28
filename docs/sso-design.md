@@ -50,6 +50,36 @@ We build both listings from this site's own database. Nothing waits on Keycloak
 to render, so an outage there does not take the page down. We contact the realm
 only when you press something.
 
+### The people list is answered by the database
+
+Every question the list asks is a queryset: who you may see, the search, the
+state filter, the order and the page. The state is a `CASE` expression that
+mirrors `state_of` exactly, and a test compares the two state for state,
+because a filter that disagreed with the tag beside it would be worse than no
+filter.
+
+### We dropped the clash check from the migration report
+
+The report used to flag two things that needed every account compared against
+every other one: a username that clashes once Keycloak lowercases it, and an
+address two accounts share. That comparison is the only reason the enrolment
+pages read the whole user table to show ten rows.
+
+We removed it. Neither condition can arise any more. The invite form refuses a
+name or an address already taken here, whatever the case, and asks the realm as
+well, and the site has no self registration. Neither was what made provisioning
+safe in the first place: a clashing name is refused by `find_user_by_username`
+and a shared address by `_consider_link`, both of which say what happened and
+neither of which can be skipped. The flag only moved the warning from run time
+to preview time, for something that is not there.
+
+Every remaining flag is a fact about one account, so flagging now asks the
+database nothing at all.
+
+We also read the trust graph in one recursive query for the whole page. Both
+trust checks walk upwards, once from the row and once from the person looking,
+so a page of ten used to cost twenty walks, each one a round trip per level.
+
 ### Invite existing user is capped, and has no paging
 
 Each account costs us several calls to Keycloak inside one request, and there

@@ -13,7 +13,9 @@ from unittest import mock
 
 import segno
 from django.contrib.auth.models import User
+from django.db import connection
 from django.test import TestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
@@ -244,6 +246,271 @@ class ListingTest(SuperuserPage):
 
         self.assertContains(response, "Administrator")
         self.assertNotContains(response, ">admin<")
+
+
+@override_settings(**PAGE_SETTINGS)
+class SortingTest(SuperuserPage):
+    """The order of the list, and the column not everybody sees."""
+
+    def invite(self, username, days_ago, sponsor=None):
+        """One linked account, invited a given number of days ago.
+
+        ``linked_at`` is ``auto_now_add``, so the date has to be written back
+        over it rather than passed in.
+        """
+        user = User.objects.create_user(
+            username, f"{username}@example.org", "x", last_login=timezone.now()
+        )
+        identity = link(user, sponsor=sponsor)
+        KeycloakIdentity.objects.filter(pk=identity.pk).update(
+            linked_at=timezone.now() - timedelta(days=days_ago)
+        )
+        return user
+
+    def usernames(self, response):
+        return [row.user.username for row in response.context["rows"]]
+
+    def setUp(self):
+        super().setUp()
+        self.invite("carol", days_ago=1)
+        self.invite("alice", days_ago=10)
+        self.invite("bob", days_ago=5)
+
+    def test_the_newest_invitation_comes_first(self):
+        self.assertEqual(
+            self.usernames(self.client.get(PAGE)), ["carol", "bob", "alice"]
+        )
+
+    def test_the_oldest_invitation_can_come_first(self):
+        response = self.client.get(PAGE, {"sort_by": "invited", "order": "asc"})
+
+        self.assertEqual(self.usernames(response), ["alice", "bob", "carol"])
+
+    def test_the_account_column_sorts_by_name(self):
+        response = self.client.get(PAGE, {"sort_by": "account", "order": "asc"})
+
+        self.assertEqual(self.usernames(response), ["alice", "bob", "carol"])
+
+    def test_a_second_click_reverses_the_order(self):
+        response = self.client.get(PAGE, {"sort_by": "account", "order": "desc"})
+
+        self.assertEqual(self.usernames(response), ["carol", "bob", "alice"])
+
+    def test_a_column_nobody_named_falls_back_to_the_default(self):
+        """The key arrives in the URL, so it can say anything at all."""
+        response = self.client.get(
+            PAGE, {"sort_by": "'; drop table", "order": "sideways"}
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.usernames(response), ["carol", "bob", "alice"])
+
+    def test_a_first_click_sorts_each_column_the_way_it_reads(self):
+        """Names run A to Z, dates run newest first."""
+        by_name = self.client.get(PAGE, {"sort_by": "account"})
+        by_date = self.client.get(PAGE, {"sort_by": "invited"})
+
+        self.assertEqual(by_name.context["order"], "asc")
+        self.assertEqual(by_date.context["order"], "desc")
+
+    def test_the_headers_keep_the_search_and_the_filter(self):
+        response = self.client.get(PAGE, {"q": "alice", "sort_by": "account"})
+
+        self.assertContains(response, "q=alice")
+        self.assertContains(response, "sort_by=invited")
+
+    def test_the_state_column_sorts_by_progress_not_by_the_alphabet(self):
+        """Created, link sent, active, which is the order people move through.
+        Sorted on the label instead, "Active" would come first and read as
+        noise."""
+        signed_in = self.invite("dave", days_ago=4)
+        emailed = self.invite("erin", days_ago=6)
+        KeycloakIdentity.objects.filter(user=signed_in).update(
+            first_sso_login_at=timezone.now()
+        )
+        KeycloakIdentity.objects.filter(user=emailed).update(
+            setup_email_sent_at=timezone.now()
+        )
+
+        response = self.client.get(PAGE, {"sort_by": "state", "order": "asc"})
+        states = [row.state for row in response.context["rows"]]
+
+        self.assertEqual(states[-2:], ["link-sent", "active"])
+        self.assertEqual(set(states[:-2]), {"provisioned"})
+
+    def test_a_superuser_sees_who_invited_each_account(self):
+        self.assertContains(self.client.get(PAGE), "Invited by")
+
+    def test_the_sponsor_column_sorts_by_the_name_it_shows(self):
+        zara = User.objects.create_user(
+            "zara", "zara@example.org", "x", last_login=timezone.now()
+        )
+        link(zara)
+        self.invite("dave", days_ago=2, sponsor=zara)
+        self.invite("erin", days_ago=3, sponsor=self.superuser)
+
+        response = self.client.get(PAGE, {"sort_by": "sponsor", "order": "asc"})
+
+        # Sponsored by root, then by zara. Accounts from before invitations
+        # existed have no sponsor, and gather at the far end rather than
+        # scattering through the names. They compare equal to each other, so
+        # the primary key breaks the tie and they read in the order they were
+        # created. That tiebreaker is what stops a row appearing on two pages.
+        self.assertEqual(self.usernames(response)[:2], ["erin", "dave"])
+        self.assertEqual(
+            self.usernames(response)[2:], ["carol", "alice", "bob", "zara"]
+        )
+
+
+@override_settings(**PAGE_SETTINGS)
+class SponsorColumnTest(TestCase):
+    """The column that only means something to a superuser."""
+
+    def setUp(self):
+        self.staff = User.objects.create_user(
+            "bob", "bob@example.org", "x", is_staff=True, last_login=timezone.now()
+        )
+        link(self.staff)
+        self.client.force_login(self.staff, backend=LOCAL_BACKEND)
+        for username in ("alice", "carol"):
+            user = User.objects.create_user(
+                username, f"{username}@example.org", "x", last_login=timezone.now()
+            )
+            link(user, sponsor=self.staff)
+
+    def test_nobody_reads_a_column_of_their_own_name(self):
+        """Everybody who is not a superuser only sees what they vouched for."""
+        response = self.client.get(PAGE)
+
+        self.assertContains(response, "alice")
+        self.assertNotContains(response, "Invited by")
+
+    def test_sorting_by_a_column_they_cannot_see_falls_back(self):
+        response = self.client.get(PAGE, {"sort_by": "sponsor"})
+
+        self.assertEqual(response.context["sort_by"], "invited")
+
+
+class StateExpressionTest(TestCase):
+    """The database and Python have to agree about where an account has got to.
+
+    The list filters and sorts on the annotation and shows the tag that
+    ``state_of`` produced. A filter that disagrees with the tag beside it would
+    be worse than no filter, so the two are compared state for state.
+    """
+
+    def annotated(self, identity):
+        return (
+            KeycloakIdentity.objects.annotate(state=enrolment.STATE_EXPRESSION)
+            .get(pk=identity.pk)
+            .state
+        )
+
+    def test_every_linked_state_reads_the_same_in_sql_and_in_python(self):
+        now = timezone.now()
+        cases = [
+            (enrolment.PROVISIONED, {}),
+            (enrolment.LINK_SENT, {"setup_email_sent_at": now}),
+            (enrolment.LINK_SENT, {"setup_link_issued_at": now}),
+            (enrolment.ACTIVE, {"first_sso_login_at": now}),
+            (enrolment.SUSPENDED, {"trust_state": "suspended"}),
+            (enrolment.REVOKED, {"trust_state": "revoked"}),
+            # Trust overrides progress, in both places.
+            (
+                enrolment.REVOKED,
+                {"first_sso_login_at": now, "trust_state": "revoked"},
+            ),
+        ]
+
+        for index, (expected, fields) in enumerate(cases):
+            with self.subTest(expected=expected, fields=sorted(fields)):
+                user = User.objects.create_user(
+                    f"person{index}", f"person{index}@example.org", "x"
+                )
+                identity = link(user, **fields)
+
+                self.assertEqual(self.annotated(identity), expected)
+                self.assertEqual(enrolment.state_of(identity, []), expected)
+
+
+@override_settings(**PAGE_SETTINGS)
+class PageCostTest(SuperuserPage):
+    """What a page of people costs, which is the point of building it in SQL.
+
+    Asserted as "the same as before" rather than as a number, because the exact
+    count is not the promise. The promise is that it does not move when the
+    site grows or the trust graph deepens.
+    """
+
+    def accounts(self, count, start=0, sponsor=None):
+        for index in range(start, start + count):
+            user = User.objects.create_user(
+                f"user{index}",
+                f"user{index}@example.org",
+                "x",
+                last_login=timezone.now(),
+            )
+            link(user, sponsor=sponsor, first_sso_login_at=timezone.now())
+
+    def cost(self):
+        with CaptureQueriesContext(connection) as queries:
+            self.assertEqual(self.client.get(PAGE).status_code, 200)
+        return len(queries.captured_queries)
+
+    def test_a_page_costs_the_same_however_many_accounts_exist(self):
+        self.accounts(12)
+        small = self.cost()
+
+        self.accounts(200, start=12)
+
+        self.assertEqual(self.cost(), small)
+
+    def test_a_page_costs_the_same_however_deep_the_trust_graph(self):
+        """The actor needs an identity of their own, or every row is refused
+        before the tree is ever walked and this would prove nothing."""
+        link(self.superuser, first_sso_login_at=timezone.now())
+        sponsor = self.superuser
+        for index in range(20):
+            user = User.objects.create_user(
+                f"deep{index}",
+                f"deep{index}@example.org",
+                "x",
+                last_login=timezone.now(),
+            )
+            link(user, sponsor=sponsor, first_sso_login_at=timezone.now())
+            sponsor = user
+
+        deep = self.cost()
+
+        # The same accounts and the same rows, with no chain left above them.
+        KeycloakIdentity.objects.exclude(user=self.superuser).update(sponsor=None)
+
+        self.assertEqual(self.cost(), deep)
+
+
+@override_settings(**PAGE_SETTINGS)
+class StablePagingTest(SuperuserPage):
+    """Paging in SQL needs a tiebreaker that sorting a list gave for free."""
+
+    def test_accounts_invited_at_the_same_moment_appear_once_each(self):
+        """Without a unique tiebreaker two rows that compare equal can swap
+        places between one page and the next, so somebody is listed twice and
+        somebody else not at all."""
+        moment = timezone.now()
+        for index in range(15):
+            user = User.objects.create_user(
+                f"same{index}", f"same{index}@example.org", "x"
+            )
+            identity = link(user)
+            KeycloakIdentity.objects.filter(pk=identity.pk).update(linked_at=moment)
+
+        seen = []
+        for number in (1, 2):
+            response = self.client.get(PAGE, {"page": number})
+            seen.extend(row.user.username for row in response.context["rows"])
+
+        self.assertEqual(len(seen), 15)
+        self.assertEqual(len(set(seen)), 15)
 
 
 @override_settings(**PAGE_SETTINGS)

@@ -26,6 +26,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The people page costs the same however large the site gets.** It used to
+  read every account in the database on every page load, whichever page you
+  asked for: it built a row for everybody, then threw away the ones with no
+  QGIS account, then searched, filtered and sorted that list in Python. Paging
+  saved the rendering and nothing else. The filter, the search, the order and
+  the page are all one query now, and the state each row shows is a `CASE` the
+  database evaluates, with a test that compares it against the Python version
+  state for state. The trust graph is read in one recursive query for the whole
+  page as well, where a page of ten used to walk it twenty times, once upwards
+  from each row and once upwards from the person looking, a round trip per
+  level of the tree. **State** now sorts as well, in the order people move
+  through it rather than alphabetically.
+
+- **The migration report no longer warns about clashing names and shared
+  addresses.** Those two warnings needed every account compared against every
+  other one, which is the only reason the enrolment pages read the whole user
+  table to show ten rows. Neither condition can arise: the invite form already
+  refuses a username or an address that is taken here, whatever the case, and
+  asks QGIS accounts as well, and the site has no self registration. Neither
+  was what kept provisioning safe either. A clashing name is still refused when
+  we look it up in the realm, a shared address is still refused when it resolves
+  to an account that already belongs to somebody here, and both say so in words.
+  The warnings only moved that news from the run to the preview, for something
+  that is not there. The report still flags a missing address, a deactivated
+  account, and accounts that are dormant or have never been used.
+
+- **The people page shows the date of invitation, and the headers sort it.**
+  The list opens with the newest invitation first, and **Account**, **Date of
+  invitation** and, for a superuser, **Invited by** sort the whole list rather
+  than the ten rows in front of you. Sorting keeps whatever you searched for or
+  filtered by, and finishing an action on a row brings you back to the same
+  order. Two columns changed to make room. **Last step** is gone: it repeated
+  what the **State** column already said, and the date beside somebody is now
+  the day they were invited. **Invited by** only appears for a superuser,
+  because everybody else sees only the accounts they vouched for and was
+  reading their own name on every row. The small **old password switched off**
+  note went with the last step column; it is still on the account in the Django
+  admin.
+
 - **Invitation limits count the invitations you have open, not the ones you
   have ever sent.** That was always the intent, and `tiers.remaining()` already
   subtracted the people who had signed in. In practice it still behaved like a

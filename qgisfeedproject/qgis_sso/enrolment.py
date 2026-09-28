@@ -13,7 +13,8 @@ without a deliberate act, which is what makes them usable as a filter.
 from dataclasses import dataclass, field
 
 from django.contrib.auth.models import User
-from django.db.models import Q
+from django.db.models import Case, CharField, IntegerField, Q, Value, When
+from django.db.models.functions import Coalesce, Concat, NullIf, Trim
 from django.utils.translation import gettext_lazy as _
 
 from . import tiers
@@ -62,9 +63,8 @@ LINKED_STATES = [PROVISIONED, LINK_SENT, ACTIVE, SUSPENDED, REVOKED]
 #: somebody deliberately closed. Both belong in the admin user list, not on a
 #: page about moving people forward.
 #:
-#: The other flags stay: dormant and never-logged-in accounts can be enrolled,
-#: and a duplicate email or a username case collision is something a human can
-#: resolve and then come back to.
+#: The other flags stay: a dormant account and one nobody has ever signed in to
+#: can both be enrolled, and the flag is only there to say so.
 HIDDEN_FLAGS = frozenset({"no-email", "inactive"})
 
 
@@ -170,24 +170,113 @@ def state_of(identity, flags):
     return PROVISIONED
 
 
+#: The same cascade as :func:`state_of`, written so the database can answer it.
+#: The list page filters and sorts on this, so a test asserts the two agree
+#: state for state: a filter that disagrees with the tag beside it would be
+#: worse than no filter at all.
+#:
+#: ``BLOCKED`` and ``NOT_PROVISIONED`` are missing on purpose. Both describe an
+#: account with no identity, and this expression only ever runs on identities.
+STATE_EXPRESSION = Case(
+    When(trust_state=TrustState.REVOKED, then=Value(REVOKED)),
+    When(trust_state=TrustState.SUSPENDED, then=Value(SUSPENDED)),
+    When(first_sso_login_at__isnull=False, then=Value(ACTIVE)),
+    When(
+        Q(setup_email_sent_at__isnull=False) | Q(setup_link_issued_at__isnull=False),
+        then=Value(LINK_SENT),
+    ),
+    default=Value(PROVISIONED),
+    output_field=CharField(),
+)
+
+#: The states as a number, so the column sorts by how far somebody has got
+#: rather than by the alphabet. Built from ``LINKED_STATES`` so the order on
+#: screen and the order in the filter cannot drift apart.
+STATE_ORDER = Case(
+    *[When(state=name, then=Value(rank)) for rank, name in enumerate(LINKED_STATES)],
+    default=Value(len(LINKED_STATES)),
+    output_field=IntegerField(),
+)
+
+#: The sponsor as the column shows them, which is also what it sorts on:
+#: their full name, falling back to their username. Null exactly when there is
+#: no sponsor, which is what keeps those rows together at one end.
+SPONSOR_NAME = Coalesce(
+    NullIf(
+        Trim(Concat("sponsor__first_name", Value(" "), "sponsor__last_name")),
+        Value(""),
+    ),
+    "sponsor__username",
+)
+
+
+def linked_identities(sponsored_by=None):
+    """Accounts that exist in the realm, as a queryset the database can page.
+
+    Everything the list filters or sorts on is resolved here, so answering a
+    question about ten rows never means reading the user table. The rows for
+    one page are built by :func:`rows_for` once the database has chosen them.
+
+    ``sponsored_by`` narrows the list to the accounts one person vouched for,
+    which is what everybody who is not a superuser sees.
+    """
+    identities = KeycloakIdentity.objects.annotate(
+        state=STATE_EXPRESSION, sponsor_name=SPONSOR_NAME
+    )
+    if sponsored_by is not None:
+        identities = identities.filter(sponsor=sponsored_by)
+    return identities
+
+
+def rows_for(identities):
+    """One :class:`Row` per identity, for the rows on one page.
+
+    The state comes from the annotation the queryset carried rather than being
+    worked out again here, so the tag on a row and the filter that selected it
+    cannot disagree.
+
+    These accounts already exist in the realm, so they carry no flags. Flags
+    answer "should we create this account", which is the invite page's
+    question, and :func:`candidate_rows` is where it gets asked.
+    """
+    identities = list(identities)
+    users = [identity.user for identity in identities]
+    can_publish = publishers(among=[user.pk for user in users])
+
+    return [
+        Row(
+            user=identity.user,
+            identity=identity,
+            state=identity.state,
+            proposed_username=proposed_username(identity.user),
+            proposed_roles=proposed_roles(
+                identity.user, identity.user.pk in can_publish
+            ),
+        )
+        for identity in identities
+    ]
+
+
 def rows(users, flags=None):
     """Build one :class:`Row` per user, without an N+1.
 
-    ``flags`` is computed against the whole population when not supplied: a
-    username case collision is only visible when the other account is in view
-    too, so it cannot be derived from a single page of results.
+    Everything it needs is asked of the database once for the whole batch, and
+    nothing it asks reaches past the accounts it was given.
     """
     users = list(users)
     if flags is None:
-        flags = flag_users(all_candidates())
+        flags = flag_users(users)
 
-    # Every identity in one query rather than an IN clause over the whole user
-    # table: there is at most one per user and usually far fewer.
+    # Both of these are one query for the whole batch and neither reaches past
+    # it. Asking per row would be an N+1; asking for every account in the site
+    # would make a page of ten cost the whole table.
     identities = {
         identity.user_id: identity
-        for identity in KeycloakIdentity.objects.select_related("sponsor")
+        for identity in KeycloakIdentity.objects.select_related("sponsor").filter(
+            user__in=users
+        )
     }
-    can_publish = publishers()
+    can_publish = publishers(among=[user.pk for user in users])
 
     built = []
     for user in users:
@@ -206,24 +295,6 @@ def rows(users, flags=None):
     return built
 
 
-def linked_rows(sponsored_by=None):
-    """Accounts that exist in the realm, for the enrolment list.
-
-    These are the ones with somewhere still to go: created, invited, signed in,
-    migrated. Ordered by username so paging is stable.
-
-    ``sponsored_by`` narrows the list to the accounts one person vouched for,
-    which is what everybody who is not a superuser sees.
-    """
-    identities = KeycloakIdentity.objects.all()
-    if sponsored_by is not None:
-        identities = identities.filter(sponsor=sponsored_by)
-    linked = set(identities.values_list("user_id", flat=True))
-    population = list(all_candidates().order_by("username"))
-    flags = flag_users(population)
-    return [row for row in rows(population, flags=flags) if row.user.pk in linked]
-
-
 def candidate_rows():
     """Accounts with no realm identity, split into the ones worth offering.
 
@@ -233,44 +304,38 @@ def candidate_rows():
     list is where those get dealt with - but a page that silently showed fewer
     accounts than exist would be lying.
     """
-    linked = set(KeycloakIdentity.objects.values_list("user_id", flat=True))
-    population = list(all_candidates().order_by("username"))
-    flags = flag_users(population)
-
-    unlinked = [
-        row for row in rows(population, flags=flags) if row.user.pk not in linked
-    ]
-    candidates = [row for row in unlinked if row.enrollable]
+    unlinked = list(
+        User.objects.filter(keycloak_identity__isnull=True)
+        .prefetch_related("groups")
+        .order_by("username")
+    )
+    built = rows(unlinked, flags=flag_users(unlinked))
+    candidates = [row for row in built if row.enrollable]
     return candidates, len(unlinked) - len(candidates)
 
 
-def publishers():
+def publishers(among=None):
     """Who holds ``publish_qgisfeedentry``, in one query.
 
     ``user.has_perm`` cannot be prefetched, so asking it per row would be two
-    queries per account. This asks the same question of everybody at once.
+    queries per account. This asks the same question of a whole batch at once.
     Inactive accounts are excluded because ``ModelBackend`` grants them no
     permissions, and the answers have to agree.
+
+    ``among`` narrows the question to the accounts a caller is showing, so a
+    page of ten does not have to ask it of everybody.
     """
-    return set(
-        User.objects.filter(
-            Q(
-                user_permissions__codename=PUBLISH_PERMISSION,
-                user_permissions__content_type__app_label=PUBLISH_APP,
-            )
-            | Q(
-                groups__permissions__codename=PUBLISH_PERMISSION,
-                groups__permissions__content_type__app_label=PUBLISH_APP,
-            ),
-            is_active=True,
-        ).values_list("pk", flat=True)
+    holders = User.objects.filter(
+        Q(
+            user_permissions__codename=PUBLISH_PERMISSION,
+            user_permissions__content_type__app_label=PUBLISH_APP,
+        )
+        | Q(
+            groups__permissions__codename=PUBLISH_PERMISSION,
+            groups__permissions__content_type__app_label=PUBLISH_APP,
+        ),
+        is_active=True,
     )
-
-
-def all_candidates():
-    """Every account the migration considers, with groups prefetched.
-
-    ``proposed_roles`` and the duplicate checks both read groups, so fetching
-    them here is what keeps the page to a fixed number of queries.
-    """
-    return User.objects.all().prefetch_related("groups")
+    if among is not None:
+        holders = holders.filter(pk__in=among)
+    return set(holders.values_list("pk", flat=True))

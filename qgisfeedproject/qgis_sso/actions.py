@@ -129,10 +129,6 @@ class Run:
 def plan_provisioning(users, include_flagged=False):
     """Decide what would happen to each user, writing nothing.
 
-    Flags are computed against the whole population rather than the selection:
-    a username case collision is only visible when the other account is in view
-    too.
-
     Returns ``(provisioner, decisions)``. Raises
     :class:`~qgis_sso.keycloak.KeycloakError` if the realm cannot be reached,
     because there is nothing useful to show without it.
@@ -148,7 +144,9 @@ def plan_provisioning(users, include_flagged=False):
     users = [prefetched[user.pk] for user in users if user.pk in prefetched]
 
     session = Provisioner()
-    flags = flag_users(User.objects.all().prefetch_related("groups"))
+    # Only the selection. Every flag is a fact about one account, so asking
+    # about the rest of the site would answer nothing extra.
+    flags = flag_users(users)
 
     # Everything the per-user decision needs from the database, resolved once.
     # Nothing below may issue a query: the lookups run in worker threads, and a

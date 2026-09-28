@@ -1,0 +1,40 @@
+{% load i18n %}
+
+{% comment %}
+One sortable column heading for any table a view sorts from the query string.
+Include it once per sortable column:
+
+    {% include 'layouts/sort_header.html' with key='invited' label=label sort_by=sort_by order=order natural='desc' %}
+
+`key` is the value that goes into ?sort_by=, `sort_by` and `order` are what the
+view resolved, and `natural` is the direction a first click on this column
+gives. {% querystring %} carries the current filters through, which a hand-built
+?sort_by=…&order=… cannot do without somebody remembering to add each new one.
+The link resets to page one, because a reorder makes the old page number
+meaningless.
+
+aria-sort is what a screen reader announces, so the icon is hidden from it.
+{% endcomment %}
+
+{% if sort_by == key and order == 'asc' %}
+  <th scope="col" class="sso-sortable {{ classes }}" aria-sort="ascending">
+    <a href="{% querystring sort_by=key order='desc' page=1 %}">
+      <span>{{ label }}</span>
+      <span class="icon is-small"><i class="fas fa-sort-up" aria-hidden="true"></i></span>
+    </a>
+  </th>
+{% elif sort_by == key %}
+  <th scope="col" class="sso-sortable {{ classes }}" aria-sort="descending">
+    <a href="{% querystring sort_by=key order='asc' page=1 %}">
+      <span>{{ label }}</span>
+      <span class="icon is-small"><i class="fas fa-sort-down" aria-hidden="true"></i></span>
+    </a>
+  </th>
+{% else %}
+  <th scope="col" class="sso-sortable {{ classes }}" aria-sort="none">
+    <a href="{% querystring sort_by=key order=natural page=1 %}">
+      <span>{{ label }}</span>
+      <span class="icon is-small"><i class="fas fa-sort" aria-hidden="true"></i></span>
+    </a>
+  </th>
+{% endif %}

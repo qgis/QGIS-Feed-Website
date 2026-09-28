@@ -267,12 +267,13 @@ class SsoAwareUserAdmin(BaseUserAdmin):
         """Download what provisioning would do to each account. Changes nothing.
 
         Read before provisioning anybody. The flags are the accounts that
-        cannot be migrated unattended, `username-case-collision` and
-        `duplicate-email` most of all.
+        cannot be migrated unattended: no address to send a setup link to, a
+        deactivated account, or one nobody has ever signed in to.
         """
-        # Flags are computed against the whole population: a username case
-        # collision is only visible when the other account is in view too.
-        flags = flag_users(User.objects.all().prefetch_related("groups"))
+        # Only the accounts being exported. Every flag is a fact about one
+        # account, so nothing is lost by not asking about the rest.
+        selected = list(queryset.prefetch_related("groups").order_by("username"))
+        flags = flag_users(selected)
         linked = set(KeycloakIdentity.objects.values_list("user_id", flat=True))
 
         response = HttpResponse(content_type="text/csv")
@@ -282,7 +283,7 @@ class SsoAwareUserAdmin(BaseUserAdmin):
         )
         writer = csv.DictWriter(response, fieldnames=REPORT_FIELDS)
         writer.writeheader()
-        for user in queryset.prefetch_related("groups").order_by("username"):
+        for user in selected:
             writer.writerow(report_row(user, flags.get(user.pk, []), linked))
         return response
 

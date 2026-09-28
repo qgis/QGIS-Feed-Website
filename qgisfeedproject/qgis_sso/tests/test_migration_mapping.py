@@ -64,29 +64,19 @@ class ProposedMappingTest(TestCase):
 class FlaggingTest(TestCase):
     """Every flag means a human has to decide before anything is created."""
 
-    def test_case_collision_is_flagged_on_both_accounts(self):
-        alice = User.objects.create_user("alice", "a@example.org", "x")
-        alice_upper = User.objects.create_user("Alice", "b@example.org", "x")
+    def test_every_flag_is_a_fact_about_one_account(self):
+        """Flagging asks the database nothing, which is what lets a page flag
+        ten accounts without reading the other hundred thousand."""
+        user = User.objects.create_user("alice", "a@example.org", "x")
 
-        flags = flag_users([alice, alice_upper])
-
-        self.assertIn("username-case-collision", flags[alice.pk])
-        self.assertIn("username-case-collision", flags[alice_upper.pk])
+        with self.assertNumQueries(0):
+            flag_users([user])
 
     def test_missing_email_is_flagged(self):
         """No address means no setup link, so no unattended migration path."""
         user = User.objects.create_user("alice", "", "x")
 
         self.assertIn("no-email", flag_users([user])[user.pk])
-
-    def test_duplicate_email_is_flagged(self):
-        one = User.objects.create_user("alice", "shared@example.org", "x")
-        two = User.objects.create_user("bob", "shared@example.org", "x")
-
-        flags = flag_users([one, two])
-
-        self.assertIn("duplicate-email", flags[one.pk])
-        self.assertIn("duplicate-email", flags[two.pk])
 
     def test_never_logged_in_is_flagged(self):
         user = User.objects.create_user("alice", "a@example.org", "x")

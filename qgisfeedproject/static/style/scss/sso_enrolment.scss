@@ -168,3 +168,31 @@
     text-align: left;
   }
 }
+
+// A sortable heading is a control, not a link into the site, so it keeps the
+// heading colour and shows its state through the icon. The inactive icon stays
+// faint until the pointer or the keyboard reaches it, so five sort handles do
+// not shout over the names below them.
+.sso-sortable {
+  a {
+    color: inherit;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    white-space: nowrap;
+
+    .icon {
+      opacity: 0.35;
+    }
+
+    &:hover .icon,
+    &:focus-visible .icon {
+      opacity: 1;
+    }
+  }
+
+  &[aria-sort='ascending'] a .icon,
+  &[aria-sort='descending'] a .icon {
+    opacity: 1;
+  }
+}

@@ -50,9 +50,10 @@ def proposed_username(user):
     """The Keycloak username this Django account should get.
 
     Keycloak lowercases usernames and enforces uniqueness; Django does not
-    lowercase. Two Django accounts differing only in case therefore collide,
-    which is why every export flags the collisions for a human before any
-    account is created.
+    lowercase. Two Django accounts differing only in case would therefore want
+    the same realm account, which is why the invite form refuses a name already
+    taken here whatever its case, and why provisioning refuses to claim a realm
+    account it did not create.
     """
     return user.username.strip().lower()
 
@@ -94,16 +95,21 @@ def flag_users(users, dormant_months=12):
     Returns ``{user_id: [flag, ...]}``. Every flag means "a human has to
     decide about this account"; the migration commands skip flagged accounts
     unless told otherwise.
+
+    Every flag is a fact about the one account, so this answers correctly for
+    any set of users and asks the database nothing.
+
+    There used to be two more, for a username that clashes once Keycloak
+    lowercases it and for an address two accounts share. Both compared every
+    account against every other one, which is what made the enrolment pages
+    read the whole user table to show ten rows. Neither condition can arise:
+    the invite form refuses a name or an address that is already taken here and
+    asks the realm as well, and the site has no self registration. Neither was
+    what made provisioning safe either. A clashing name is refused by
+    ``find_user_by_username`` and a shared address by ``_consider_link``, both
+    in :mod:`qgis_sso.provisioning`, and both say what happened.
     """
     users = list(users)
-
-    by_lowercase = defaultdict(list)
-    by_email = defaultdict(list)
-    for user in users:
-        by_lowercase[proposed_username(user)].append(user)
-        if user.email:
-            by_email[user.email.strip().lower()].append(user)
-
     cutoff = dormant_cutoff(dormant_months)
     flags = defaultdict(list)
 
@@ -111,11 +117,6 @@ def flag_users(users, dormant_months=12):
         if not user.email:
             # The setup link is emailed. No address means no migration path.
             flags[user.pk].append("no-email")
-        elif len(by_email[user.email.strip().lower()]) > 1:
-            flags[user.pk].append("duplicate-email")
-
-        if len(by_lowercase[proposed_username(user)]) > 1:
-            flags[user.pk].append("username-case-collision")
 
         if user.last_login is None:
             flags[user.pk].append("never-logged-in")

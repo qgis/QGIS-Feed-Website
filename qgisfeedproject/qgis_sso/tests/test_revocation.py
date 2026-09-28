@@ -72,6 +72,42 @@ class TrustChainTest(TestCase):
             actor, self.identity(target), reason, client=self.realm
         )
 
+    # -- reading the chain -------------------------------------------------
+
+    def test_the_chain_reads_the_same_in_one_query_as_it_does_step_by_step(self):
+        """The list page resolves a whole page of chains at once. It has to
+        agree with the walk, or a button appears on a row the view refuses."""
+        for user in (self.root, self.maria, self.rita, self.ali, self.nils):
+            identity = self.identity(user)
+            with self.subTest(user=user.username):
+                walked = {node.user_id for node in revocation.ancestors(identity)}
+
+                in_one_query = revocation.ancestor_user_ids([identity.pk])
+
+                self.assertEqual(in_one_query.get(identity.pk, set()), walked)
+
+    def test_a_whole_page_of_chains_comes_back_at_once(self):
+        identities = {
+            user.username: self.identity(user)
+            for user in (self.nils, self.rita, self.root)
+        }
+
+        found = revocation.ancestor_user_ids(
+            identity.pk for identity in identities.values()
+        )
+
+        self.assertEqual(
+            found[identities["nils"].pk],
+            {self.ali.pk, self.rita.pk, self.maria.pk, self.root.pk},
+        )
+        self.assertEqual(found[identities["rita"].pk], {self.maria.pk, self.root.pk})
+        # Vouched for by nobody, so nothing above them and no row at all.
+        self.assertNotIn(identities["root"].pk, found)
+
+    def test_asking_about_nobody_asks_the_database_nothing(self):
+        with self.assertNumQueries(0):
+            self.assertEqual(revocation.ancestor_user_ids([]), {})
+
     # -- who may act on whom ----------------------------------------------
 
     def test_an_inviter_may_revoke_inside_their_own_subtree(self):
