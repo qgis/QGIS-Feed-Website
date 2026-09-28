@@ -53,58 +53,6 @@ cannot survive paging, and a whole wave is what the Django admin is for.
     {% endif %}
   </div>
 
-  {% if confirming == 'send-email' %}
-    <div class="box-content sso-confirm mb-4">
-      <h2 class="title is-5">{% trans "Send the setup email?" %}</h2>
-      <div class="notification is-warning">
-        {# Staging databases are restored from production, so these are real
-           addresses even when the site is not. #}
-        {% blocktrans trimmed with username=subject.user.username email=subject.user.email %}
-          This emails {{ username }} at {{ email }}, which is a real address.
-          An email that has gone out cannot be called back.
-        {% endblocktrans %}
-      </div>
-      <form method="post" action="">
-        {% csrf_token %}
-        <input type="hidden" name="action" value="send-email">
-        <input type="hidden" name="identity" value="{{ subject.pk }}">
-        <input type="hidden" name="confirm" value="yes">
-        <div class="buttons">
-          <button class="button is-primary1" type="submit">{% trans "Yes, send it" %}</button>
-          <a class="button is-light" href="{% url 'qgis_sso:enrolment' %}">
-            {% trans "Cancel" %}
-          </a>
-        </div>
-      </form>
-    </div>
-  {% endif %}
-
-  {% if confirming == 'cancel-invitation' %}
-    <div class="box-content sso-confirm mb-4">
-      <h2 class="title is-5">{% trans "Cancel this invitation?" %}</h2>
-      <div class="notification is-warning">
-        {% blocktrans trimmed with username=subject.user.username %}
-          This removes the account for {{ username }} completely, here and from
-          QGIS accounts. Nothing is kept, so their place comes back and you can
-          invite them again with the same name and address. This cannot be
-          undone.
-        {% endblocktrans %}
-      </div>
-      <form method="post" action="">
-        {% csrf_token %}
-        <input type="hidden" name="action" value="cancel-invitation">
-        <input type="hidden" name="identity" value="{{ subject.pk }}">
-        <input type="hidden" name="confirm" value="yes">
-        <div class="buttons">
-          <button class="button is-danger" type="submit">{% trans "Yes, cancel it" %}</button>
-          <a class="button is-light" href="{% url 'qgis_sso:enrolment' %}">
-            {% trans "Cancel" %}
-          </a>
-        </div>
-      </form>
-    </div>
-  {% endif %}
-
   <form method="get" action="" class="mb-4">
     <div class="field has-addons">
       <div class="control">
@@ -189,11 +137,11 @@ cannot survive paging, and a whole wave is what the Django admin is for.
                 {% blocktrans trimmed asvar send_label with username=row.user.username %}
                   Email the setup link to {{ username }}
                 {% endblocktrans %}
-                <button class="button is-small is-primary1 is-outlined" type="submit"
-                        name="action" value="send-email"
-                        title="{{ send_label }}" aria-label="{{ send_label }}">
+                <a class="button is-small is-primary1 is-outlined"
+                   href="{% url 'qgis_sso:send_email' row.identity.pk %}{% if filters %}?{{ filters }}{% endif %}"
+                   title="{{ send_label }}" aria-label="{{ send_label }}">
                   <span class="icon is-small"><i class="fas fa-envelope"></i></span>
-                </button>
+                </a>
                 {% blocktrans trimmed asvar link_label with username=row.user.username %}
                   Get the enrolment link for {{ username }}
                 {% endblocktrans %}
@@ -207,11 +155,11 @@ cannot survive paging, and a whole wave is what the Django admin is for.
                 {% blocktrans trimmed asvar cancel_label with username=row.user.username %}
                   Cancel the invitation for {{ username }}
                 {% endblocktrans %}
-                <button class="button is-small is-danger is-outlined" type="submit"
-                        name="action" value="cancel-invitation"
-                        title="{{ cancel_label }}" aria-label="{{ cancel_label }}">
+                <a class="button is-small is-danger is-outlined"
+                   href="{% url 'qgis_sso:cancel_invitation' row.identity.pk %}{% if filters %}?{{ filters }}{% endif %}"
+                   title="{{ cancel_label }}" aria-label="{{ cancel_label }}">
                   <span class="icon is-small"><i class="fas fa-user-xmark"></i></span>
-                </button>
+                </a>
               {% endif %}
               {% if row.identity.trust_state == 'active' and row.may_revoke %}
                 {% blocktrans trimmed asvar revoke_label with username=row.user.username %}

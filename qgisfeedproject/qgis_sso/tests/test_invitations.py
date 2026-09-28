@@ -616,21 +616,42 @@ class CancellingAnInvitationTest(TestCase):
         self.invitee = contributor("one", ["author"], sponsor=self.reviewer)
         self.client.force_login(self.reviewer, backend=LOCAL_BACKEND)
 
-    def cancel(self, identity, confirm="yes"):
-        data = {"action": "cancel-invitation", "identity": str(identity.pk)}
-        if confirm:
-            data["confirm"] = confirm
+    @staticmethod
+    def page(identity):
+        return reverse("qgis_sso:cancel_invitation", args=[identity.pk])
+
+    def ask(self, identity):
+        """Open the confirmation page, which acts on nothing."""
+        return self.client.get(self.page(identity), follow=True)
+
+    def cancel(self, identity):
         with mock.patch(
             "qgis_sso.keycloak.KeycloakAdminClient", return_value=self.realm
         ):
-            return self.client.post(MANAGE, data, follow=True)
+            return self.client.post(self.page(identity), follow=True)
 
-    def test_it_asks_before_it_acts(self):
-        response = self.cancel(self.invitee.keycloak_identity, confirm=None)
+    def test_it_asks_on_a_page_of_its_own_before_it_acts(self):
+        response = self.ask(self.invitee.keycloak_identity)
 
-        self.assertContains(response, "Cancel this invitation?")
+        self.assertContains(response, "Cancel the invitation for one?")
         self.assertEqual(self.realm.deleted, [])
         self.assertTrue(User.objects.filter(username="one").exists())
+
+    def test_the_page_can_be_reloaded_without_acting(self):
+        """A confirmation with an address of its own survives a refresh."""
+        page = self.page(self.invitee.keycloak_identity)
+
+        self.assertEqual(self.client.get(page).status_code, 200)
+        self.assertEqual(self.client.get(page).status_code, 200)
+        self.assertEqual(self.realm.deleted, [])
+
+    def test_nobody_opens_the_page_for_a_row_outside_their_branch(self):
+        """Seeing the page and acting on it are the same check."""
+        theirs = contributor("theirs", ["author"], sponsor=self.superuser)
+
+        response = self.ask(theirs.keycloak_identity)
+
+        self.assertContains(response, "could not find that account")
 
     def test_everything_the_invitation_made_is_removed(self):
         self.cancel(self.invitee.keycloak_identity)
@@ -679,13 +700,7 @@ class CancellingAnInvitationTest(TestCase):
             "qgis_sso.keycloak.KeycloakAdminClient", side_effect=KeycloakError("no")
         ):
             response = self.client.post(
-                MANAGE,
-                {
-                    "action": "cancel-invitation",
-                    "identity": str(self.invitee.keycloak_identity.pk),
-                    "confirm": "yes",
-                },
-                follow=True,
+                self.page(self.invitee.keycloak_identity), follow=True
             )
 
         self.assertContains(response, "could not reach")
@@ -766,24 +781,25 @@ class CancellingAnInvitationTest(TestCase):
         self.assertNotContains(response, "cancel-invitation")
 
     def test_nothing_is_set_up_for_somebody_who_has_signed_in(self):
-        """Refused on the post too, not only hidden on the row.
+        """Refused when it is asked for, not only hidden on the row.
 
         Setting up and cancelling refuse this for different reasons and say so
-        differently, so the string asserted here is the setup one.
+        differently, so the string asserted here is the setup one. The link is a
+        row action and the email is a page, so each is asked for its own way.
         """
         identity = self.invitee.keycloak_identity
         identity.first_sso_login_at = timezone.now()
         identity.save(update_fields=["first_sso_login_at"])
+        email_page = reverse("qgis_sso:send_email", args=[identity.pk])
 
-        for action in ("send-email", "issue-link"):
+        for target, data in (
+            (MANAGE, {"action": "issue-link", "identity": str(identity.pk)}),
+            (email_page, {}),
+        ):
             with mock.patch(
                 "qgis_sso.keycloak.KeycloakAdminClient", return_value=self.realm
             ):
-                response = self.client.post(
-                    MANAGE,
-                    {"action": action, "identity": str(identity.pk), "confirm": "yes"},
-                    follow=True,
-                )
+                response = self.client.post(target, data, follow=True)
 
             self.assertContains(response, "has already signed in")
         self.assertEqual(self.realm.emailed, [])

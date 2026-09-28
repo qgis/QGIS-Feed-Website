@@ -9,6 +9,11 @@ use it: the list is open to anybody with a realm account and shows them their
 own branch, inviting an existing user is for administrators, and withdrawing
 trust, moving somebody to a new sponsor and offering to sponsor somebody each
 have their own rule.
+
+Every action that asks before it acts has a route here. Sending somebody their
+setup link and cancelling an invitation act on one row, so they take its id;
+each applies the same rule the list applied to the row, because a URL somebody
+typed had no row to hide it.
 """
 
 from django.urls import path
@@ -31,6 +36,16 @@ urlpatterns = [
         "manage/link/",
         views_manage.IssuedLinkView.as_view(),
         name="issued_link",
+    ),
+    path(
+        "manage/send-email/<int:pk>/",
+        views_manage.SendEmailView.as_view(),
+        name="send_email",
+    ),
+    path(
+        "manage/cancel-invitation/<int:pk>/",
+        views_manage.CancelInvitationView.as_view(),
+        name="cancel_invitation",
     ),
     path(
         "manage/invite/new/",

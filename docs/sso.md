@@ -105,10 +105,14 @@ happened to show it. Offering to sponsor somebody is the one exception, and it
 has its own rule: see [Offering to sponsor
 somebody](#offering-to-sponsor-somebody).
 
+An action that asks before it acts opens a page at its own address. You can read
+it, reload it, and leave again without anything having happened.
+
 | Action | What it does |
 |---|---|
-| Send email | Sends the account-setup email, after one confirmation. It reaches a real contributor and you cannot unsend it. |
+| Send email | Opens `/sso/manage/send-email/<id>/`, which asks first. The email reaches a real contributor and you cannot unsend it. |
 | Get the link | Shows the setup link on a page of its own. See [Handing over a link](#handing-over-a-link). |
+| Cancel invitation | Opens `/sso/manage/cancel-invitation/<id>/`, which asks first. See [Cancelling an invitation](#cancelling-an-invitation). |
 | Withdraw trust | Opens `/sso/manage/revoke/<id>/`. See [Withdrawing trust](#withdrawing-trust). |
 | New sponsor | Opens `/sso/manage/reparent/<id>/`. See [Rescuing a suspended account](#rescuing-a-suspended-account). |
 | Offer to sponsor | Opens `/sso/manage/sponsor/<id>/`. See [Offering to sponsor somebody](#offering-to-sponsor-somebody). |
@@ -129,10 +133,12 @@ for good who vouched for it. This is the first part of the
 
 - **New user.** Anyone whose roles carry quota can use this. You fill in a
   short form, and we create the account straight away both here and in the
-  realm. Nothing reaches the person until you send it.
+  realm. Nothing reaches the person until you send it. The role starts empty, so
+  you always choose it yourself.
 - **Existing user.** Superusers only, because it reaches the whole user list.
   It takes an account that already exists here and gives it a place in the
-  realm.
+  realm. You pick the people, and the next page names each one and what will
+  happen to them before anything is created.
 
 Who may offer what is the ladder in `SSO_ROLE_TIERS`, with quotas in
 `SSO_TIER_QUOTAS`.
@@ -150,6 +156,38 @@ the two allowances, never the sum of them. Every account you invited that has
 not signed in yet holds one of your places, and that place comes back to you
 when they do sign in. The username and the address must both be free here and
 in the realm.
+
+### What a username may contain
+
+The form applies the rules the realm applies, so a name it would refuse is
+refused here, with a message that says which rule it broke.
+
+| Rule | Why |
+|---|---|
+| Three characters or more | Keycloak's own floor. |
+| 255 characters or fewer | Keycloak's ceiling, and the same for the address and the two names. |
+| No spaces | Keycloak refuses whitespace in a username. A dot or an underscore reads as well. |
+| None of `< > & " '` | Keycloak refuses these in a username, a first name and a last name alike. |
+
+We save the username in lower case, so `NewBie` becomes `newbie`. Keycloak
+treats usernames case insensitively and stores them that way, and matching it
+means the account here and the QGIS account carry one name rather than two that
+differ by case.
+
+One Keycloak rule we do not repeat is the one about names that mix scripts so
+they read as somebody else's name. It depends on tables that change with each
+Unicode version, so the realm stays the only place it lives. A name it catches
+fails when we create the account, and the page says the account could not be
+created.
+
+### Cancelling an invitation
+
+Before the person signs in, the whole invitation can be undone. The row offers
+it, and `/sso/manage/cancel-invitation/<id>/` asks first, because it removes the
+account here and in the realm and cannot be undone. Nothing is kept, so the
+place comes back to you and the same person can be invited again with the same
+name and address. Once they have signed in there is nothing to cancel, and
+[withdrawing trust](#withdrawing-trust) is what is meant instead.
 
 ### Linking to an account that already exists in the realm
 

@@ -656,6 +656,14 @@ class CreateAccountsTest(SuperuserPage):
         self.assertEqual(self.realm.created, [])
         self.assertFalse(KeycloakIdentity.objects.exists())
 
+    def test_the_preview_is_a_page_of_its_own(self):
+        """Not a panel above the candidate list, which is scrolled past."""
+        response = self.post(CREATE, {"selected": [str(self.target.pk)]})
+
+        self.assertContains(response, "Create QGIS accounts for these people?")
+        self.assertNotContains(response, "Invite existing users")
+        self.assertNotContains(response, 'id="select-all"')
+
     def test_a_confirmed_post_creates_the_account_and_emails_nobody(self):
         self.post(CREATE, {"selected": [str(self.target.pk)], "confirm": "yes"})
 
@@ -736,43 +744,53 @@ class SendEmailTest(SuperuserPage):
         )
         self.identity = link(self.target)
 
-    def test_it_confirms_before_emailing_anybody(self):
+    def page(self, identity=None):
+        return reverse("qgis_sso:send_email", args=[(identity or self.identity).pk])
+
+    def test_it_confirms_on_a_page_of_its_own_before_emailing_anybody(self):
         """It reaches a real contributor and cannot be unsent."""
-        response = self.post(
-            PAGE, {"action": "send-email", "identity": str(self.identity.pk)}
-        )
+        response = self.client.get(self.page())
 
         self.assertContains(response, "cannot be called back")
+        self.assertContains(response, "alice@example.org")
         self.assertEqual(self.realm.emailed, [])
 
-    def test_a_confirmed_post_sends_and_records_it(self):
-        self.post(
-            PAGE,
-            {
-                "action": "send-email",
-                "identity": str(self.identity.pk),
-                "confirm": "yes",
-            },
-        )
+    def test_the_list_carries_a_link_to_that_page(self):
+        response = self.client.get(PAGE)
+
+        self.assertContains(response, self.page())
+
+    def test_a_post_to_that_page_sends_and_records_it(self):
+        self.post(self.page(), {})
 
         self.identity.refresh_from_db()
         self.assertEqual(self.realm.emailed, ["sub-alice"])
         self.assertEqual(self.identity.setup_email_send_count, 1)
 
-    def test_an_identity_that_does_not_exist_is_refused(self):
-        """The row carries an identity id, and a hand-made POST carries
-        whatever it likes; it is resolved rather than trusted."""
-        response = self.post(
-            PAGE,
-            {
-                "action": "send-email",
-                "identity": str(self.identity.pk + 999),
-                "confirm": "yes",
-            },
+    def test_it_comes_back_to_the_list_the_reader_left(self):
+        """The filters travel with the confirmation and come back with it."""
+        response = self.post(f"{self.page()}?state=linked&q=ali", {}, follow=False)
+
+        self.assertRedirects(
+            response, f"{PAGE}?state=linked&q=ali", fetch_redirect_response=False
         )
+
+    def test_an_identity_that_does_not_exist_is_refused(self):
+        """The id is in the URL now, and a typed URL carries whatever it likes;
+        it is resolved rather than trusted."""
+        url = reverse("qgis_sso:send_email", args=[self.identity.pk + 999])
+
+        response = self.post(url, {})
 
         self.assertContains(response, "could not find that account")
         self.assertEqual(self.realm.emailed, [])
+
+    def test_opening_the_page_for_a_missing_identity_is_refused_too(self):
+        url = reverse("qgis_sso:send_email", args=[self.identity.pk + 999])
+
+        response = self.client.get(url, follow=True)
+
+        self.assertContains(response, "could not find that account")
 
 
 @override_settings(**PAGE_SETTINGS)

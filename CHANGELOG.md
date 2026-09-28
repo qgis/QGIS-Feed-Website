@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A username the QGIS account service would refuse is now refused on the
+  invite form, and the message says why.** The form only checked that a name was
+  not empty and not taken. A name with a space in it, or one shorter than three
+  characters, passed here and was then refused at auth.qgis.org, so the reader
+  was told the service could not create the account just now. That was untrue and
+  gave them nothing to fix. The rules Keycloak applies now live in
+  `qgis_sso.validation` and the form applies them first: three to 255
+  characters, no spaces, and none of `< > & " '`, for the username and for both
+  names. The username is saved in lower case, which is how Keycloak stores it, so
+  the account here and the QGIS account carry one name instead of two that differ
+  by case. One rule stays with the realm, the one about names mixing scripts to
+  read as another name, because it depends on tables that change with the Unicode
+  version.
+- **The role on the invite form is no longer chosen for you.** The dropdown had
+  no empty option, so the browser preselected the first one, which is the most
+  privileged role the inviter may offer. An administrator who never opened the
+  dropdown created another administrator. It now starts on "Choose a role", and
+  the form says so if it is submitted without one.
+
 - **An invitation no longer refuses its own holder when Keycloak sits behind
   two addresses.** `QGIS_AUTH_URL` was doing two jobs: the public address that
   browsers use and tokens come from, and the address this site calls the admin
@@ -26,6 +45,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Every confirmation is a page of its own now.** Sending somebody their setup
+  link and cancelling an invitation used to ask in a panel above the people
+  table, and creating accounts for a wave of existing users asked above the
+  candidate list. A confirmation on a busy page is scrolled past, it is lost on a
+  refresh, and it has no address to come back to. Sending the email now lives at
+  `/sso/manage/send-email/<id>/` and cancelling at
+  `/sso/manage/cancel-invitation/<id>/`, which is how withdrawing trust and the
+  two sponsorship pages already worked. The wave preview keeps its post, because
+  the selection lives in that form, but it renders as a page with nothing behind
+  it. Each row action applies the same rule to a typed URL that the list applied
+  to the row, and the filter and the page you were on travel to the confirmation
+  and back.
 - **The people page costs the same however large the site gets.** It used to
   read every account in the database on every page load, whichever page you
   asked for: it built a row for everybody, then threw away the ones with no
