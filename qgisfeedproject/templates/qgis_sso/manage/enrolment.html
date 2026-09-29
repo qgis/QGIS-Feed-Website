@@ -120,7 +120,7 @@ cannot survive paging, and a whole wave is what the Django admin is for.
           {% if everyone %}
             <td>
               {% if row.sponsor %}
-                {{ row.sponsor.get_full_name|default:row.sponsor.username }}
+                {{ row.sponsor.username }}
               {% else %}
                 <span title="{% trans 'Nobody. This account was created before invitations existed.' %}">—</span>
               {% endif %}
