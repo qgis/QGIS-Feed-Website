@@ -197,11 +197,19 @@ p {
   .container {
     max-width: unset;
   }
+  .login-container {
+    width: 650px !important;
+  }
 }
 
 .login-container {
-  max-width: 100%;
-  min-width: 40dvw;
+  border-radius: 20px;
+  border: #ffffff1c solid;
+  backdrop-filter: blur(8px);
+}
+
+.login-container hr {
+  background-color: #dddddd;
 }
 
 .login-container hr {

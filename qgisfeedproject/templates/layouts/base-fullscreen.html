@@ -39,7 +39,7 @@
     {% include 'layouts/header.html' %}
     {% block pagetitle %}{% endblock %}
 
-    <section class="section">
+    <section class="section" style="margin-top: 6rem;">
         <div class="container content">
             {% if user.keycloak_identity.trust_state == 'suspended' %}
                 {# Every page, not only the ones somebody remembered to add it to. #}
