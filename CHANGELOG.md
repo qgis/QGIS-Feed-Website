@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Signing in with a local password works again.** The sign in page holds two
+  forms, one for each way in, and the QGIS form stayed open around the password
+  fields. HTML has no nested forms, so the browser dropped the inner one and the
+  username, the password and the Sign in button all belonged to the outer form.
+  Pressing Sign in sent a GET to the account service, which answered with the
+  Keycloak sign in page, so a local password could never be tried. The QGIS form
+  closes after its own button now. A test parses the page and asserts which form
+  will submit each control, because a string search through the markup cannot see
+  this.
+
 - **A username the QGIS account service would refuse is now refused on the
   invite form, and the message says why.** The form only checked that a name was
   not empty and not taken. A name with a space in it, or one shorter than three

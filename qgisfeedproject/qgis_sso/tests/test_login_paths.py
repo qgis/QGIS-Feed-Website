@@ -6,6 +6,8 @@ together. Gating only the form would leave the fallback wider than it looks,
 which is exactly the failure the migration plan is guarding against.
 """
 
+from html.parser import HTMLParser
+
 from django.conf import settings
 from django.test import TestCase, override_settings
 from django.urls import reverse
@@ -14,6 +16,52 @@ from ..models import SsoAuditEvent
 
 OIDC_ONLY = ["qgis_sso.auth.QGISOIDCAuthenticationBackend"]
 WITH_LOCAL = OIDC_ONLY + ["django.contrib.auth.backends.ModelBackend"]
+
+
+class FormOwnership(HTMLParser):
+    """Which form each named control ends up in, the way a browser sees it.
+
+    HTML has no nested forms. A second ``<form>`` inside an open one is dropped
+    by the parser, and every control under it is submitted by the outer form
+    instead, to the outer form's action and by its method. That is invisible in
+    the template and in any assertion that only searches the markup for a
+    string, so the page is parsed here instead.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.open_forms = []
+        #: Every form the browser keeps, as (method, action).
+        self.forms = []
+        #: control name -> (method, action) of the form that will submit it.
+        self.owners = {}
+
+    def handle_starttag(self, tag, attrs):
+        attributes = dict(attrs)
+        if tag == "form":
+            if self.open_forms:
+                # What the browser does with it, so the test sees it too.
+                return
+            form = (
+                (attributes.get("method") or "get").lower(),
+                attributes.get("action", ""),
+            )
+            self.open_forms.append(form)
+            self.forms.append(form)
+        elif tag in ("input", "button", "select", "textarea") and self.open_forms:
+            name = attributes.get("name") or attributes.get("id")
+            if name:
+                self.owners[name] = self.open_forms[-1]
+
+    def handle_endtag(self, tag):
+        if tag == "form" and self.open_forms:
+            self.open_forms.pop()
+
+    @classmethod
+    def read(cls, response):
+        parser = cls()
+        parser.feed(response.content.decode())
+        return parser
 
 
 class LoginPageTest(TestCase):
@@ -37,6 +85,41 @@ class LoginPageTest(TestCase):
 
         self.assertContains(response, "Sign in with your QGIS account")
         self.assertContains(response, 'name="password"')
+
+    @override_settings(LOCAL_LOGIN_ENABLED=True, AUTHENTICATION_BACKENDS=WITH_LOCAL)
+    def test_the_password_form_posts_here_and_not_to_keycloak(self):
+        """The two ways in are two forms, and HTML cannot nest them.
+
+        While the QGIS form stayed open around the password fields, the parser
+        dropped the inner form and the Sign in button submitted the outer one
+        instead: a GET to the provider, so every attempt at a local password
+        landed on the Keycloak login page.
+        """
+        page = FormOwnership.read(self.client.get(reverse("login")))
+
+        # An empty action is this page, which is where LoginView reads the
+        # credentials from.
+        self.assertEqual(page.owners["username"], ("post", ""))
+        self.assertEqual(page.owners["password"], ("post", ""))
+        self.assertEqual(page.owners["submit-button"], ("post", ""))
+
+    @override_settings(LOCAL_LOGIN_ENABLED=True, AUTHENTICATION_BACKENDS=WITH_LOCAL)
+    def test_the_qgis_button_still_reaches_the_provider(self):
+        page = FormOwnership.read(self.client.get(reverse("login")))
+
+        self.assertIn(("get", reverse("oidc_authentication_init")), page.forms)
+
+    @override_settings(LOCAL_LOGIN_ENABLED=True, AUTHENTICATION_BACKENDS=WITH_LOCAL)
+    def test_a_local_password_signs_somebody_in_from_the_page(self):
+        """End to end through the form, not through client.login."""
+        response = self.client.post(
+            reverse("login"),
+            {"username": "alice", "password": "correct horse"},
+        )
+
+        self.assertRedirects(
+            response, settings.LOGIN_REDIRECT_URL, fetch_redirect_response=False
+        )
 
     @override_settings(LOCAL_LOGIN_ENABLED=False, AUTHENTICATION_BACKENDS=OIDC_ONLY)
     def test_local_form_is_absent_when_disabled(self):
