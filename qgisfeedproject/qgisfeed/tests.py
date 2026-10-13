@@ -1996,7 +1996,13 @@ class SavedSpatialFilterTestCase(TestCase):
         csrf = self._csrf()
         response = self.client.post(
             reverse("saved_spatial_filters"),
-            data=json.dumps({"name": "Test", "description": "desc", "geometry": self.POLYGON_GEOJSON}),
+            data=json.dumps(
+                {
+                    "name": "Test",
+                    "description": "desc",
+                    "geometry": self.POLYGON_GEOJSON,
+                }
+            ),
             content_type="application/json",
             HTTP_X_CSRFTOKEN=csrf,
         )
@@ -2020,11 +2026,14 @@ class SavedSpatialFilterTestCase(TestCase):
         self.assertEqual(response.status_code, 400)
 
     def test_delete(self):
-        from .models import SavedSpatialFilter
         from django.contrib.gis.geos import Polygon
 
+        from .models import SavedSpatialFilter
+
         geom = Polygon(((0, 0), (1, 0), (1, 1), (0, 1), (0, 0)))
-        f = SavedSpatialFilter.objects.create(user=self.admin, name="ToDelete", geometry=geom)
+        f = SavedSpatialFilter.objects.create(
+            user=self.admin, name="ToDelete", geometry=geom
+        )
 
         self.client.login(username="admin", password="admin")
         csrf = self._csrf()
@@ -2036,12 +2045,15 @@ class SavedSpatialFilterTestCase(TestCase):
         self.assertFalse(SavedSpatialFilter.objects.filter(pk=f.pk).exists())
 
     def test_delete_other_users_filter_returns_404(self):
-        from .models import SavedSpatialFilter
         from django.contrib.gis.geos import Polygon
+
+        from .models import SavedSpatialFilter
 
         other_user = User.objects.get(username="staff")
         geom = Polygon(((0, 0), (1, 0), (1, 1), (0, 1), (0, 0)))
-        f = SavedSpatialFilter.objects.create(user=other_user, name="OtherFilter", geometry=geom)
+        f = SavedSpatialFilter.objects.create(
+            user=other_user, name="OtherFilter", geometry=geom
+        )
 
         self.client.login(username="admin", password="admin")
         csrf = self._csrf()
