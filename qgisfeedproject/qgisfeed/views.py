@@ -392,7 +392,11 @@ class FeedsListView(View):
 
         user = request.user
         user_can_add = user.has_perm("qgisfeed.add_qgisfeedentry")
-        user_can_change = user.has_perm("qgisfeed.change_qgisfeedentry")
+
+        # Editability is per entry: an author may edit their own entry without
+        # holding the global change permission.
+        for feed in feeds_entry:
+            feed.user_can_edit = can_edit_entry(user, feed)
 
         return render(
             request,
@@ -404,7 +408,6 @@ class FeedsListView(View):
                 "current_order": current_order,
                 "form": form,
                 "count": count,
-                "user_can_change": user_can_change,
                 "user_can_add": user_can_add,
             },
         )

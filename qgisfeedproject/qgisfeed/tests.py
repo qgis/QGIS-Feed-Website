@@ -682,6 +682,67 @@ class FeedsListViewTestCase(TestCase):
         self.assertTrue("form" in response.context)
         self.assertTrue("count" in response.context)
 
+    def test_author_can_open_own_draft(self):
+        # An author without the global change permission can still open
+        # their own draft from the list
+        author = User.objects.get(username="staff")
+        author.groups.add(Group.objects.get(name="qgisfeedentry_authors"))
+        self.assertFalse(
+            User.objects.get(pk=author.pk).has_perm("qgisfeed.change_qgisfeedentry")
+        )
+
+        draft = QgisFeedEntry.objects.create(
+            title="Draft written by the author",
+            content="Draft content",
+            author=author,
+            status=QgisFeedEntry.DRAFT,
+            publish_from=timezone.now(),
+        )
+
+        self.client.login(username="staff", password="staff")
+        response = self.client.get(
+            reverse("feeds_list"), {"title": "Draft written by the author"}
+        )
+
+        self.assertEqual(response.status_code, 200)
+        entries = list(response.context["feeds_entry"])
+        self.assertEqual([entry.pk for entry in entries], [draft.pk])
+        self.assertTrue(entries[0].user_can_edit)
+        self.assertContains(response, reverse("feed_entry_update", args=[draft.pk]))
+
+    def test_author_cannot_open_entry_of_another_author(self):
+        # The same author gets no edit link for an entry someone else wrote
+        author = User.objects.get(username="staff")
+        author.groups.add(Group.objects.get(name="qgisfeedentry_authors"))
+
+        other_entry = QgisFeedEntry.objects.get(pk=7)
+        self.assertNotEqual(other_entry.author, author)
+
+        self.client.login(username="staff", password="staff")
+        response = self.client.get(reverse("feeds_list"), {"title": other_entry.title})
+
+        self.assertEqual(response.status_code, 200)
+        entries = list(response.context["feeds_entry"])
+        self.assertEqual([entry.pk for entry in entries], [other_entry.pk])
+        self.assertFalse(entries[0].user_can_edit)
+        self.assertNotContains(
+            response, reverse("feed_entry_update", args=[other_entry.pk])
+        )
+
+    def test_reviewer_can_open_any_entry(self):
+        # A user with publish permission keeps the edit link on every entry
+        reviewer = User.objects.get(username="staff")
+        reviewer.groups.add(Group.objects.get(name="qgisfeedentry_approver"))
+
+        other_entry = QgisFeedEntry.objects.get(pk=7)
+
+        self.client.login(username="staff", password="staff")
+        response = self.client.get(reverse("feeds_list"), {"title": other_entry.title})
+
+        self.assertEqual(response.status_code, 200)
+        entries = list(response.context["feeds_entry"])
+        self.assertTrue(entries[0].user_can_edit)
+
     def test_geofence_feature(self):
         c = Client(
             HTTP_USER_AGENT="Mozilla/5.0 QGIS/32400/Windows 10",
@@ -1996,7 +2057,13 @@ class SavedSpatialFilterTestCase(TestCase):
         csrf = self._csrf()
         response = self.client.post(
             reverse("saved_spatial_filters"),
-            data=json.dumps({"name": "Test", "description": "desc", "geometry": self.POLYGON_GEOJSON}),
+            data=json.dumps(
+                {
+                    "name": "Test",
+                    "description": "desc",
+                    "geometry": self.POLYGON_GEOJSON,
+                }
+            ),
             content_type="application/json",
             HTTP_X_CSRFTOKEN=csrf,
         )
@@ -2020,11 +2087,14 @@ class SavedSpatialFilterTestCase(TestCase):
         self.assertEqual(response.status_code, 400)
 
     def test_delete(self):
-        from .models import SavedSpatialFilter
         from django.contrib.gis.geos import Polygon
 
+        from .models import SavedSpatialFilter
+
         geom = Polygon(((0, 0), (1, 0), (1, 1), (0, 1), (0, 0)))
-        f = SavedSpatialFilter.objects.create(user=self.admin, name="ToDelete", geometry=geom)
+        f = SavedSpatialFilter.objects.create(
+            user=self.admin, name="ToDelete", geometry=geom
+        )
 
         self.client.login(username="admin", password="admin")
         csrf = self._csrf()
@@ -2036,12 +2106,15 @@ class SavedSpatialFilterTestCase(TestCase):
         self.assertFalse(SavedSpatialFilter.objects.filter(pk=f.pk).exists())
 
     def test_delete_other_users_filter_returns_404(self):
-        from .models import SavedSpatialFilter
         from django.contrib.gis.geos import Polygon
+
+        from .models import SavedSpatialFilter
 
         other_user = User.objects.get(username="staff")
         geom = Polygon(((0, 0), (1, 0), (1, 1), (0, 1), (0, 0)))
-        f = SavedSpatialFilter.objects.create(user=other_user, name="OtherFilter", geometry=geom)
+        f = SavedSpatialFilter.objects.create(
+            user=other_user, name="OtherFilter", geometry=geom
+        )
 
         self.client.login(username="admin", password="admin")
         csrf = self._csrf()

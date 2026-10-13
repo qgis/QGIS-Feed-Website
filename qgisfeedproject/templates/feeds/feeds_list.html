@@ -223,7 +223,7 @@
       <tbody>
           {% for feed in feeds_entry %}
 
-            {% if user_can_change %}
+            {% if feed.user_can_edit %}
               <tr onclick="window.location.href='{% url 'feed_entry_update' feed.pk %}';" class="pointer">
             {% else %}
               <tr>
