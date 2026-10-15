@@ -3,6 +3,7 @@ hljs.registerLanguage('json', require('highlight.js/lib/languages/json'));
 hljs.highlightAll();
 
 require('../style/scss/style.scss');
+require('./form_busy');
 
 document.addEventListener('DOMContentLoaded', () => {
 

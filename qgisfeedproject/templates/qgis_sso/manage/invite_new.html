@@ -1,0 +1,129 @@
+{% extends 'layouts/base-fullscreen.html' %}
+{% load i18n %}
+
+{% comment %}
+Bringing in somebody with no account here. The role list offers only what the
+inviter's own tier allows; the view checks that again, because a form is only a
+suggestion.
+{% endcomment %}
+
+{% block content %}
+<div class="sso-profile">
+  <div class="is-flex is-justify-content-space-between is-align-items-center mb-4">
+    <div>
+      <h1 class="title is-4">{% trans "Invite a new user" %}</h1>
+      <p class="subtitle is-6">
+        {% blocktrans trimmed %}
+          Create a new QGIS account for someone who does not have one.
+          You will be able to share the invitation link with them, and withdraw trust when you need to.
+        {% endblocktrans %}
+      </p>
+    </div>
+    <a class="button is-light" href="{% url 'qgis_sso:enrolment' %}">
+      {% trans "Back" %}
+    </a>
+  </div>
+
+  <div class="box-content">
+    {% if error %}
+      <div class="notification is-danger">{{ error }}</div>
+    {% endif %}
+
+      <form method="post" action="">
+      {% csrf_token %}
+      {% blocktrans trimmed asvar username_rule %}
+        A username cannot contain spaces, or any of < > & " '.
+      {% endblocktrans %}
+      <div class="field">
+        <label class="label" for="username">{% trans "Username" %}</label>
+        <div class="control">
+          <input class="input" type="text" id="username" name="username"
+                 required minlength="3" maxlength="255"
+                 pattern="[^&lt;&gt;&amp;&quot;'\s]{3,255}"
+                 title="{{ username_rule }}"
+                 value="{{ form.username|default:"" }}">
+        </div>
+        <p class="help">
+          {% trans "What their entries will be credited to." %}
+          {{ username_rule }}
+          {% trans "We save it in lowercase, so NewBie becomes newbie." %}
+        </p>
+      </div>
+      <div class="field">
+        <label class="label" for="email">{% trans "Email" %}</label>
+        <div class="control">
+          <input class="input" type="email" id="email" name="email"
+                 required value="{{ form.email|default:"" }}">
+        </div>
+        <p class="help">
+          {% trans "Where their setup link goes. They will need to reach it." %}
+        </p>
+      </div>
+      <div class="field">
+        <label class="label" for="first_name">{% trans "First name" %}</label>
+        <div class="control">
+          <input class="input" type="text" id="first_name" name="first_name"
+                 value="{{ form.first_name|default:"" }}">
+        </div>
+      </div>
+      <div class="field">
+        <label class="label" for="last_name">{% trans "Last name" %}</label>
+        <div class="control">
+          <input class="input" type="text" id="last_name" name="last_name"
+                 value="{{ form.last_name|default:"" }}">
+        </div>
+      </div>
+      <div class="field">
+        <label class="label" for="role">{% trans "Role" %}</label>
+        <div class="control">
+          <div class="select">
+            <select id="role" name="role" required>
+              <option value="" disabled {% if not form.role %}selected{% endif %}>
+                {% trans "Choose a role" %}
+              </option>
+              {% for value, name in roles %}
+                <option value="{{ value }}"
+                        {% if form.role == value %}selected{% endif %}>{{ name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+        <p class="help">{% trans "You can only offer a role at or below your own." %}</p>
+      </div>
+
+      <div class="buttons">
+        <button class="button is-primary1" type="submit"
+                {% if not unlimited and not remaining %}disabled{% endif %}>
+          {% trans "Create the account" %}
+        </button>
+      </div>
+      <p class="help">
+        {% if unlimited %}
+          {% trans "You may invite as many people as you need." %}
+        {% elif remaining %}
+          {% blocktrans trimmed count counter=remaining %}
+            One place left. This is how many invitations you may have waiting
+            at once, not how many people you may invite. A place comes back
+            when somebody signs in, or when you cancel their invitation on the
+            people page.
+          {% plural %}
+            {{ counter }} places left. This is how many invitations you may
+            have waiting at once, not how many people you may invite. A place
+            comes back when somebody signs in, or when you cancel their
+            invitation on the people page.
+          {% endblocktrans %}
+        {% else %}
+          {% blocktrans trimmed %}
+            Every place you have is waiting for somebody. A place comes back
+            when one of them signs in, or when you cancel an invitation
+            somebody is never going to take up.
+          {% endblocktrans %}
+          <a href="{% url 'qgis_sso:enrolment' %}">
+            {% trans "Cancel an invitation on the people page" %}
+          </a>
+        {% endif %}
+      </p>
+    </form>
+  </div>
+</div>
+{% endblock content %}

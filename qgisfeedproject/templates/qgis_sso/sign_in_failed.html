@@ -1,0 +1,57 @@
+{% extends 'layouts/base-fullscreen.html' %}
+{% load i18n %}
+
+{% comment %}
+Shown instead of a traceback when authentication does not complete. By far the
+most common cause is a valid QGIS account with no account on this site, so
+that case is named; anything else gets a generic message rather than a reason
+we cannot actually establish.
+{% endcomment %}
+
+{% block content %}
+<div class="columns is-centered">
+  <div class="column is-6">
+    {% if rate_limited %}
+      <h1 class="title">{% translate "Too many sign-in attempts" %}</h1>
+      <p>
+        {% blocktranslate %}Too many attempts have come from your address in a short time. Wait a few minutes and try again.{% endblocktranslate %}
+      </p>
+    {% elif no_permission %}
+      <h1 class="title">{% translate "You do not have access to that page" %}</h1>
+      <p>
+        {% blocktranslate %}You are signed in, but your role does not cover that page.{% endblocktranslate %}
+      </p>
+      <p>
+        {% blocktranslate %}Your roles are refreshed each time you sign in. Sign out and in again. If that does not help, ask a feed maintainer to check your roles.{% endblocktranslate %}
+      </p>
+    {% elif no_account %}
+      <h1 class="title">{% translate "You need an invitation" %}</h1>
+      <p>
+        {% blocktranslate %}Your QGIS account works, but there is no account for you on this site. Accounts here are created by invitation, so a QGIS account is not enough on its own.{% endblocktranslate %}
+      </p>
+      <p>
+        {% blocktranslate %}Ask a feed maintainer to invite you. Tell them the QGIS account name you signed in with.{% endblocktranslate %}
+      </p>
+    {% else %}
+      <h1 class="title">{% translate "We could not sign you in" %}</h1>
+      <p>
+        {% blocktranslate %}Something went wrong. This is usually temporary, so try again.{% endblocktranslate %}
+      </p>
+    {% endif %}
+
+    <div class="buttons mt-5">
+      <a class="button is-success" href="{% url 'login' %}">
+        {% translate "Try again" %}
+      </a>
+      {% if support_url %}
+      <a class="button is-light" href="{{ support_url }}">
+        <span class="icon is-small">
+          <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
+        </span>
+        <span>{% translate "Get help" %}</span>
+      </a>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock content %}

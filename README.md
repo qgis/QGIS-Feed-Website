@@ -159,7 +159,7 @@ Each table records the **count of requests** (hits) for each unique value per da
 ### 🪪 Badges
 | Badge | Description |
 |-------|-------------|
-| [![Lint and Django Unit Tests](https://github.com/qgis/QGIS-Feed-Website/actions/workflows/test.yaml/badge.svg)](https://github.com/qgis/QGIS-Feed-Website/actions/workflows/test.yaml) | Lint and Django Unit Tests |
+| [![Nix Checks and Django Unit Tests](https://github.com/qgis/QGIS-Feed-Website/actions/workflows/nix.yaml/badge.svg)](https://github.com/qgis/QGIS-Feed-Website/actions/workflows/nix.yaml) | Nix Checks and Django Unit Tests |
 | [![Build and Push Docker Image to DockerHub](https://github.com/qgis/QGIS-Feed-Website/actions/workflows/build_push_image.yml/badge.svg)](https://github.com/qgis/QGIS-Feed-Website/actions/workflows/build_push_image.yml) | Build and Push Docker Image to DockerHub |
 | ![Website Status](https://img.shields.io/website-up-down-green-red/https/feed.qgis.org.svg) | Website availability status |
 | ![License](https://img.shields.io/github/license/qgis/QGIS-Feed-Website.svg) | Repository license |

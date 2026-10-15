@@ -1,4 +1,4 @@
 -r REQUIREMENTS.txt
 
 # For production only
-gunicorn~=22.0
+gunicorn~=23.0

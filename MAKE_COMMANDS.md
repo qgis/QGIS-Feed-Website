@@ -3,6 +3,31 @@
 ## Overview
 This doc is designed for managing the Docker-based project. It includes various commands for building, running, and maintaining both production and development environments. Below is a detailed description of each command available in the Makefile.
 
+## Docker or Nix?
+
+The Docker commands below remain fully supported. There is now also a Nix
+flake that runs the whole development stack, including PostgreSQL/PostGIS,
+without Docker - see the [Nix section](./CONTRIBUTING.md#️-nix) in
+CONTRIBUTING.md. Equivalents for the development commands:
+
+The Nix column assumes you are inside `nix develop`.
+
+| Docker | Nix |
+|---|---|
+| `make dev-build` | not needed - `nix develop` builds the environment |
+| `make dev-start` | `./nix/scripts/db-start.sh` then `./nix/scripts/dev.sh` |
+| `make dev-stop` | `./nix/scripts/db-stop.sh` (Ctrl-C stops `dev`) |
+| `make dev-migrate` | `./nix/scripts/manage.sh migrate` |
+| `make dev-update-migrations` | `./nix/scripts/manage.sh makemigrations` |
+| `make dev-dbseed` | `./nix/scripts/db-reset.sh` (also recreates the schema) |
+| `make dev-dbrestore` | `./nix/scripts/db-restore.sh` (qgisfeed only - metabase is not in the Nix stack) |
+| `make dev-createsuperuser` | `./nix/scripts/manage.sh createsuperuser` |
+| `make dev-runtests` | `./nix/scripts/test.sh` |
+| `make dev-logs` | not applicable - `./nix/scripts/dev.sh` logs to the foreground |
+
+The production commands have no Nix equivalent here: the NixOS deployment is
+managed with `nixosModules.qgisfeed` and `systemctl`, not the Makefile.
+
 ## Commands
 
 ### Production Commands

@@ -149,10 +149,11 @@ def get_location(remote_addr: str) -> str:
     This should be used only for the geofence feature
     and won't be saved in the database.
     """
-    g = GeoIP2()
     if remote_addr:
         try:
-            location = g.city(remote_addr)
+            # Constructing GeoIP2 raises when the database is missing, so it
+            # belongs inside the guard alongside the lookup.
+            location = GeoIP2().city(remote_addr)
             location_wkt = f"POINT({location['longitude']} {location['latitude']})"
             return location_wkt
         except Exception:

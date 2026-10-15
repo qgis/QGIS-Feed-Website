@@ -3,6 +3,7 @@
 @import "custom.bulma.scss";
 @import "sustaining_members.scss";
 @import "feed_item_preview.scss";
+@import "sso_enrolment.scss";
 
 html {
   scroll-padding-top: 120px; /* height of your fixed header */
@@ -196,11 +197,19 @@ p {
   .container {
     max-width: unset;
   }
+  .login-container {
+    width: 650px !important;
+  }
 }
 
 .login-container {
-  max-width: 100%;
-  min-width: 40dvw;
+  border-radius: 20px;
+  border: #ffffff1c solid;
+  backdrop-filter: blur(8px);
+}
+
+.login-container hr {
+  background-color: #dddddd;
 }
 
 .login-container hr {
@@ -413,4 +422,20 @@ h4:hover > a.heading-anchor,
 h5:hover > a.heading-anchor,
 h6:hover > a.heading-anchor {
   visibility: visible;
+}
+
+
+// Logging out is a POST, so it is a <button> where the menu's other entries
+// are <a>. Strip the button chrome so it renders as the navbar-item it is.
+.navbar-dropdown form {
+  margin: 0;
+}
+
+.navbar-item.logout-item {
+  background: none;
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  width: 100%;
 }

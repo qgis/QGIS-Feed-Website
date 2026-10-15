@@ -1,0 +1,136 @@
+{% extends 'layouts/base-fullscreen.html' %}
+{% load i18n %}
+
+{% comment %}
+Moving one account to a new sponsor. Everybody it brings back is listed by name
+rather than counted, the same way the revoke page lists everybody it reaches:
+this is the other end of the same cascade.
+{% endcomment %}
+
+{% block content %}
+<div class="sso-profile">
+  <div class="is-flex is-justify-content-space-between is-align-items-center mb-4">
+    <div>
+      <h1 class="title is-4">
+        {% blocktrans trimmed with username=subject.user.username %}
+          Move {{ username }} to a new sponsor
+        {% endblocktrans %}
+      </h1>
+      <p class="subtitle is-6">{{ subject.user.email }}</p>
+    </div>
+    <a class="button is-light" href="{% url 'qgis_sso:enrolment' %}">
+      {% trans "Back" %}
+    </a>
+  </div>
+
+  <div class="box-content sso-confirm">
+    {% if subject.trust_state == 'suspended' %}
+      <div class="notification is-info is-light">
+        {% blocktrans trimmed with was=subject.sponsor.username %}
+          This account is suspended because {{ was }} lost their access. Giving
+          it a new sponsor brings it back.
+        {% endblocktrans %}
+      </div>
+    {% else %}
+      <p class="mb-4">
+        {% blocktrans trimmed with was=subject.sponsor.username|default:"nobody" %}
+          Invited by {{ was }} at the moment. The new sponsor takes on
+          responsibility for this account.
+        {% endblocktrans %}
+      </p>
+    {% endif %}
+
+    {% if rescued %}
+      <h2 class="title is-6">{% trans "Who else comes back" %}</h2>
+      <p class="mb-3">
+        {% blocktrans trimmed count counter=rescued|length %}
+          One account below this one was suspended at the same time. It becomes
+          active again too.
+        {% plural %}
+          {{ counter }} accounts below this one were suspended at the same time.
+          They become active again too.
+        {% endblocktrans %}
+      </p>
+      <table class="table is-fullwidth sso-table">
+        <thead>
+          <tr>
+            <th scope="col" class="sso-account">{% trans "Account" %}</th>
+            <th scope="col">{% trans "Invited by" %}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for node in rescued %}
+            <tr>
+              <td class="sso-account">
+                {{ node.user.username }}<br>
+                <small>{{ node.user.email }}</small>
+              </td>
+              <td>{{ node.sponsor.username|default:"—" }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% endif %}
+
+    <form method="post" action="">
+      {% csrf_token %}
+
+      <div class="field">
+        <label class="label" for="sponsor">{% trans "New sponsor" %}</label>
+        <div class="control">
+          <div class="select is-fullwidth">
+            <select id="sponsor" name="sponsor" required>
+              <option value="">{% trans "Choose somebody" %}</option>
+              {% for candidate in sponsors %}
+                <option value="{{ candidate.user_id }}">
+                  {{ candidate.user.get_full_name|default:candidate.user.username }}
+                  ({{ candidate.user.username }})
+                </option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+        <p class="help">
+          {% if sponsor_missing %}
+            <span class="has-text-danger">
+              {% trans "Choose who takes this account on." %}
+            </span>
+          {% else %}
+            {% blocktrans trimmed %}
+              Only people whose own role is high enough to invite this account
+              are listed. Nobody below it can take it on.
+            {% endblocktrans %}
+          {% endif %}
+        </p>
+      </div>
+
+      <div class="field">
+        <label class="label" for="reason">{% trans "Reason" %}</label>
+        <div class="control">
+          <textarea class="textarea" id="reason" name="reason" rows="3"
+                    required>{{ reason }}</textarea>
+        </div>
+        <p class="help">
+          {% if reason_missing %}
+            <span class="has-text-danger">
+              {% trans "A reason is required. It goes in the audit trail." %}
+            </span>
+          {% else %}
+            {% trans "Goes in the audit trail, and is visible to maintainers." %}
+          {% endif %}
+        </p>
+      </div>
+
+      <div class="buttons">
+        <button class="button is-primary1" type="submit">
+          <span class="icon is-small"><i class="fas fa-people-arrows"></i></span>
+          <span>{% trans "Move to the new sponsor" %}</span>
+        </button>
+        <a class="button is-light" href="{% url 'qgis_sso:enrolment' %}">
+          {% trans "Cancel" %}
+        </a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock content %}

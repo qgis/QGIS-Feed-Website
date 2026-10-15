@@ -1,8 +1,10 @@
-FROM python:3.7
+FROM python:3.12
 ENV PYTHONUNBUFFERED 1
 RUN apt-get update
 RUN echo "Installing GDAL dependencies" && \
     apt-get install -y libgdal-dev libcurl4-gnutls-dev librtmp-dev && \
+    echo "Installing libpq for psycopg2 (built from source, no wheels published)" && \
+    apt-get install -y libpq-dev && \
     echo "Installing other depdencies" && \
     apt-get install -y wait-for-it && \
     echo "Install C library for geoip2" && \
@@ -17,7 +19,7 @@ WORKDIR /code
 RUN apt-get update && apt-get install -y curl && curl -LJO https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-City.mmdb && \
     mkdir /var/opt/maxmind && \
     mv GeoLite2-City.mmdb /var/opt/maxmind/GeoLite2-City.mmdb
-    
+
 ENV GEOIP_PATH=/var/opt/maxmind/
 
 COPY REQUIREMENTS.txt /code/

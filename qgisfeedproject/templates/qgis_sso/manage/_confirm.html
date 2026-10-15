@@ -1,0 +1,36 @@
+{% extends 'layouts/base-fullscreen.html' %}
+{% load i18n %}
+
+{% block content %}
+<div class="sso-profile">
+  <div class="is-flex is-justify-content-space-between is-align-items-center mb-4">
+    <h1 class="title is-4">{% block heading %}{% endblock heading %}</h1>
+    <a class="button is-light" href="{{ back }}">{% trans "Back" %}</a>
+  </div>
+
+  <div class="box-content sso-confirm">
+    <div class="notification {% block tone %}is-warning{% endblock tone %} is-light">
+      {% block consequence %}{% endblock consequence %}
+    </div>
+
+    {% block detail %}{% endblock detail %}
+
+    <form method="post" action="">
+      {% csrf_token %}
+      <div class="buttons">
+        <button class="button {% block action_class %}is-primary1{% endblock action_class %}"
+                type="submit">
+          <span class="icon is-small">
+            <i class="{% block action_icon %}fas fa-check{% endblock action_icon %}"></i>
+          </span>
+          <span>{% block action_label %}{% endblock action_label %}</span>
+        </button>
+        <a class="button is-light" href="{{ back }}">
+          {% block escape_label %}{% trans "Go back" %}{% endblock escape_label %}
+        </a>
+      </div>
+      {% block footnote %}{% endblock footnote %}
+    </form>
+  </div>
+</div>
+{% endblock content %}
