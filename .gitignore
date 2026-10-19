@@ -118,14 +118,24 @@ qgisfeedproject/media/feedimages/*
 
 # Web pack files and folder
 node_modules
-package-lock.json
+# package-lock.json is committed on purpose: it is what makes the npm side of
+# both the docker images and the Nix staticAssets derivation reproducible.
 webpack-stats.json
 qgisfeedproject/static/bundles
 !qgisfeedproject/qgisfeedproject/settings_local.py.templ
 qgisfeedproject/qgisfeedproject/settings_local_override.py
+qgisfeedproject/qgisfeedproject/settings_local_override_nix.py
 
 # Sustaining members template
 qgisfeedproject/templates/layouts/sustaining_members.html
 
 .vscode
 .vscode-extensions
+
+# Nix development environment state: local postgres cluster, collected static
+# files, downloaded GeoIP database. All reproducible, none of it committed.
+.nix/
+result
+
+# Claude Code local settings
+.claude/
