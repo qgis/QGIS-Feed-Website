@@ -119,6 +119,41 @@ $ cp settings_local_override.py.templ settings_local_override.py
 
 **IMPORTANT NOTE**: As we are migrating to a declarative based infrastructure, it is preferable to use the `settings_local_override.py` file for all new Django variables. This file is ignored when commiting so please make sure you define your new variables with an example value (**NOT THE REAL ONE FOR SECRETS AND PASSWORDS**) inside the `settings_local_override.py.templ` file.
 
+#### Where each setting comes from
+
+The application reads its configuration from two places, and it helps to know
+which one owns a given setting.
+
+The **environment** owns anything that changes between a laptop, the docker
+stack and production, and that is not a secret. `settings.py` reads these:
+
+| Variable | Default | What it does |
+|---|---|---|
+| `DEBUG` | `True` | Turn it off anywhere you would not want a stack trace on screen. |
+| `DOMAIN_NAME` | empty | Public hostnames, comma separated. `CSRF_TRUSTED_ORIGINS` is derived from it. |
+| `QGIS_FEED_PROD_URL` | empty | The older name for the same thing, still read as a fallback. |
+| `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT` | `qgisfeed`, `qgisfeed`, empty, `/var/run/postgresql`, `5432` | The database connection. The `QGISFEED_DOCKER_*` names still work as fallbacks. |
+| `STATIC_ROOT` | `qgisfeedproject/static_collected` | Where `collectstatic` writes. |
+| `MEDIA_ROOT` | `qgisfeedproject/media` | Where uploads are kept. |
+| `GEOIP_PATH` | `/var/opt/maxmind/` | The directory holding `GeoLite2-City.mmdb`. |
+| `GDAL_LIBRARY_PATH`, `GEOS_LIBRARY_PATH` | unset | Explicit paths to libgdal and libgeos. Leave them unset unless the usual library search fails. |
+
+The default database host is a path, which libpq reads as a unix socket
+directory. That suits a local PostgreSQL, so the compose files pass a hostname
+of their own.
+
+**`settings_local_override.py`** owns the secrets and the handful of settings
+that have no environment variable. It is applied last, so anything you name in
+it wins over the environment, including an empty string. Only list the settings
+you mean to set. See `settings_local_override.py.templ` for the full list.
+
+`SECRET_KEY` deserves a note. The value in `settings.py` is committed, so it is
+public, and anyone can forge a session or a password reset token against a site
+still using it. It is named `INSECURE_DEFAULT_SECRET_KEY` so a deployment can
+compare `SECRET_KEY` against it and refuse to start. Django's own deployment
+check will not catch this for you, because the committed key is long and varied
+enough to pass `security.W009`.
+
 #### Spin up the development environment
 
 - Start the docker the container
