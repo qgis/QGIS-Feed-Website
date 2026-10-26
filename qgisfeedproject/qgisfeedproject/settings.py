@@ -10,8 +10,10 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/2.2/ref/settings/
 """
 
+import importlib.util
 import logging
 import os
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -251,27 +253,34 @@ DJANGO_LOCAL_SETTINGS = os.environ.get(
     "DJANGO_LOCAL_SETTINGS", "settings_local_override.py"
 )
 
-try:
-    from pathlib import Path
 
+def apply_local_settings_override(namespace: dict[str, object]) -> bool:
+    """Copy every upper-case name from the local override file into namespace.
+
+    DJANGO_LOCAL_SETTINGS may be a bare filename, resolved next to this module,
+    or an absolute path, which is how a declarative deployment points at a file
+    provisioned outside the source tree.
+
+    Returns True when an override file was found and applied. A settings module
+    that assigns values after importing this one can call it again at its end,
+    so the site override keeps the last word.
+    """
+    local_settings_path = Path(__file__).parent / DJANGO_LOCAL_SETTINGS
     print(f"Looking for local settings override in {DJANGO_LOCAL_SETTINGS}")
 
-    local_settings_path = Path(__file__).parent / DJANGO_LOCAL_SETTINGS
-    if local_settings_path.exists():
-        import importlib.util
+    if not local_settings_path.exists():
+        return False
 
-        spec = importlib.util.spec_from_file_location(
-            "settings_local_override", local_settings_path
-        )
-        settings_local_override = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(settings_local_override)
-        for setting in dir(settings_local_override):
-            if setting.isupper():
-                globals()[setting] = getattr(settings_local_override, setting)
-        print(f"Loaded local settings override from {DJANGO_LOCAL_SETTINGS}")
-    else:
-        raise ImportError(
-            f"Local settings file {DJANGO_LOCAL_SETTINGS} does not exist."
-        )
-except ImportError:
-    pass
+    spec = importlib.util.spec_from_file_location(
+        "settings_local_override", local_settings_path
+    )
+    override = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(override)
+    for setting in dir(override):
+        if setting.isupper():
+            namespace[setting] = getattr(override, setting)
+    print(f"Loaded local settings override from {DJANGO_LOCAL_SETTINGS}")
+    return True
+
+
+apply_local_settings_override(globals())
