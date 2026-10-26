@@ -1,0 +1,45 @@
+from django.db import migrations, models
+
+
+class Migration(migrations.Migration):
+
+    dependencies = [
+        ("qgisfeed", "0020_savedspatialfilter"),
+    ]
+
+    operations = [
+        migrations.AlterField(
+            model_name="feedentryreview",
+            name="action",
+            field=models.CharField(
+                choices=[
+                    ("approve", "Approve"),
+                    ("request_changes", "Request Changes"),
+                    ("comment", "Comment"),
+                    ("reject", "Reject"),
+                ],
+                help_text="Review action taken",
+                max_length=20,
+                verbose_name="Action",
+            ),
+        ),
+        migrations.AlterField(
+            model_name="qgisfeedentry",
+            name="status",
+            field=models.CharField(
+                choices=[
+                    ("draft", "Draft"),
+                    ("pending_review", "Pending Review"),
+                    ("changes_requested", "Changes Requested"),
+                    ("approved", "Approved"),
+                    ("published", "Published"),
+                    ("rejected", "Rejected"),
+                ],
+                db_index=True,
+                default="draft",
+                help_text="Current workflow status of the entry",
+                max_length=20,
+                verbose_name="Status",
+            ),
+        ),
+    ]
