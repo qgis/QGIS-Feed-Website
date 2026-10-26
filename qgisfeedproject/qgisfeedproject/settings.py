@@ -23,12 +23,21 @@ SITE_ROOT = os.path.dirname(os.path.realpath(__file__))
 # See https://docs.djangoproject.com/en/2.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = "w*x1d0%17@hd6lx8gq#45#8w(w&a-!vupt41%#^ryyxs3l%hz9"
+# Named so a deployment can assert it has been replaced.
+INSECURE_DEFAULT_SECRET_KEY = "w*x1d0%17@hd6lx8gq#45#8w(w&a-!vupt41%#^ryyxs3l%hz9"
+SECRET_KEY = INSECURE_DEFAULT_SECRET_KEY
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.environ.get("DEBUG", "True").strip().lower() in ("1", "true", "yes")
 
-ALLOWED_HOSTS = [os.environ.get("QGIS_FEED_PROD_URL", "")]
+# Public hostnames, comma separated. DOMAIN_NAME is what the NixOS
+# infrastructure passes; QGIS_FEED_PROD_URL is the docker compose name.
+_domains = os.environ.get("DOMAIN_NAME") or os.environ.get("QGIS_FEED_PROD_URL", "")
+ALLOWED_HOSTS = [host.strip() for host in _domains.split(",") if host.strip()]
+
+# Required for any POST over HTTPS behind a TLS-terminating proxy.
+CSRF_TRUSTED_ORIGINS = [f"https://{host}" for host in ALLOWED_HOSTS]
+CORS_ORIGIN_WHITELIST = CSRF_TRUSTED_ORIGINS
 
 
 # Application definition
@@ -96,14 +105,26 @@ WSGI_APPLICATION = "qgisfeedproject.wsgi.application"
 # Database
 # https://docs.djangoproject.com/en/2.2/ref/settings/#databases
 
+
+def _db(name: str, legacy: str, default: str) -> str:
+    """Read a database setting, preferring the current name.
+
+    The QGISFEED_DOCKER_* spelling predates the move off docker and is still
+    what the compose files pass, so it is accepted as a fallback.
+    """
+    return os.getenv(name) or os.getenv(legacy) or default
+
+
+# The defaults target a local PostgreSQL over its unix socket, which is how the
+# application is deployed. The compose files pass the docker values explicitly.
 DATABASES = {
     "default": {
         "ENGINE": "django.contrib.gis.db.backends.postgis",
-        "NAME": os.getenv("QGISFEED_DOCKER_DBNAME", "qgisfeed"),
-        "USER": os.getenv("QGISFEED_DOCKER_DBUSER", "docker"),
-        "PASSWORD": os.getenv("QGISFEED_DOCKER_DBPASSWORD", "docker"),
-        "HOST": os.getenv("QGISFEED_DOCKER_DBHOST", "postgis"),
-        "PORT": "5432",
+        "NAME": _db("DB_NAME", "QGISFEED_DOCKER_DBNAME", "qgisfeed"),
+        "USER": _db("DB_USER", "QGISFEED_DOCKER_DBUSER", "qgisfeed"),
+        "PASSWORD": _db("DB_PASSWORD", "QGISFEED_DOCKER_DBPASSWORD", ""),
+        "HOST": _db("DB_HOST", "QGISFEED_DOCKER_DBHOST", "/var/run/postgresql"),
+        "PORT": _db("DB_PORT", "QGISFEED_DOCKER_DBPORT", "5432"),
     }
 }
 
@@ -148,10 +169,23 @@ STATICFILES_DIRS = [
     os.path.join(BASE_DIR, "static"),
 ]
 
-MEDIA_ROOT = os.path.join(BASE_DIR, "media")
+# Destination for collectstatic. Kept outside STATICFILES_DIRS, which Django
+# refuses to overlap with.
+STATIC_ROOT = os.environ.get("STATIC_ROOT", os.path.join(BASE_DIR, "static_collected"))
+
+# The default keeps uploads in the checkout, where the test fixture images live.
+MEDIA_ROOT = os.environ.get("MEDIA_ROOT", os.path.join(BASE_DIR, "media"))
 MEDIA_URL = "/media/"
 
-GEOIP_PATH = "/var/opt/maxmind/"
+# Directory holding GeoLite2-City.mmdb. MaxMind licensed, so it ships
+# separately; without it the geofence feature resolves no location.
+GEOIP_PATH = os.environ.get("GEOIP_PATH", "/var/opt/maxmind/")
+
+# GeoDjango loads libgdal and libgeos with ctypes and reads their locations as
+# settings, not environment variables. Under Nix the store paths are invisible
+# to ctypes.util.find_library, so the wrappers export them and they land here.
+GDAL_LIBRARY_PATH = os.environ.get("GDAL_LIBRARY_PATH")
+GEOS_LIBRARY_PATH = os.environ.get("GEOS_LIBRARY_PATH")
 
 # This can be specified in settings_local
 MAIN_WEBSITE_URL = "https://qgis.org"

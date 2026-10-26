@@ -123,6 +123,9 @@ qgisfeedproject/static/bundles
 !qgisfeedproject/qgisfeedproject/settings_local.py.templ
 qgisfeedproject/qgisfeedproject/settings_local_override.py
 
+# collectstatic destination when STATIC_ROOT is left at its default
+qgisfeedproject/static_collected
+
 # Sustaining members template
 qgisfeedproject/templates/layouts/sustaining_members.html
 
