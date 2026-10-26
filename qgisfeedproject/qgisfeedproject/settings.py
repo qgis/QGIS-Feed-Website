@@ -136,8 +136,6 @@ TIME_ZONE = "UTC"
 
 USE_I18N = True
 
-USE_L10N = True
-
 USE_TZ = False
 
 
@@ -221,6 +219,7 @@ DJANGO_LOCAL_SETTINGS = os.environ.get(
 
 try:
     from pathlib import Path
+
     print(f"Looking for local settings override in {DJANGO_LOCAL_SETTINGS}")
 
     local_settings_path = Path(__file__).parent / DJANGO_LOCAL_SETTINGS
