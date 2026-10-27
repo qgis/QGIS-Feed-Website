@@ -1631,7 +1631,6 @@ class RevisionSnapshotTestCase(TestCase):
 
     def test_no_revision_when_nothing_changed(self):
         """create_revision_snapshot returns None and writes no DB row when nothing changed."""
-        from qgisfeed.models import QgisFeedEntry
         from qgisfeed.utils import create_revision_snapshot
 
         entry = self._make_entry()
