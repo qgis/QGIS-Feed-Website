@@ -468,11 +468,13 @@
 <script type="text/javascript" src="{% static 'js/chosen.jquery.min.js' %}"></script>
 <script type="text/javascript" src="{% static 'js/feed_item_form.js' %}"></script>
 <script>
+    const CONTENT_MAX_CHARS = {{content_max_length}};
+
     tinymce.init({
-        max_chars: {{content_max_length}},
         selector: 'textarea#id_content',
         menubar: false,
-        plugins: "preview searchreplace visualblocks code fullscreen insertdatetime paste help wordcount spellchecker",
+        license_key: 'gpl',
+        plugins: "preview searchreplace visualblocks code fullscreen insertdatetime help wordcount",
         toolbar: "undo redo | bold italic | searchreplace | code preview ",
         valid_elements: "p,strong,i",
         formats: {
@@ -508,7 +510,7 @@
             var allowedKeys = [8, 37, 38, 39, 40, 46]; // backspace, delete and cursor keys
             editor.on('keydown', function (e) {
                 if (allowedKeys.indexOf(e.keyCode) != -1) return true;
-                if (tinymce_getContentLength(this) + 1 > this.settings.max_chars) {
+                if (tinymce_getContentLength(this) + 1 > CONTENT_MAX_CHARS) {
                     e.preventDefault();
                     e.stopPropagation();
                     return false;
@@ -520,14 +522,13 @@
             $('.tox-statusbar__path').after('<div class="char_count" style="text-align:right"></div>');
             tinymce_updateCharCounter(this, tinymce_getContentLength(this));
         },
-        paste_preprocess: function (plugin, args) {
-            var editor = tinymce.get(tinymce.activeEditor.id);
+        paste_preprocess: function (editor, args) {
             var len = tinymce_getContentLength(editor);
             var tempDiv = document.createElement('div');
             tempDiv.innerHTML = args.content;
             var text = tempDiv.textContent || tempDiv.innerText || "";
-            if (len + text.length > editor.settings.max_chars) {
-                alert('Pasting this exceeds the maximum allowed number of ' + editor.settings.max_chars +
+            if (len + text.length > CONTENT_MAX_CHARS) {
+                alert('Pasting this exceeds the maximum allowed number of ' + CONTENT_MAX_CHARS +
                     ' characters.');
                 args.content = '';
             } else {
@@ -537,8 +538,8 @@
     });
 
     function tinymce_updateCharCounter(el, len) {
-        $('#' + el.id).next().find('.char_count').text(len + '/' + el.settings.max_chars + ' CHARACTERS');
-        let isCharExceed = len > el.settings.max_chars
+        $('#' + el.id).next().find('.char_count').text(len + '/' + CONTENT_MAX_CHARS + ' CHARACTERS');
+        let isCharExceed = len > CONTENT_MAX_CHARS
 
         if (window.updateContentExceededState) {
             window.updateContentExceededState(isCharExceed);
@@ -547,7 +548,7 @@
             'color', isCharExceed ? 'red' : 'inherit'
         );
         contentError.innerText = isCharExceed ?
-            `Ensure this value has at most ${el.settings.max_chars} characters (it has ${len}).` : ''
+            `Ensure this value has at most ${CONTENT_MAX_CHARS} characters (it has ${len}).` : ''
     }
 
     function tinymce_getContentLength(editor) {
