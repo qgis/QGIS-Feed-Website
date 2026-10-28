@@ -1,4 +1,5 @@
-name: pr-test
+name: test
+
 on:
   pull_request:
     branches:
@@ -6,54 +7,44 @@ on:
   push:
     branches:
       - master
+  workflow_dispatch:
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
-  lint:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version:
-          - '3.12'
-
-    steps:
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v6
-      with:
-        python-version: ${{ matrix.python-version }}
-        architecture: x64
-
-    - name: Checkout
-      uses: actions/checkout@v5
-
-    - name: Install Python requirements
-      run: pip install -r REQUIREMENTS.txt
-
   test:
+    name: Run checks
     runs-on: ubuntu-latest
-    needs:
-      - lint
+    timeout-minutes: 45
 
     steps:
-    - name: Checkout
-      uses: actions/checkout@v5
+      - name: Checkout
+        uses: actions/checkout@v5
 
-    - name: Generate the .env file
-      run: cp env.template .env
+      # The virtual machine check needs more disk than a runner ships with.
+      - name: Reclaim disk space for the Nix store
+        uses: wimpysworld/nothing-but-nix@main
 
-    - name: Run docker-compose build
-      run: docker compose -f docker-compose.dev.yml build
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          # Authenticated input fetches, so the run does not hit the anonymous
+          # GitHub API rate limit.
+          extra_nix_config: |
+            access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
 
-    - name: Run the containers
-      run: docker compose -f docker-compose.dev.yml up -d postgis qgisfeed webpack
+      - name: Enable the Nix cache
+        uses: DeterminateSystems/magic-nix-cache-action@main
 
-    - name: Wait for the containers to start
-      run: sleep 60
+      # The Django suite against PostGIS, the closure under systemd in a VM,
+      # and treefmt over Nix, shell and Python.
+      - name: Run the checks
+        run: nix flake check -L
 
-    - name: Run test
-      run: |
-        docker compose -f docker-compose.dev.yml exec -T qgisfeed python qgisfeedproject/manage.py makemigrations
-        docker compose -f docker-compose.dev.yml exec -T qgisfeed python qgisfeedproject/manage.py migrate
-        docker compose -f docker-compose.dev.yml exec -T qgisfeed python qgisfeedproject/manage.py test qgisfeed
-        exit_code=$?
-        docker compose -f docker-compose.dev.yml down
-        exit $exit_code
+      - name: Build the application package
+        run: nix build .#qgisfeed -L --no-link
