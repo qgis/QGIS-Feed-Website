@@ -57,13 +57,157 @@ Now, the configured checks (such as linting and formatting) will run automatical
 
 ### ❄️ Nix
 
-For Nix/NixOS users, you can run the following command on this project root folder:
+The flake gives you the whole development stack: Python, Node, and a
+project-local PostgreSQL with PostGIS. You do not need Docker if you work this
+way.
 
 ```sh
-nix-shell
-./vscode.sh
+nix develop     # direnv users just need to cd into the checkout
+dev             # starts the database, webpack and the site on :8000
 ```
-TODO: Install all dependecies when running nix-shell.
+
+`dev` is the only command you need to run the site. It brings up PostgreSQL,
+downloads the GeoIP database if it is missing, applies the migrations, builds
+the webpack bundles and starts the development server, in that order.
+
+Run `db-reset` once to load the fixtures, which create the same users as the
+Docker path. Then open <http://localhost:8000>.
+
+The shell prints what it provides on entry, and `dev-help` shows it again:
+
+| Command | What it does |
+|---|---|
+| `dev` | Start the database, webpack and the development server |
+| `manage` | Run a Django management command |
+| `tests` | Run the Django test suite |
+| `db-reset` | Drop and recreate the database, migrate, load the fixtures |
+| `db-restore` | Restore the database from a `pg_dump` archive |
+| `fetch-geoip` | Download the GeoLite2 City database |
+
+`dev` only exists inside the shell, and its processes inherit the environment
+from it. It is deliberately not a flake output, because one started without
+that environment would fail.
+
+`nix build .#qgisfeed` works from anywhere. `nix fmt` formats the Nix and shell
+files and lints the Python with ruff, all through treefmt. Python formatting
+belongs to the pre-commit hook, which runs black and isort over the files you
+touch.
+
+`nix flake check` runs three things: the Django test suite against a PostGIS
+cluster in the build sandbox, the application closure under systemd in a NixOS
+virtual machine, and treefmt in check mode. That is also what CI runs. The
+virtual machine check needs KVM, so it is Linux only.
+
+#### How it is put together
+
+- **The stack** is a [process-compose](https://github.com/F1bonacc1/process-compose)
+  configuration, with PostgreSQL coming from
+  [services-flake](https://github.com/juspay/services-flake). Nothing here
+  starts or stops a database by hand. Ctrl-C stops everything.
+- **State** lives in `.nix/`, which is git-ignored: the cluster in
+  `.nix/pgdata`, its socket in `.nix/run`, the GeoIP database in `.nix/geoip`.
+  Delete the directory to start over.
+- **The database** is an unprivileged cluster owned by you, and Django connects
+  as your own user, because the cluster has no other role. It listens on a
+  unix socket inside the repository and binds no network interface, so it
+  cannot clash with a system PostgreSQL or be reached from another machine.
+  PostGIS is installed into `template1`, so the throwaway database the Django
+  test runner creates inherits it.
+- **Settings** come from `qgisfeedproject/settings_nix.py`, which inherits
+  `settings.py`, relaxes `ALLOWED_HOSTS` and picks the database role.
+  Everything else arrives through the environment the dev shell exports.
+- **Python dependencies** come from nixpkgs, except three that nixpkgs cannot
+  supply at the version this project needs. Those are built from real
+  derivations in `nix/python-packages.nix`. There is no pip step and no
+  virtualenv.
+- **nixpkgs** is pinned centrally for every QGIS repository through
+  [qgis-nixpkgs-version](https://github.com/QGIS/qgis-nixpkgs-version). Bump it
+  there, not here.
+- **Shell helpers** are ordinary scripts in `nix/scripts/`, wrapped by the
+  flake. Nothing but wiring lives in the `.nix` files.
+- **The flake is split by output.** `flake.nix` holds the inputs and nothing
+  else, and each output class lives in its own file:
+
+  | File | Produces |
+  |---|---|
+  | `flake/packages.nix` | The derivations, and the values the other parts share |
+  | `flake/checks.nix` | Everything `nix flake check` runs |
+  | `flake/shells.nix` | The development shell |
+  | `flake/formatter.nix` | `nix fmt` |
+
+  `flake/` wires outputs together. `nix/` holds the things that build, which
+  includes `nix/dev-stack.nix`, the process-compose definition behind `dev`. To
+  add a helper you only need `flake/shells.nix` and `nix/scripts/`.
+
+The flake supports `x86_64-linux` and `aarch64-darwin`. nixpkgs has dropped
+`x86_64-darwin`, and nothing here needs `aarch64-linux`.
+
+#### Configuration
+
+The dev stack runs with no configuration at all. When you do want to change
+something, there is one file, and you create it by copying the template:
+
+```sh
+cd qgisfeedproject/qgisfeedproject
+cp settings_local.py.templ settings_local.py
+```
+
+`settings_local.py` is git-ignored, and `settings.py` applies it last, so
+anything you set there wins. Every value in the template is commented out, so
+a fresh copy changes nothing until you edit it.
+
+The two settings worth knowing about let you work against a copy of the live
+site:
+
+```python
+MEDIA_ROOT = '/home/you/data/feed.qgis.org/media'
+QGISFEED_BACKUP_DIR = '/home/you/data/feed.qgis.org/dbbackups'
+```
+
+Then `db-restore` finds `latest-qgisfeed.dmp` in that directory, and the
+uploads the restored rows refer to resolve against the same media. Secrets go
+here too: SMTP, the social tokens, the OIDC client secret. Keeping them in a
+settings file rather than the environment means they are not exported into
+every shell you open.
+
+The Docker stack's `.env` is deliberately not read. It sets
+`DJANGO_LOCAL_SETTINGS` to the Docker override, which calls `os.mkdir` on a
+path that exists only inside a container and takes every management command
+down with it.
+
+Production uses neither. Secrets reach the systemd unit through
+`EnvironmentFile`, so they never enter the world-readable Nix store.
+
+#### GeoIP data
+
+The geofence feature needs `GeoLite2-City.mmdb`. It is MaxMind licensed, so we
+neither commit nor vendor it. `dev` fetches it on first start, and
+`fetch-geoip` does it on demand. Delete the file to get a fresh copy. Without
+it, location lookups return no result.
+
+#### Deployment
+
+The flake exports no NixOS module. The QGIS infrastructure already has a
+generic `qgis.djangoApp` module that owns PostgreSQL, nginx, Metabase, ACME and
+the state directories, and a second module here would compete with it. This
+flake's job is to produce the application closure.
+
+`nix build` gives you two entry points:
+
+| Binary | Purpose |
+|---|---|
+| `qgisfeed-manage` | The `manage.py` wrapper, for `migrate` and `collectstatic` |
+| `qgisfeed-uwsgi` | uWSGI with the python3 plugin, speaking the uwsgi protocol to nginx |
+
+There is deliberately no gunicorn entry point. nginx uses `uwsgiPass`, and the
+Docker image runs gunicorn from its own entrypoint rather than from this
+closure.
+
+The package publishes a `passthru` set so a deployment reads the program names,
+the WSGI module and the base uWSGI tuning off the derivation instead of
+restating them. The `nixos-service` check boots a virtual machine and runs the
+closure under systemd, which is the only place a unit that cannot write its
+state directory or reach PostgreSQL would show up before a host does.
 
 ### ⚡️ Quick Start
 - Build the docker the container

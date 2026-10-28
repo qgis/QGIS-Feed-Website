@@ -3,6 +3,31 @@
 ## Overview
 This doc is designed for managing the Docker-based project. It includes various commands for building, running, and maintaining both production and development environments. Below is a detailed description of each command available in the Makefile.
 
+## Docker or Nix?
+
+The Docker commands below are fully supported. There is now also a Nix flake
+that runs the whole development stack, PostgreSQL and PostGIS included, without
+Docker. See the [Nix section](./CONTRIBUTING.md#️-nix) in CONTRIBUTING.md.
+
+The Nix column assumes you are inside `nix develop`, where `dev-help` lists
+every command.
+
+| Docker | Nix |
+|---|---|
+| `make dev-build` | Not needed, `nix develop` builds the environment |
+| `make dev-start` | `dev`, which starts the database, webpack and the server together |
+| `make dev-stop` | Ctrl-C in `dev` stops everything |
+| `make dev-migrate` | `manage migrate`, and `dev` runs it on every start |
+| `make dev-update-migrations` | `manage makemigrations` |
+| `make dev-dbseed` | `db-reset`, which also recreates the schema |
+| `make dev-dbrestore` | `db-restore`, for qgisfeed only, since Metabase is not in this stack |
+| `make dev-createsuperuser` | `manage createsuperuser` |
+| `make dev-runtests` | `tests` |
+| `make dev-logs` | Not applicable, `dev` shows every process in the foreground |
+
+The production commands have no Nix equivalent here. The flake builds the
+application closure, and the QGIS infrastructure decides how to run it.
+
 ## Commands
 
 ### Production Commands
