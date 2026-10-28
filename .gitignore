@@ -121,6 +121,7 @@ node_modules
 webpack-stats.json
 qgisfeedproject/static/bundles
 !qgisfeedproject/qgisfeedproject/settings_local.py.templ
+qgisfeedproject/qgisfeedproject/settings_local.py
 qgisfeedproject/qgisfeedproject/settings_local_override.py
 
 # collectstatic destination when STATIC_ROOT is left at its default

@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/2.2/ref/settings/
 import importlib.util
 import logging
 import os
+import sys
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -189,7 +190,7 @@ GEOIP_PATH = os.environ.get("GEOIP_PATH", "/var/opt/maxmind/")
 GDAL_LIBRARY_PATH = os.environ.get("GDAL_LIBRARY_PATH")
 GEOS_LIBRARY_PATH = os.environ.get("GEOS_LIBRARY_PATH")
 
-# This can be specified in settings_local
+# Can be overridden in the local settings file.
 MAIN_WEBSITE_URL = "https://qgis.org"
 
 DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "noreply")
@@ -201,11 +202,6 @@ EMAIL_PORT = os.environ.get("EMAIL_PORT", 587)
 EMAIL_USE_TLS = os.environ.get("EMAIL_USE_TLS", True)
 EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "noreply")
 EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
-
-try:
-    from .settings_local import *
-except ImportError:
-    pass
 
 LOGIN_REDIRECT_URL = "/manage"
 LOGOUT_REDIRECT_URL = "/"
@@ -249,9 +245,7 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 
 # Local settings overrides
 # Must be the last!
-DJANGO_LOCAL_SETTINGS = os.environ.get(
-    "DJANGO_LOCAL_SETTINGS", "settings_local_override.py"
-)
+DJANGO_LOCAL_SETTINGS = os.environ.get("DJANGO_LOCAL_SETTINGS", "settings_local.py")
 
 
 def apply_local_settings_override(namespace: dict[str, object]) -> bool:
@@ -266,20 +260,18 @@ def apply_local_settings_override(namespace: dict[str, object]) -> bool:
     so the site override keeps the last word.
     """
     local_settings_path = Path(__file__).parent / DJANGO_LOCAL_SETTINGS
-    print(f"Looking for local settings override in {DJANGO_LOCAL_SETTINGS}")
+    print(f"Looking for local settings in {DJANGO_LOCAL_SETTINGS}", file=sys.stderr)
 
     if not local_settings_path.exists():
         return False
 
-    spec = importlib.util.spec_from_file_location(
-        "settings_local_override", local_settings_path
-    )
+    spec = importlib.util.spec_from_file_location("settings_local", local_settings_path)
     override = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(override)
     for setting in dir(override):
         if setting.isupper():
             namespace[setting] = getattr(override, setting)
-    print(f"Loaded local settings override from {DJANGO_LOCAL_SETTINGS}")
+    print(f"Loaded local settings from {DJANGO_LOCAL_SETTINGS}", file=sys.stderr)
     return True
 
 

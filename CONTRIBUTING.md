@@ -112,12 +112,12 @@ QGISFEED_MAX_RECORDS=40  # default value is 20
 
 - Create settings_local_override.py file
 ```bash
-$ cp settings_local_override.py.templ settings_local_override.py
+$ cp settings_local.py.templ settings_local_override.py
 ```
 
 - Edit settings_local_override.py file and set your environment variables
 
-**IMPORTANT NOTE**: As we are migrating to a declarative based infrastructure, it is preferable to use the `settings_local_override.py` file for all new Django variables. This file is ignored when commiting so please make sure you define your new variables with an example value (**NOT THE REAL ONE FOR SECRETS AND PASSWORDS**) inside the `settings_local_override.py.templ` file.
+**IMPORTANT NOTE**: As we are migrating to a declarative based infrastructure, it is preferable to use the `settings_local_override.py` file for all new Django variables. This file is ignored when commiting so please make sure you define your new variables with an example value (**NOT THE REAL ONE FOR SECRETS AND PASSWORDS**) inside the `settings_local.py.templ` file.
 
 #### Where each setting comes from
 
@@ -145,7 +145,7 @@ of their own.
 **`settings_local_override.py`** owns the secrets and the handful of settings
 that have no environment variable. It is applied last, so anything you name in
 it wins over the environment, including an empty string. Only list the settings
-you mean to set. See `settings_local_override.py.templ` for the full list.
+you mean to set. See `settings_local.py.templ` for the full list.
 
 `SECRET_KEY` deserves a note. The value in `settings.py` is committed, so it is
 public, and anyone can forge a session or a password reset token against a site
