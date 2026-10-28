@@ -1,0 +1,197 @@
+{% extends 'layouts/base-fullscreen.html' %}
+{% load i18n %}
+
+{% comment %}
+Somebody's own account. The passkey buttons do not register anything here: they
+start a sign-in that asks Keycloak to run the action, because a passkey belongs
+to auth.qgis.org and no other site can create or delete one.
+{% endcomment %}
+
+{% block content %}
+<div class="sso-profile">
+  <h1 class="title is-4">{% trans "Your account" %}</h1>
+  <p class="subtitle is-6">
+    {% blocktrans trimmed %}
+      Your account details, what you can do on the feed, and the passkeys you
+      sign in with.
+    {% endblocktrans %}
+  </p>
+    <div class="box-content mb-5">
+      {% if identity %}
+      <div class="is-flex is-justify-content-end">
+        <a class="button is-light" href="{{ SSO_ACCOUNT_URL }}"
+            target="_blank" rel="noopener noreferrer">
+            <span class="icon is-small"><i class="fas fa-pencil"></i></span>
+            <span>{% trans "Edit profile" %}</span>
+        </a>
+      </div>
+      {% endif %}
+      <table class="table is-fullwidth sso-table">
+        <tbody>
+          <tr>
+            <th scope="row" class="sso-account">{% trans "Username" %}</th>
+            <td class="sso-account">{{ user.username }}</td>
+          </tr>
+          <tr>
+            <th scope="row" class="sso-account">{% trans "Email" %}</th>
+            <td class="sso-account">{{ user.email|default:"—" }}</td>
+          </tr>
+          <tr>
+            <th scope="row" class="sso-account">{% trans "You can" %}</th>
+            <td class="sso-account">
+              {% for permission in permissions %}
+                <span class="tag is-info">{{ permission }}</span>
+              {% empty %}
+                {% trans "Nothing yet. Ask a feed maintainer." %}
+              {% endfor %}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+  {% if offers %}
+    <h2 class="title is-5">{% trans "Somebody has offered to sponsor you" %}</h2>
+    <p class="mb-3">
+      {% blocktrans trimmed %}
+        Your account is suspended because the person who invited you lost their
+        access. Accepting an offer makes that person your sponsor, and you can
+        work again.
+      {% endblocktrans %}
+    </p>
+    {% for offer in offers %}
+      <div class="box-content mb-4">
+        <h3 class="title is-6">
+          {% blocktrans trimmed with sponsor=offer.sponsor.get_full_name|default:offer.sponsor.username %}
+            {{ sponsor }} offers to sponsor you
+          {% endblocktrans %}
+        </h3>
+        <p class="mb-3">{{ offer.reason }}</p>
+        <form method="post" action="" class="buttons">
+          {% csrf_token %}
+          <input type="hidden" name="offer" value="{{ offer.pk }}">
+          <button class="button is-primary1" type="submit"
+                  name="action" value="accept-sponsorship">
+            <span class="icon is-small"><i class="fas fa-check"></i></span>
+            <span>{% trans "Accept" %}</span>
+          </button>
+          <button class="button is-light" type="submit"
+                  name="action" value="decline-sponsorship">
+            {% trans "Decline" %}
+          </button>
+        </form>
+      </div>
+    {% endfor %}
+  {% endif %}
+
+  {% if offers_made %}
+    <h2 class="title is-5">{% trans "Offers you have made" %}</h2>
+    <p class="mb-3">
+      {% blocktrans trimmed %}
+        Each of these is waiting for an answer. Nothing changes until the person
+        accepts.
+      {% endblocktrans %}
+    </p>
+    {% for offer in offers_made %}
+      <div class="box-content mb-4">
+        <h3 class="title is-6">
+          {% blocktrans trimmed with username=offer.identity.user.username %}
+            You offered to sponsor {{ username }}
+          {% endblocktrans %}
+        </h3>
+        <p class="mb-3">{{ offer.reason }}</p>
+        <form method="post" action="" class="buttons">
+          {% csrf_token %}
+          <input type="hidden" name="offer" value="{{ offer.pk }}">
+          <button class="button is-light" type="submit"
+                  name="action" value="withdraw-sponsorship">
+            {% trans "Withdraw the offer" %}
+          </button>
+        </form>
+      </div>
+    {% endfor %}
+  {% endif %}
+
+  {% if not identity %}
+    <div class="notification is-info">
+      {% blocktrans trimmed %}
+        This account does not sign in with a QGIS account, so there are no
+        passkeys to manage here. Ask a feed maintainer to invite you.
+      {% endblocktrans %}
+    </div>
+  {% else %}
+    <h2 class="title is-5">{% trans "Passkeys" %}</h2>
+    <p class="mb-3">
+      <i class="fa-solid fa-circle-info has-text-success mr-1" aria-hidden="true"></i>
+      <a href="{% url 'qgis_sso:help' %}#passkeys">
+        {% trans "What passkeys are, and how to add or remove one" %}
+      </a>
+    </p>
+    <div class="notification is-primary3 is-light">
+      {% blocktrans trimmed %}
+        Keep at least two passkeys, on two different devices. Losing one device
+        then does not lock you out.
+      {% endblocktrans %}
+    </div>
+    <div id="passkey-list"
+         data-passkey-url="{% url 'qgis_sso:passkey_list' %}"
+         aria-live="polite" aria-busy="true">
+      <div class="box-content has-text-centered">
+        <span class="sso-busy-spinner" aria-hidden="true"></span>
+        <p class="is-size-7">{% trans "Loading your passkeys" %}</p>
+      </div>
+    </div>
+
+    <noscript>
+      <div class="notification is-warning">
+        {% blocktrans trimmed %}
+          Your passkeys need JavaScript to load. Turn it on for this site, or
+          manage your passkeys at your QGIS account instead.
+        {% endblocktrans %}
+      </div>
+    </noscript>
+        {% endif %}
+</div>
+{% endblock content %}
+
+{% block javascripts %}
+{% blocktrans trimmed asvar passkey_error %}
+  We could not load your passkeys. Reload the page to try again.
+{% endblocktrans %}
+<script>
+  // The passkey list comes from the server already rendered, so every string
+  // stays in the translation catalogue and the markup lives in one template.
+  (function () {
+    const slot = document.getElementById('passkey-list');
+    if (!slot) {
+      return;
+    }
+    fetch(slot.dataset.passkeyUrl, {
+      credentials: 'same-origin',
+      headers: { 'X-Requested-With': 'XMLHttpRequest' },
+    })
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error('passkeys');
+        }
+        return response.text();
+      })
+      .then((html) => {
+        slot.innerHTML = html;
+      })
+      .catch(() => {
+        // The endpoint renders its own warning when the realm is unreachable,
+        // so getting here means the request itself did not arrive.
+        // escapejs, because a translation is free to contain an apostrophe
+        // and that would otherwise end the string early.
+        slot.innerHTML =
+          '<div class="notification is-warning">' +
+          '{{ passkey_error|escapejs }}' +
+          '</div>';
+      })
+      .finally(() => {
+        slot.setAttribute('aria-busy', 'false');
+      });
+  })();
+</script>
+{% endblock javascripts %}

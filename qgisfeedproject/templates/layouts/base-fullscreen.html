@@ -1,4 +1,4 @@
-{% load static feed_utils %}
+{% load static feed_utils i18n %}
 
 <!DOCTYPE html>
 <html lang="en" class="has-navbar-fixed-top">
@@ -12,7 +12,7 @@
     </title>
 
     <link rel="icon" type="image/png" href="{% static "images/favicon.ico" %}" />
-    
+
     <!-- Icons -->
     <link rel="stylesheet" href="{% static 'font-awesome/css/all.min.css' %}" type="text/css">
 
@@ -38,9 +38,35 @@
     ></qg-top-nav>
     {% include 'layouts/header.html' %}
     {% block pagetitle %}{% endblock %}
-    
-    <section class="section">
+
+    <section class="section" style="margin-top: 6rem;">
         <div class="container content">
+            {% if user.keycloak_identity.trust_state == 'suspended' %}
+                {# Every page, not only the ones somebody remembered to add it to. #}
+                <div class="notification is-warning">
+                    {% if user.keycloak_identity.is_offered_a_sponsor %}
+                        {% blocktrans trimmed %}
+                            Your account is suspended, and somebody has offered
+                            to sponsor you. Accept the offer and you can make
+                            changes again.
+                        {% endblocktrans %}
+                        <a href="{% url 'qgis_sso:profile' %}">
+                            {% trans "Read the offer" %}
+                        </a>
+                    {% else %}
+                        {% blocktrans trimmed %}
+                            Your account is suspended because the person who invited
+                            you had their access withdrawn. You can sign in, but you
+                            cannot make changes. A maintainer can restore it, and so
+                            can a colleague who offers to sponsor you.
+                        {% endblocktrans %}
+                    {% endif %}
+                    <i class="fa-solid fa-circle-info has-text-success mr-1" aria-hidden="true"></i>
+                    <a href="{% url 'qgis_sso:help' %}#suspended">
+                        {% trans "What suspended means" %}
+                    </a>
+                </div>
+            {% endif %}
             {% if messages %}
                 {% for message in messages %}
                     <div class="notification is-light
@@ -53,7 +79,8 @@
                         {% endif %}
                     ">
                         <button class="delete"></button>
-                        <p{% if message.tags %} class="{{ message.tags }}"{% endif %}>{{ message|safe }}</p>
+                        {# Not |safe: messages carry usernames and provider error text. #}
+                        <p{% if message.tags %} class="{{ message.tags }}"{% endif %}>{{ message }}</p>
                     </div>
                 {% endfor %}
             {% endif %}

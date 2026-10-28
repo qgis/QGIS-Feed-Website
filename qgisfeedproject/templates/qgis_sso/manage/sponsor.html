@@ -1,0 +1,99 @@
+{% extends 'layouts/base-fullscreen.html' %}
+{% load i18n %}
+
+{% block content %}
+<div class="sso-profile">
+  <div class="is-flex is-justify-content-space-between is-align-items-center mb-4">
+    <div>
+      <h1 class="title is-4">
+        {% blocktrans trimmed with username=subject.user.username %}
+          Offer to sponsor {{ username }}
+        {% endblocktrans %}
+      </h1>
+      <p class="subtitle is-6">
+        {% if roles %}
+          {% blocktrans trimmed with roles=roles|join:", " %}
+            You would be vouching for {{ roles }}.
+          {% endblocktrans %}
+        {% else %}
+          {% trans "This account holds no role on this site." %}
+        {% endif %}
+      </p>
+    </div>
+    <a class="button is-light" href="{% url 'qgis_sso:enrolment' %}">
+      {% trans "Back" %}
+    </a>
+  </div>
+
+  <div class="box-content sso-confirm">
+    <div class="notification is-info is-light">
+      {% blocktrans trimmed with username=subject.user.username was=subject.sponsor.username %}
+        {{ username }} is suspended because {{ was }} lost their access. Nothing
+        happens until {{ username }} accepts. If they do, you become their
+        sponsor and they can work again.
+      {% endblocktrans %}
+    </div>
+
+    {% if rescued %}
+      <h2 class="title is-6">{% trans "Who else comes back" %}</h2>
+      <p class="mb-3">
+        {% blocktrans trimmed count counter=rescued|length %}
+          One account below this one was suspended at the same time. It becomes
+          active again too.
+        {% plural %}
+          {{ counter }} accounts below this one were suspended at the same time.
+          They become active again too.
+        {% endblocktrans %}
+      </p>
+      <table class="table is-fullwidth sso-table">
+        <thead>
+          <tr>
+            <th scope="col" class="sso-account">{% trans "Account" %}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for node in rescued %}
+            <tr>
+              <td class="sso-account">{{ node.user.username }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% endif %}
+
+    <form method="post" action="">
+      {% csrf_token %}
+
+      <div class="field">
+        <label class="label" for="reason">{% trans "Why you vouch for them" %}</label>
+        <div class="control">
+          <textarea class="textarea" id="reason" name="reason" rows="3"
+                    required>{{ reason }}</textarea>
+        </div>
+        <p class="help">
+          {% if reason_missing %}
+            <span class="has-text-danger">
+              {% trans "Say why you vouch for them. It goes in the audit trail." %}
+            </span>
+          {% else %}
+            {% blocktrans trimmed with username=subject.user.username %}
+              {{ username }} reads this, and so do maintainers. It goes in the
+              audit trail.
+            {% endblocktrans %}
+          {% endif %}
+        </p>
+      </div>
+
+      <div class="buttons">
+        <button class="button is-primary1" type="submit">
+          <span class="icon is-small"><i class="fas fa-hand-holding-heart"></i></span>
+          <span>{% trans "Send the offer" %}</span>
+        </button>
+        <a class="button is-light" href="{% url 'qgis_sso:enrolment' %}">
+          {% trans "Cancel" %}
+        </a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock content %}

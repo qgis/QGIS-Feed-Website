@@ -41,7 +41,7 @@ logger = logging.getLogger("qgisfeed.admin")
 DEFAULT_FROM_EMAIL = getattr(settings, "DEFAULT_FROM_EMAIL", "noreply@qgis.org")
 
 
-class QgisFeedEntryAdmin(admin.GeoModelAdmin):
+class QgisFeedEntryAdmin(admin.GISModelAdmin):
 
     list_display = (
         "title",

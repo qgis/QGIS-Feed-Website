@@ -1,5 +1,5 @@
 # For more information, please refer to https://aka.ms/vscode-docker-python
-FROM python:3.8-slim
+FROM python:3.12-slim
 
 EXPOSE 8000
 
@@ -12,6 +12,8 @@ ENV PYTHONUNBUFFERED=1
 RUN apt-get update
 RUN echo "Installing GDAL dependencies" && \
     apt-get install -y libgdal-dev libcurl4-gnutls-dev librtmp-dev && \
+    echo "Installing libpq for psycopg2 (built from source, no wheels published)" && \
+    apt-get install -y libpq-dev && \
     echo "Installing other depdencies" && \
     apt-get install -y wait-for-it curl sudo && \
     echo "Install C library for geoip2" && \
@@ -30,7 +32,7 @@ RUN apt-get update && apt-get install -y curl && curl -LJO https://github.com/P3
 
 # Install NodeJS and bulma css webpack
 RUN apt-get -qq update && apt-get -qq install -y --no-install-recommends wget && \
-    wget --no-check-certificate https://deb.nodesource.com/setup_20.x -O /tmp/node.sh && bash /tmp/node.sh && \
+    wget --no-check-certificate https://deb.nodesource.com/setup_22.x -O /tmp/node.sh && bash /tmp/node.sh && \
     apt-get -qq update && apt-get -qq install -y nodejs build-essential
 
 WORKDIR /code

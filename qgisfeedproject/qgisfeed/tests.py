@@ -15,6 +15,7 @@ __copyright__ = "Copyright 2019, ItOpen"
 import json
 from datetime import timedelta
 from os.path import join
+from tempfile import mkdtemp
 
 from django.conf import settings
 from django.contrib.admin.sites import AdminSite
@@ -159,11 +160,11 @@ class QgisFeedEntryTestCase(TestCase):
         self.assertTrue("QGIS acquired by ESRI" in titles)
 
     def test_lang_and_location_filter(self):
-        # Test with lang (id) and location filter (Indonesia)
+        # Test with lang (id) and location filter (London)
         c = Client(
             HTTP_USER_AGENT="Mozilla/5.0 QGIS/31400/Fedora "
             "Linux (Workstation Edition)",
-            REMOTE_ADDR="180.247.213.170",
+            REMOTE_ADDR="81.2.69.142",
         )
         response = c.get("/?lang=id")
         data = json.loads(response.content)
@@ -173,11 +174,11 @@ class QgisFeedEntryTestCase(TestCase):
         # should not be included in the results
         self.assertFalse("Null Island QGIS Meeting" in titles)
 
-        # The entry with language_filter='en' and spatial_filter='Polygon near Indonesia'
+        # The entry with language_filter='en' and spatial_filter='Polygon near London'
         # should be included in the results
         self.assertTrue("Next Microsoft Windows code name revealed" in titles)
 
-        # The entry with language_filter='id' and spatial_filter='Polygon near Indonesia'
+        # The entry with language_filter='id' and spatial_filter='Polygon near London'
         # should be included in the results
         self.assertTrue("QGIS core will be rewritten in Rust" in titles)
 
@@ -558,35 +559,52 @@ class QgisUserVisitTestCase(TestCase):
         c = Client(
             HTTP_USER_AGENT="Mozilla/5.0 QGIS/32400/Fedora "
             "Linux (Workstation Edition)",
-            REMOTE_ADDR="180.247.213.170",
+            REMOTE_ADDR="81.2.69.142",
         )
         c.get("/")
         qgis_visit = QgisUserVisit.objects.first()
         self.assertTrue(qgis_visit.user_visit.remote_addr == "")
-        self.assertTrue(qgis_visit.location["country_name"] == "Indonesia")
+        self.assertTrue(qgis_visit.location["country_name"] == "United Kingdom")
 
     def test_aggregate_visit(self):
         c = Client(
             HTTP_USER_AGENT="Mozilla/5.0 QGIS/31400/Fedora "
             "Linux (Workstation Edition)",
-            REMOTE_ADDR="180.247.213.170",
+            REMOTE_ADDR="81.2.69.142",
         )
         c.get("/")
         c = Client(
             HTTP_USER_AGENT="Mozilla/5.0 QGIS/32400/Windows 10",
-            REMOTE_ADDR="180.247.213.160",
+            REMOTE_ADDR="81.2.69.160",
         )
         c.get("/")
         c = Client(
             HTTP_USER_AGENT="Mozilla/5.0 QGIS/32400/Windows XP",
-            REMOTE_ADDR="180.247.213.160",
+            REMOTE_ADDR="81.2.69.160",
         )
         c.get("/")
         aggregate_user_visit_data()
         daily_visit = DailyQgisUserVisit.objects.first()
         self.assertTrue(daily_visit.platform["Windows 10"] == 1)
         self.assertTrue(daily_visit.qgis_version["32400"] == 2)
-        self.assertTrue(daily_visit.country["ID"] == 3)
+        self.assertTrue(daily_visit.country["GB"] == 3)
+
+    def test_visit_recorded_without_geoip_database(self):
+        # GEOIP_PATH pointing somewhere empty used to raise out of the signal
+        # handler and 500 the request. The visit is worth keeping without a
+        # location.
+        with self.settings(GEOIP_PATH=mkdtemp()):
+            c = Client(
+                HTTP_USER_AGENT="Mozilla/5.0 QGIS/32400/Fedora "
+                "Linux (Workstation Edition)",
+                REMOTE_ADDR="81.2.69.142",
+            )
+            response = c.get("/")
+
+        self.assertEqual(response.status_code, 200)
+        qgis_visit = QgisUserVisit.objects.first()
+        self.assertEqual(qgis_visit.location, {})
+        self.assertEqual(qgis_visit.user_visit.remote_addr, "")
 
 
 class LoginTestCase(TestCase):
@@ -653,8 +671,15 @@ class FeedsListViewTestCase(TestCase):
 
         # Check if the user is redirected to the login page
         self.assertRedirects(
-            response, reverse("login") + "?next=" + reverse("feeds_list")
+            response,
+            reverse("login") + "?next=" + reverse("feeds_list"),
+            fetch_redirect_response=False,
         )
+
+        # Somebody already signed in is told they lack access, rather than
+        # being shown a login form beside a logout button.
+        landing = self.client.get(reverse("login"), {"next": reverse("feeds_list")})
+        self.assertEqual(landing.status_code, 403)
 
     def test_feeds_list_filtering(self):
         self.client.login(username="admin", password="admin")
@@ -746,7 +771,7 @@ class FeedsListViewTestCase(TestCase):
     def test_geofence_feature(self):
         c = Client(
             HTTP_USER_AGENT="Mozilla/5.0 QGIS/32400/Windows 10",
-            REMOTE_ADDR="180.247.213.160",
+            REMOTE_ADDR="81.2.69.160",
         )
         response = c.get("/")
         self.assertEqual(response.status_code, 200)
@@ -828,7 +853,9 @@ class FeedsItemFormTestCase(TestCase):
         response = self.client.get(reverse("feed_entry_add"))
         self.assertEqual(response.status_code, 302)
         self.assertRedirects(
-            response, reverse("login") + "?next=" + reverse("feed_entry_add")
+            response,
+            reverse("login") + "?next=" + reverse("feed_entry_add"),
+            fetch_redirect_response=False,
         )
         self.assertIsNone(response.context)
 
@@ -838,8 +865,14 @@ class FeedsItemFormTestCase(TestCase):
         self.assertRedirects(
             response,
             reverse("login") + "?next=" + reverse("feed_entry_update", args=[3]),
+            fetch_redirect_response=False,
         )
         self.assertIsNone(response.context)
+
+        # Somebody already signed in is told they lack access, rather than
+        # being shown a login form beside a logout button.
+        landing = self.client.get(reverse("login"), {"next": reverse("feed_entry_add")})
+        self.assertEqual(landing.status_code, 403)
 
     def test_authenticated_user_add_feed(self):
         # Add a feed entry test

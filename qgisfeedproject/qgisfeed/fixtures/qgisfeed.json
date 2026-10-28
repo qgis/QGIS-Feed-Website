@@ -38,7 +38,7 @@
     "sticky": true,
     "sorting": 1,
     "language_filter": "en",
-    "spatial_filter": "SRID=4326;POLYGON ((95 -11, 141 -11, 141 6, 95 6, 95 -11))",
+    "spatial_filter": "SRID=4326;POLYGON ((-1 51, 1 51, 1 52, -1 52, -1 51))",
     "publish_from": "2019-05-05T16:29:08.130Z",
     "publish_to": null
   }
@@ -82,7 +82,7 @@
     "sticky": true,
     "sorting": 0,
     "language_filter": "id",
-    "spatial_filter": "SRID=4326;POLYGON ((95 -11, 141 -11, 141 6, 95 6, 95 -11))",
+    "spatial_filter": "SRID=4326;POLYGON ((-1 51, 1 51, 1 52, -1 52, -1 51))",
     "publish_from": "1999-01-01T13:16:08Z",
     "publish_to": "2999-01-01"
   }

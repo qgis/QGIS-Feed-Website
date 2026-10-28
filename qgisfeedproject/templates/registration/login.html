@@ -1,27 +1,53 @@
-{% extends 'layouts/base-fullscreen.html' %} 
-{% load static %}
+{% extends 'layouts/base-fullscreen.html' %}
+{% load static i18n %}
 
 {% block pagetitle %}
 
-<section class="hero is-dark is-medium has-bg-img" style="background: url({% static "images/hegobg1.webp" %});
+<section class="hero is-dark has-bg-img" style="background: url({% static "images/hegobg1.webp" %});
   background-position: 50%;
   background-size: cover;">
-  <div class="hero-body" style="height: 100dvh;">
-    <div class="columns is-vcentered is-centered">
-      <div class="column is-4 p-6 login-container" >
-        <div class="has-text-centered">
-          <h3 class="title">Login</h3>
+  <div class="hero-body" style="min-height: 100dvh; display: flex; align-items: center;">
+    <div class="columns is-vcentered is-centered" style="width: 100%;">
+      <div class="column is-5-tablet is-4-desktop p-0" >
+        <div class="p-6 login-container has-text-centered">
+          <h3 class="title">{% trans "Sign in" %}</h3>
           <hr class="login-hr" />
-          <p class="subtitle">Log in with your credentials.</p>
+          <p class="subtitle">
+            {% if LOCAL_LOGIN_ENABLED %}
+              {% blocktrans trimmed %}
+                Sign in with your QGIS account or your local account.
+              {% endblocktrans %}
+            {% else %}
+              {% blocktrans trimmed %}
+                Sign in with your QGIS account.
+              {% endblocktrans %}
+            {% endif %}
+          </p>
+          <form method="get" action="{% url 'oidc_authentication_init' %}">
+            <button
+                class="button is-success is-medium is-fullwidth"
+                type="submit"
+                value="login"
+            >{% trans "Sign in with QGIS" %}</button>
+          </form>
+
+          <p class="mt-4">
+            <i class="fa-solid fa-circle-info has-text-success mr-1" aria-hidden="true"></i>
+            <a href="{% url 'qgis_sso:help' %}">
+              {% trans "New here, or cannot get in?" %}
+            </a>
+          </p>
+          <hr class="login-hr" />
+          {% if LOCAL_LOGIN_ENABLED %}
           <div>
             <form method="POST">
               {% csrf_token %}
               <div class="field">
                 <div class="control has-icons-left">
                   <input
-                    class="input is-large"
+                    class="input is-medium"
                     type="text"
-                    placeholder="Username"
+                    placeholder="{% trans 'Username' %}"
                     autofocus=""
                     id="username"
                     name="username"
@@ -35,9 +61,9 @@
               <div class="field">
                 <div class="control has-icons-left">
                   <input
-                    class="input is-large"
+                    class="input is-medium"
                     type="password"
-                    placeholder="Password"
+                    placeholder="{% trans 'Password' %}"
                     id="password"
                     name="password"
                   />
@@ -58,16 +84,22 @@
               </div>
               {% endif %}
 
-              <button 
-                class="button is-success is-large is-fullwidth"
-                type="submit" 
-                value="login" 
+              <button
+                class="button is-medium is-fullwidth"
+                type="submit"
+                value="login"
                 id="submit-button"
               >
-                Login <i class="fa fa-sign-in" aria-hidden="true"></i>
+                <span>
+                  {% trans "Sign in" %}
+                </span>
+                <span class="icon is-small">
+                  <i class="fas fa-sign-in-alt"></i>
+                </span>
               </button>
             </form>
           </div>
+          {% endif %}
         </div>
       </div>
     </div>

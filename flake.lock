@@ -1,0 +1,66 @@
+{
+  "nodes": {
+    "nixpkgs-26-05": {
+      "locked": {
+        "lastModified": 1780453794,
+        "narHash": "sha256-bXMRa9VTsHSPXL4Cw8R6JJLQeY3Y/IP4+YJCYVmQ7FY=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "6b316287bae2ee04c9b93c8c858d930fd07d7338",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixos-26.05",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "nixpkgs-unstable": {
+      "locked": {
+        "lastModified": 1786106723,
+        "narHash": "sha256-zDSUbpoeo/9ZmD2+wXnzxoo1+uhL8vxc0b8yuYMKYq0=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "f13ff45afd1bb73e640eaa08a7066dbed07e3238",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixos-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "nixpkgs-version": {
+      "inputs": {
+        "nixpkgs-26-05": "nixpkgs-26-05",
+        "nixpkgs-unstable": "nixpkgs-unstable"
+      },
+      "locked": {
+        "lastModified": 1786239184,
+        "narHash": "sha256-37LfaKXyhkN4imHFeKznfAN0YCTaaZgW5tOOXAH4DvY=",
+        "owner": "QGIS",
+        "repo": "qgis-nixpkgs-version",
+        "rev": "5020890f6f55c13a363d5d2248eba7e59ef026eb",
+        "type": "github"
+      },
+      "original": {
+        "owner": "QGIS",
+        "repo": "qgis-nixpkgs-version",
+        "type": "github"
+      }
+    },
+    "root": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs-version",
+          "nixpkgs-26-05"
+        ],
+        "nixpkgs-version": "nixpkgs-version"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}
