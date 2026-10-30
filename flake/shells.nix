@@ -31,6 +31,11 @@
 
       # To add a helper, write nix/scripts/<name>.sh and add a line here.
       scripts = lib.mapAttrs mkDevScript {
+        db = [
+          postgresql
+          pkgs.coreutils
+        ];
+        db-init = [ postgresql ];
         db-reset = djangoTools;
         db-restore = djangoTools ++ [ pkgs.coreutils ];
         dev-help = [ pkgs.coreutils ];
@@ -52,7 +57,6 @@
       devStack = (import inputs.process-compose-flake.lib { inherit pkgs; }).makeProcessCompose {
         name = "dev";
         modules = [
-          inputs.services-flake.processComposeModules.default
           ../nix/dev-stack.nix
           {
             _module.args = {
