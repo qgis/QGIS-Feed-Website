@@ -17,6 +17,45 @@ permissions:
   contents: read
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version:
+          - '3.12'
+
+    steps:
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v6
+      with:
+        python-version: ${{ matrix.python-version }}
+        architecture: x64
+
+    - name: Checkout
+      uses: actions/checkout@v5
+
+    - name: Install Python requirements
+      run: pip install -r REQUIREMENTS.txt
+
+  assets:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v5
+
+    - name: Set up Node
+      uses: actions/setup-node@v7
+      with:
+        node-version: '22'
+        cache: npm
+
+    - name: Install from the lockfile
+      run: npm ci
+
+    - name: Build the bundles
+      run: npm run build
+
   test:
     name: Run checks
     runs-on: ubuntu-latest

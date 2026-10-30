@@ -37,7 +37,7 @@ RUN apt-get -qq update && apt-get -qq install -y --no-install-recommends wget &&
 
 WORKDIR /code
 COPY . /code
-RUN npm install -g npm@10.2.1 && npm install -g webpack@5.89.0 && npm install -g webpack-cli@5.1.4 && npm install
+RUN npm install -g npm@10.2.1 && npm install
 
 ENV GEOIP_PATH=/var/opt/maxmind/
 
