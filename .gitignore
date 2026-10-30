@@ -121,10 +121,25 @@ node_modules
 webpack-stats.json
 qgisfeedproject/static/bundles
 !qgisfeedproject/qgisfeedproject/settings_local.py.templ
+qgisfeedproject/qgisfeedproject/settings_local.py
 qgisfeedproject/qgisfeedproject/settings_local_override.py
+
+# No longer read by anything; ignored so an old checkout cannot commit one.
+.env.nix
+
+# collectstatic destination when STATIC_ROOT is left at its default
+qgisfeedproject/static_collected
 
 # Sustaining members template
 qgisfeedproject/templates/layouts/sustaining_members.html
 
 .vscode
 .vscode-extensions
+
+# Nix development state and the build result symlink
+.nix/
+result
+.direnv
+
+# Claude AI
+.claude

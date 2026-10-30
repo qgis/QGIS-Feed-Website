@@ -159,11 +159,11 @@ class QgisFeedEntryTestCase(TestCase):
         self.assertTrue("QGIS acquired by ESRI" in titles)
 
     def test_lang_and_location_filter(self):
-        # Test with lang (id) and location filter (Indonesia)
+        # Test with lang (id) and location filter (United Kingdom)
         c = Client(
             HTTP_USER_AGENT="Mozilla/5.0 QGIS/31400/Fedora "
             "Linux (Workstation Edition)",
-            REMOTE_ADDR="180.247.213.170",
+            REMOTE_ADDR="81.2.69.144",
         )
         response = c.get("/?lang=id")
         data = json.loads(response.content)
@@ -173,11 +173,11 @@ class QgisFeedEntryTestCase(TestCase):
         # should not be included in the results
         self.assertFalse("Null Island QGIS Meeting" in titles)
 
-        # The entry with language_filter='en' and spatial_filter='Polygon near Indonesia'
+        # The entry with language_filter='en' and spatial_filter='Polygon near London'
         # should be included in the results
         self.assertTrue("Next Microsoft Windows code name revealed" in titles)
 
-        # The entry with language_filter='id' and spatial_filter='Polygon near Indonesia'
+        # The entry with language_filter='id' and spatial_filter='Polygon near London'
         # should be included in the results
         self.assertTrue("QGIS core will be rewritten in Rust" in titles)
 
@@ -558,35 +558,35 @@ class QgisUserVisitTestCase(TestCase):
         c = Client(
             HTTP_USER_AGENT="Mozilla/5.0 QGIS/32400/Fedora "
             "Linux (Workstation Edition)",
-            REMOTE_ADDR="180.247.213.170",
+            REMOTE_ADDR="81.2.69.144",
         )
         c.get("/")
         qgis_visit = QgisUserVisit.objects.first()
         self.assertTrue(qgis_visit.user_visit.remote_addr == "")
-        self.assertTrue(qgis_visit.location["country_name"] == "Indonesia")
+        self.assertTrue(qgis_visit.location["country_name"] == "United Kingdom")
 
     def test_aggregate_visit(self):
         c = Client(
             HTTP_USER_AGENT="Mozilla/5.0 QGIS/31400/Fedora "
             "Linux (Workstation Edition)",
-            REMOTE_ADDR="180.247.213.170",
+            REMOTE_ADDR="81.2.69.144",
         )
         c.get("/")
         c = Client(
             HTTP_USER_AGENT="Mozilla/5.0 QGIS/32400/Windows 10",
-            REMOTE_ADDR="180.247.213.160",
+            REMOTE_ADDR="81.2.69.160",
         )
         c.get("/")
         c = Client(
             HTTP_USER_AGENT="Mozilla/5.0 QGIS/32400/Windows XP",
-            REMOTE_ADDR="180.247.213.160",
+            REMOTE_ADDR="81.2.69.160",
         )
         c.get("/")
         aggregate_user_visit_data()
         daily_visit = DailyQgisUserVisit.objects.first()
         self.assertTrue(daily_visit.platform["Windows 10"] == 1)
         self.assertTrue(daily_visit.qgis_version["32400"] == 2)
-        self.assertTrue(daily_visit.country["ID"] == 3)
+        self.assertTrue(daily_visit.country["GB"] == 3)
 
 
 class LoginTestCase(TestCase):
@@ -746,7 +746,7 @@ class FeedsListViewTestCase(TestCase):
     def test_geofence_feature(self):
         c = Client(
             HTTP_USER_AGENT="Mozilla/5.0 QGIS/32400/Windows 10",
-            REMOTE_ADDR="180.247.213.160",
+            REMOTE_ADDR="81.2.69.160",
         )
         response = c.get("/")
         self.assertEqual(response.status_code, 200)
@@ -1631,7 +1631,6 @@ class RevisionSnapshotTestCase(TestCase):
 
     def test_no_revision_when_nothing_changed(self):
         """create_revision_snapshot returns None and writes no DB row when nothing changed."""
-        from qgisfeed.models import QgisFeedEntry
         from qgisfeed.utils import create_revision_snapshot
 
         entry = self._make_entry()
