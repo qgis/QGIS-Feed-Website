@@ -136,8 +136,9 @@ qgisfeedproject/templates/layouts/sustaining_members.html
 .vscode
 .vscode-extensions
 
-# Nix development state and the build result symlink
+# Development state and the build result symlink
 .nix/
+.state/
 result
 .direnv
 

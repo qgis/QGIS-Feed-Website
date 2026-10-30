@@ -1,24 +1,28 @@
-# The development stack, run by `dev` inside `nix develop`, from which the
-# processes inherit their environment. Built with makeProcessCompose rather
-# than the flake module, so there is no runnable output that would start
-# without that environment.
+# The development stack, run by `dev` in the shell or by `nix run .#dev`. It sets
+# up the same environment as the shell, which the processes inherit, and moves to
+# the project root so the relative paths below resolve from any subdirectory.
 {
+  devEnv,
   fetchGeoip,
+  lib,
+  postgresql,
   scripts,
-  servicesFlakeModule,
+  ...
 }:
 
-{ pkgs, ... }:
-
 {
-  imports = [ servicesFlakeModule ];
+  cli.preHook = ''
+    ${lib.concatLines (lib.mapAttrsToList (n: v: "export ${n}=${lib.escapeShellArg v}") devEnv)}
+    ${builtins.readFile ./scripts/dev-env.sh}
+    ${builtins.readFile ./scripts/require-checkout.sh}
+    cd "$PROJECT_ROOT"
+  '';
 
   services.postgres.db = {
     enable = true;
-    package = pkgs.postgresql_16;
-    extensions = ps: [ ps.postgis ];
-    dataDir = ".nix/pgdata";
-    socketDir = ".nix/run";
+    package = postgresql;
+    dataDir = ".state/pgdata";
+    socketDir = ".state/run";
     # Unix socket only, so this cannot clash with a system PostgreSQL or be
     # reached from another machine.
     listen_addresses = "";

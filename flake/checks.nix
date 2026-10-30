@@ -4,9 +4,13 @@
       lib,
       pkgs,
       postgresql,
-      qgisfeed,
+      self',
       ...
     }:
+
+    let
+      inherit (self'.packages) qgisfeed;
+    in
 
     {
       checks = {

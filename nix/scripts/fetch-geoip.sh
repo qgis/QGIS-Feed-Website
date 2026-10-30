@@ -19,7 +19,7 @@ if [ -z "${DEST}" ]; then
     [ -n "${root}" ] || die 'no destination given, GEOIP_DIR is unset and this
 is not a git checkout. Pass the directory to write to, for example:
   fetch-geoip.sh /var/lib/qgisfeed/geoip'
-    DEST="${root}/.nix/geoip"
+    DEST="${root}/.state/geoip"
 fi
 
 TARGET="${DEST}/GeoLite2-City.mmdb"

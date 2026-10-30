@@ -1,52 +1,99 @@
-# The development shell. `dev-help` lists what it provides.
+{ inputs, ... }:
+
 {
   perSystem =
     {
-      devStack,
-      fetchGeoip,
+      geoEnv,
+      lib,
+      nodejs,
       pkgs,
       postgresql,
       pythonEnv,
-      scripts,
+      self',
       ...
     }:
 
-    {
-      devShells.default = pkgs.mkShell {
-        packages = [
-          pythonEnv
-          postgresql
-          pkgs.nodejs_22
-          pkgs.gdal
-          pkgs.geos
-          pkgs.proj
-          pkgs.libmaxminddb
-          pkgs.pre-commit
-          pkgs.curl
-          pkgs.git
+    let
+      mkDevScript =
+        name: runtimeInputs:
+        pkgs.writeShellApplication {
+          inherit name runtimeInputs;
+          text =
+            builtins.readFile ../nix/scripts/require-dev-shell.sh
+            + builtins.readFile (../nix/scripts + "/${name}.sh");
+        };
 
-          # The helpers, each named after its own binary.
-          devStack
-          fetchGeoip
-          scripts.db-reset
-          scripts.db-restore
-          scripts.manage
-        ];
+      djangoTools = [
+        pythonEnv
+        pkgs.git
+        postgresql
+      ];
 
-        # mkShell turns an unrecognised attribute into an environment variable.
-        # These do not depend on the checkout; the ones that do are set by the
-        # hook, which can run git.
+      # To add a helper, write nix/scripts/<name>.sh and add a line here.
+      scripts = lib.mapAttrs mkDevScript {
+        db-reset = djangoTools;
+        db-restore = djangoTools ++ [ pkgs.coreutils ];
+        dev-help = [ pkgs.coreutils ];
+        manage = djangoTools;
+        runserver = djangoTools;
+        tests = djangoTools;
+        webpack-watch = djangoTools ++ [ nodejs ];
+      };
+
+      devEnv = geoEnv // {
+        # What nix/scripts/require-dev-shell.sh looks for.
+        QGISFEED_DEV_SHELL = "1";
+
         DJANGO_SETTINGS_MODULE = "qgisfeedproject.settings_nix";
 
         PGDATABASE = "qgisfeed";
-
-        # GeoDjango resolves these with ctypes at import time and cannot find
-        # them in the store without an explicit path.
-        GDAL_LIBRARY_PATH = "${pkgs.gdal}/lib/libgdal${pkgs.stdenv.hostPlatform.extensions.sharedLibrary}";
-        GEOS_LIBRARY_PATH = "${pkgs.geos}/lib/libgeos_c${pkgs.stdenv.hostPlatform.extensions.sharedLibrary}";
-        PROJ_LIB = "${pkgs.proj}/share/proj";
-
-        shellHook = builtins.readFile ../nix/scripts/shell-hook.sh;
       };
+
+      devStack = (import inputs.process-compose-flake.lib { inherit pkgs; }).makeProcessCompose {
+        name = "dev";
+        modules = [
+          inputs.services-flake.processComposeModules.default
+          ../nix/dev-stack.nix
+          {
+            _module.args = {
+              inherit devEnv postgresql scripts;
+              inherit (self'.packages) fetchGeoip;
+            };
+          }
+        ];
+      };
+    in
+
+    {
+      apps.dev = {
+        type = "app";
+        program = lib.getExe devStack;
+        meta.description = "Start the database, webpack and the development server";
+      };
+
+      devShells.default = pkgs.mkShell (
+        devEnv
+        // {
+          packages = [
+            pythonEnv
+            postgresql
+            nodejs
+            pkgs.gdal
+            pkgs.geos
+            pkgs.proj
+            pkgs.libmaxminddb
+            pkgs.pre-commit
+            pkgs.curl
+            pkgs.git
+
+            devStack
+            self'.packages.fetchGeoip
+          ]
+          ++ builtins.attrValues scripts;
+
+          shellHook =
+            builtins.readFile ../nix/scripts/dev-env.sh + builtins.readFile ../nix/scripts/shell-hook.sh;
+        }
+      );
     };
 }

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Restore the local database from a pg_dump archive.
-# DESTRUCTIVE, and only ever touches the cluster under .nix/pgdata.
+# DESTRUCTIVE, and only ever touches the cluster under .state/pgdata.
 #
 # usage: db-restore.sh [--force] [path/to/dump.dmp]
 set -euo pipefail

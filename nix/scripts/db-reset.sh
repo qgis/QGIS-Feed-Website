@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Drop the local database, recreate it, migrate and load the fixtures.
-# DESTRUCTIVE, and only ever touches the cluster under .nix/pgdata.
+# DESTRUCTIVE, and only ever touches the cluster under .state/pgdata.
 # Pass --force to skip the prompt.
 set -euo pipefail
 

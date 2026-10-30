@@ -3,28 +3,22 @@
   lib,
   stdenv,
   makeWrapper,
-  gdal,
-  geos,
-  proj,
-  python312,
   uwsgi,
+  geoEnv,
+  python,
   pythonEnv,
   staticAssets,
   fetchGeoip,
 }:
 
 let
-  # GeoDjango loads these with ctypes at import time and cannot find them in
-  # the store on its own, so the wrappers bake the paths in.
-  soExt = stdenv.hostPlatform.extensions.sharedLibrary;
-  gdalLib = "${gdal}/lib/libgdal${soExt}";
-  geosLib = "${geos}/lib/libgeos_c${soExt}";
+  geoEnvFlags = lib.concatStringsSep " " (lib.mapAttrsToList (n: v: "--set ${n} ${v}") geoEnv);
 
   # uWSGI embeds its own interpreter, so the application's dependencies go on
   # PYTHONPATH in the wrapper below rather than into this build.
   uwsgiWithPython = uwsgi.override {
     plugins = [ "python3" ];
-    python3 = python312;
+    python3 = python;
   };
 in
 stdenv.mkDerivation {
@@ -32,10 +26,11 @@ stdenv.mkDerivation {
   version = "1.0.0";
 
   # Only the Django project. REQUIREMENTS.txt is not installed or read at
-  # runtime: the dependencies come from pythonEnv.
+  # runtime: the dependencies come from pythonEnv. Media is runtime state and
+  # comes from the systemd StateDirectory.
   src = lib.fileset.toSource {
     root = ../.;
-    fileset = ../qgisfeedproject;
+    fileset = lib.fileset.difference ../qgisfeedproject ../qgisfeedproject/media;
   };
 
   nativeBuildInputs = [ makeWrapper ];
@@ -56,26 +51,19 @@ stdenv.mkDerivation {
     cp -r ${staticAssets}/bundles/. "$appdir/qgisfeedproject/static/bundles/"
     cp ${staticAssets}/webpack-stats.json "$appdir/webpack-stats.json"
 
-    # Media is runtime state and comes from the systemd StateDirectory.
-    rm -rf "$appdir/qgisfeedproject/media"
-
     mkdir -p $out/bin
 
     makeWrapper ${pythonEnv}/bin/python $out/bin/qgisfeed-manage \
       --add-flags "$appdir/qgisfeedproject/manage.py" \
       --prefix PYTHONPATH : "$appdir/qgisfeedproject" \
       --set-default DJANGO_SETTINGS_MODULE qgisfeedproject.settings \
-      --set GDAL_LIBRARY_PATH ${gdalLib} \
-      --set GEOS_LIBRARY_PATH ${geosLib} \
-      --set PROJ_LIB ${proj}/share/proj
+      ${geoEnvFlags}
 
     makeWrapper ${uwsgiWithPython}/bin/uwsgi $out/bin/qgisfeed-uwsgi \
       --prefix PYTHONPATH : "$appdir/qgisfeedproject" \
-      --prefix PYTHONPATH : "${pythonEnv}/${python312.sitePackages}" \
+      --prefix PYTHONPATH : "${pythonEnv}/${python.sitePackages}" \
       --set-default DJANGO_SETTINGS_MODULE qgisfeedproject.settings \
-      --set GDAL_LIBRARY_PATH ${gdalLib} \
-      --set GEOS_LIBRARY_PATH ${geosLib} \
-      --set PROJ_LIB ${proj}/share/proj \
+      ${geoEnvFlags} \
       --chdir "$appdir/qgisfeedproject"
 
     runHook postInstall
@@ -107,6 +95,9 @@ stdenv.mkDerivation {
     settingsModule = "qgisfeedproject.settings";
 
     uwsgiIni = ./uwsgi.ini;
+
+    # Build on its own with: nix build .#qgisfeed.staticAssets
+    inherit staticAssets;
 
     # GeoLite2-City.mmdb is MaxMind licensed and cannot ship in the closure, so
     # a deployment fetches it into a directory it points GEOIP_PATH at:
