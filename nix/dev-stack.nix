@@ -4,29 +4,29 @@
 # without that environment.
 {
   fetchGeoip,
+  postgresql,
   scripts,
-  servicesFlakeModule,
+  ...
 }:
 
-{ pkgs, ... }:
-
 {
-  imports = [ servicesFlakeModule ];
-
-  services.postgres.db = {
-    enable = true;
-    package = pkgs.postgresql_16;
-    extensions = ps: [ ps.postgis ];
-    dataDir = ".nix/pgdata";
-    socketDir = ".nix/run";
-    # Unix socket only, so this cannot clash with a system PostgreSQL or be
-    # reached from another machine.
-    listen_addresses = "";
-    initialScript.before = ./postgis.sql;
-    initialDatabases = [ { name = "qgisfeed"; } ];
-  };
-
   settings.processes = {
+    db = {
+      command = scripts.db;
+      readiness_probe = {
+        exec.command = "${postgresql}/bin/pg_isready --quiet";
+        period_seconds = 2;
+        failure_threshold = 30;
+      };
+      # SIGINT is PostgreSQL's fast shutdown; SIGTERM waits for clients to leave.
+      shutdown.signal = 2;
+    };
+
+    db-init = {
+      command = scripts.db-init;
+      depends_on.db.condition = "process_healthy";
+    };
+
     # Nothing depends on this: a missing GeoIP database only stops location
     # lookups resolving, so it must not block the server.
     geoip = {
@@ -36,7 +36,7 @@
 
     migrate = {
       command = "${scripts.manage}/bin/manage migrate --noinput";
-      depends_on.db.condition = "process_healthy";
+      depends_on.db-init.condition = "process_completed_successfully";
     };
 
     # "compiled" matches a finished build cycle whether or not it had warnings,

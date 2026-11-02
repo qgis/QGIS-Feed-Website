@@ -29,6 +29,11 @@
       ];
 
       scripts = {
+        db = mkScript "db" [
+          postgresql
+          pkgs.coreutils
+        ];
+        db-init = mkScript "db-init" [ postgresql ];
         db-reset = mkScript "db-reset" djangoTools;
         db-restore = mkScript "db-restore" (djangoTools ++ [ pkgs.coreutils ]);
         manage = mkScript "manage" djangoTools;
@@ -41,11 +46,13 @@
       devStack = (import inputs.process-compose-flake.lib { inherit pkgs; }).makeProcessCompose {
         name = "dev";
         modules = [
-          (import ../nix/dev-stack.nix {
-            inherit scripts;
-            inherit (self'.packages) fetchGeoip;
-            servicesFlakeModule = inputs.services-flake.processComposeModules.default;
-          })
+          ../nix/dev-stack.nix
+          {
+            _module.args = {
+              inherit postgresql scripts;
+              inherit (self'.packages) fetchGeoip;
+            };
+          }
         ];
       };
     in

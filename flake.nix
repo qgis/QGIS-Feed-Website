@@ -16,9 +16,9 @@
       inputs.nixpkgs-lib.follows = "nixpkgs";
     };
 
-    process-compose-flake.url = "github:Platonic-Systems/process-compose-flake";
-
-    services-flake.url = "github:juspay/services-flake";
+    process-compose-flake = {
+      url = "github:Platonic-Systems/process-compose-flake";
+    };
 
     treefmt-nix = {
       url = "github:numtide/treefmt-nix";
