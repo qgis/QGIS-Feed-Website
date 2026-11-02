@@ -2,16 +2,16 @@
 {
   lib,
   buildNpmPackage,
-  nodejs_22,
+  nodejs,
 }:
 
 buildNpmPackage {
   pname = "qgisfeed-static";
   version = "1.0.0";
 
-  # buildNpmPackage would otherwise default to pkgs.nodejs. Pin the same Node
-  # the devShell and the Dockerfiles use.
-  nodejs = nodejs_22;
+  # buildNpmPackage would otherwise default to pkgs.nodejs. Use the same Node
+  # as the devShell.
+  inherit nodejs;
 
   src = lib.fileset.toSource {
     root = ../.;

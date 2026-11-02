@@ -30,18 +30,10 @@
     inputs@{ flake-parts, ... }:
 
     flake-parts.lib.mkFlake { inherit inputs; } {
-      # Enable to get the flake-parts debug outputs.
-      # https://flake.parts/options/flake-parts.html#opt-debug
-      debug = false;
-
       systems = [
         "x86_64-linux"
         "aarch64-darwin"
       ];
-
-      _module.args = {
-        inherit inputs;
-      };
 
       imports = [
         inputs.treefmt-nix.flakeModule
@@ -50,6 +42,7 @@
         ./flake/formatter.nix
         ./flake/packages.nix
         ./flake/shells.nix
+        ./flake/toolchain.nix
       ];
     };
 }
