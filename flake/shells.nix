@@ -1,10 +1,10 @@
-# The development shell. `dev-help` lists what it provides.
 { inputs, ... }:
 
 {
   perSystem =
     {
       geoEnv,
+      lib,
       nodejs,
       pkgs,
       postgresql,
@@ -14,35 +14,46 @@
     }:
 
     let
-      # Every helper is a committed script under nix/scripts, wrapped so it
-      # runs with a known set of tools on PATH. No shell logic lives in Nix.
-      mkScript =
+      mkDevScript =
         name: runtimeInputs:
         pkgs.writeShellApplication {
           inherit name runtimeInputs;
-          text = builtins.readFile (../nix/scripts + "/${name}.sh");
+          text =
+            builtins.readFile ../nix/scripts/require-dev-shell.sh
+            + builtins.readFile (../nix/scripts + "/${name}.sh");
         };
+
       djangoTools = [
         pythonEnv
         pkgs.git
         postgresql
       ];
 
-      scripts = {
-        db = mkScript "db" [
+      # To add a helper, write nix/scripts/<name>.sh and add a line here.
+      scripts = lib.mapAttrs mkDevScript {
+        db = [
           postgresql
           pkgs.coreutils
         ];
-        db-init = mkScript "db-init" [ postgresql ];
-        db-reset = mkScript "db-reset" djangoTools;
-        db-restore = mkScript "db-restore" (djangoTools ++ [ pkgs.coreutils ]);
-        manage = mkScript "manage" djangoTools;
-        runserver = mkScript "runserver" djangoTools;
-        webpack-watch = mkScript "webpack-watch" (djangoTools ++ [ nodejs ]);
+        db-init = [ postgresql ];
+        db-reset = djangoTools;
+        db-restore = djangoTools ++ [ pkgs.coreutils ];
+        dev-help = [ pkgs.coreutils ];
+        manage = djangoTools;
+        runserver = djangoTools;
+        tests = djangoTools;
+        webpack-watch = djangoTools ++ [ nodejs ];
       };
 
-      # makeProcessCompose rather than the flake module, so the stack is not
-      # exported as a package that would start without the shell environment.
+      devEnv = geoEnv // {
+        # What nix/scripts/require-dev-shell.sh looks for.
+        QGISFEED_DEV_SHELL = "1";
+
+        DJANGO_SETTINGS_MODULE = "qgisfeedproject.settings_nix";
+
+        PGDATABASE = "qgisfeed";
+      };
+
       devStack = (import inputs.process-compose-flake.lib { inherit pkgs; }).makeProcessCompose {
         name = "dev";
         modules = [
@@ -59,7 +70,7 @@
 
     {
       devShells.default = pkgs.mkShell (
-        geoEnv
+        devEnv
         // {
           packages = [
             pythonEnv
@@ -73,22 +84,13 @@
             pkgs.curl
             pkgs.git
 
-            # The helpers, each named after its own binary.
             devStack
             self'.packages.fetchGeoip
-            scripts.db-reset
-            scripts.db-restore
-            scripts.manage
-          ];
+          ]
+          ++ builtins.attrValues scripts;
 
-          # mkShell turns an unrecognised attribute into an environment variable.
-          # These do not depend on the checkout; the ones that do are set by the
-          # hook, which can run git.
-          DJANGO_SETTINGS_MODULE = "qgisfeedproject.settings_nix";
-
-          PGDATABASE = "qgisfeed";
-
-          shellHook = builtins.readFile ../nix/scripts/shell-hook.sh;
+          shellHook =
+            builtins.readFile ../nix/scripts/dev-env.sh + builtins.readFile ../nix/scripts/shell-hook.sh;
         }
       );
     };
