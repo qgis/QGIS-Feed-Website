@@ -14,7 +14,7 @@ For development purposes only, you can run this application in debug mode with d
 
 ## 🏃Before you start
 
-This project requires [Docker](https://www.docker.com/) and [Docker Compose](https://docs.docker.com/compose/) to run the development and production environments.
+This project requires [Docker](https://www.docker.com/) and [Docker Compose](https://docs.docker.com/compose/) or [Nix](https://nixos.org/) to run the development and production environments.
 Please ensure both are installed on your system before proceeding.
 
 ![Docker logo](https://www.docker.com/wp-content/uploads/2022/03/Moby-logo.png)
