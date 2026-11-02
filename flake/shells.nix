@@ -60,7 +60,7 @@
           ../nix/dev-stack.nix
           {
             _module.args = {
-              inherit postgresql scripts;
+              inherit devEnv postgresql scripts;
               inherit (self'.packages) fetchGeoip;
             };
           }
@@ -69,6 +69,12 @@
     in
 
     {
+      apps.dev = {
+        type = "app";
+        program = lib.getExe devStack;
+        meta.description = "Start the database, webpack and the development server";
+      };
+
       devShells.default = pkgs.mkShell (
         devEnv
         // {
