@@ -80,7 +80,5 @@ jobs:
       - name: Enable the Nix cache
         uses: DeterminateSystems/magic-nix-cache-action@main
 
-      # The Django suite against PostGIS, the closure under systemd in a VM,
-      # and treefmt over Nix, shell and Python.
       - name: Run the checks
         run: nix flake check --print-build-logs
