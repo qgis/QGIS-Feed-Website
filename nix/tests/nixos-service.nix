@@ -2,6 +2,7 @@
 # belong to the infrastructure's qgis.djangoApp module.
 {
   testers,
+  writeText,
   postgresql,
   qgisfeed,
 }:
@@ -32,6 +33,10 @@ testers.runNixOSTest {
     services.postgresql = {
       enable = true;
       package = postgresql;
+      initialScript = writeText "postgis.sql" ''
+        \c template1
+        CREATE EXTENSION postgis;
+      '';
       ensureDatabases = [ database ];
       ensureUsers = [
         {
