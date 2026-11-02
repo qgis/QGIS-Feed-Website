@@ -32,10 +32,11 @@ stdenv.mkDerivation {
   version = "1.0.0";
 
   # Only the Django project. REQUIREMENTS.txt is not installed or read at
-  # runtime: the dependencies come from pythonEnv.
+  # runtime: the dependencies come from pythonEnv. Media is runtime state and
+  # comes from the systemd StateDirectory.
   src = lib.fileset.toSource {
     root = ../.;
-    fileset = ../qgisfeedproject;
+    fileset = lib.fileset.difference ../qgisfeedproject ../qgisfeedproject/media;
   };
 
   nativeBuildInputs = [ makeWrapper ];
@@ -55,9 +56,6 @@ stdenv.mkDerivation {
     mkdir -p "$appdir/qgisfeedproject/static/bundles"
     cp -r ${staticAssets}/bundles/. "$appdir/qgisfeedproject/static/bundles/"
     cp ${staticAssets}/webpack-stats.json "$appdir/webpack-stats.json"
-
-    # Media is runtime state and comes from the systemd StateDirectory.
-    rm -rf "$appdir/qgisfeedproject/media"
 
     mkdir -p $out/bin
 
