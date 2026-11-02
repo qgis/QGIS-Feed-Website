@@ -11,9 +11,9 @@ export MANAGE="${DJANGO_DIR}/manage.py"
 export PYTHONPATH="${DJANGO_DIR}"
 
 # libpq reads a path as a socket directory.
-export PGDATA="${PROJECT_ROOT}/.nix/pgdata"
-export PGHOST="${PROJECT_ROOT}/.nix/run"
+export PGDATA="${PROJECT_ROOT}/.state/pgdata"
+export PGHOST="${PROJECT_ROOT}/.state/run"
 export DB_HOST="${PGHOST}"
 
-export GEOIP_DIR="${PROJECT_ROOT}/.nix/geoip"
+export GEOIP_DIR="${PROJECT_ROOT}/.state/geoip"
 export GEOIP_PATH="${GEOIP_DIR}/"
