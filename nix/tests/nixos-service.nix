@@ -3,6 +3,7 @@
 {
   testers,
   writeText,
+  geoipDb,
   postgresql,
   qgisfeed,
 }:
@@ -65,6 +66,7 @@ testers.runNixOSTest {
         StateDirectory = "qgisfeed";
       };
       script = ''
+        install -D --mode=0644 ${geoipDb} /var/lib/qgisfeed/geoip/GeoLite2-City.mmdb
         ${qgisfeed}/bin/${qgisfeed.manageProgram} migrate --noinput
         ${qgisfeed}/bin/${qgisfeed.manageProgram} collectstatic --noinput
       '';
@@ -93,13 +95,12 @@ testers.runNixOSTest {
   };
 
   testScript = ''
+    import json
+
     machine.wait_for_unit("qgisfeed-migrate.service")
     machine.wait_for_unit("qgisfeed.service")
     machine.wait_for_open_port(8000)
 
-    # Reaching this proves the unit started, found its settings and reached
-    # PostgreSQL.
-    machine.succeed("curl --fail --silent 'http://127.0.0.1:8000/?json=1' -o /tmp/feed.json")
-    machine.succeed("python3 -c 'import json; json.load(open(\"/tmp/feed.json\"))'")
+    json.loads(machine.succeed("curl --fail --silent 'http://127.0.0.1:8000/?json=1'"))
   '';
 }
