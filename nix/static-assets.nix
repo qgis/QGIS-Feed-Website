@@ -24,7 +24,7 @@ buildNpmPackage {
   };
 
   # Update with: nix run nixpkgs#prefetch-npm-deps -- package-lock.json
-  npmDepsHash = "sha256-WhBX8o78hMaTdTsfejRLrWlhESaDQlvJ9VAIuvrv+VE=";
+  npmDepsHash = "sha256-nP8vebkMP14iFJZvJMyd8pzdeQFMRpF0+6vPS9I5gvk=";
 
   # "npm run build" is webpack --mode production.
   npmBuildScript = "build";
