@@ -29,17 +29,17 @@
           inherit (qgisfeed) manageProgram;
 
           # The package drops the media directory, so the fixture comes from here.
-          fixtureImage = ../qgisfeedproject/media/feedimages/rust.png;
+          fixtureImage = ../../qgisfeedproject/media/feedimages/rust.png;
 
           # The only version of the override a checkout has.
-          settingsTemplate = ../qgisfeedproject/qgisfeedproject/settings_local.py.templ;
+          settingsTemplate = ../../qgisfeedproject/qgisfeedproject/settings_local.py.templ;
 
           inherit geoipDb;
-        } (builtins.readFile ../nix/tests/django-tests.sh);
+        } (builtins.readFile ../tests/django-tests.sh);
       }
       # A virtual machine needs KVM, so this one cannot run on darwin.
       // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
-        nixos-service = pkgs.callPackage ../nix/tests/nixos-service.nix {
+        nixos-service = pkgs.callPackage ../tests/nixos-service.nix {
           inherit geoipDb postgresql qgisfeed;
         };
       };

@@ -10,7 +10,7 @@
     }:
 
     let
-      staticAssets = pkgs.callPackage ../nix/static-assets.nix { inherit nodejs; };
+      staticAssets = pkgs.callPackage ../static-assets.nix { inherit nodejs; };
 
       # Exported as a package, not just a dev helper: a deployment needs it
       # too, because the MaxMind database cannot ship in the closure.
@@ -21,10 +21,10 @@
           pkgs.coreutils
           pkgs.git
         ];
-        text = builtins.readFile ../nix/scripts/fetch-geoip.sh;
+        text = builtins.readFile ../scripts/fetch-geoip.sh;
       };
 
-      qgisfeed = pkgs.callPackage ../nix/package.nix {
+      qgisfeed = pkgs.callPackage ../package.nix {
         inherit
           fetchGeoip
           geoEnv

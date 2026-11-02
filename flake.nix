@@ -38,11 +38,11 @@
       imports = [
         inputs.treefmt-nix.flakeModule
 
-        ./flake/checks.nix
-        ./flake/formatter.nix
-        ./flake/packages.nix
-        ./flake/shells.nix
-        ./flake/toolchain.nix
+        ./nix/flake/checks.nix
+        ./nix/flake/formatter.nix
+        ./nix/flake/packages.nix
+        ./nix/flake/shells.nix
+        ./nix/flake/toolchain.nix
       ];
     };
 }

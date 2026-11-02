@@ -130,14 +130,15 @@ virtual machine check needs KVM, so it is Linux only.
 
   | File | Produces |
   |---|---|
-  | `flake/packages.nix` | The derivations, and the values the other parts share |
-  | `flake/checks.nix` | Everything `nix flake check` runs |
-  | `flake/shells.nix` | The development shell |
-  | `flake/formatter.nix` | `nix fmt` |
+  | `nix/flake/packages.nix` | The derivations, and the values the other parts share |
+  | `nix/flake/checks.nix` | Everything `nix flake check` runs |
+  | `nix/flake/shells.nix` | The development shell |
+  | `nix/flake/formatter.nix` | `nix fmt` |
 
-  `flake/` wires outputs together. `nix/` holds the things that build, which
-  includes `nix/dev-stack.nix`, the process-compose definition behind `dev`. To
-  add a helper you only need `flake/shells.nix` and `nix/scripts/`.
+  `nix/flake/` wires outputs together. The rest of `nix/` holds the things that
+  build, which includes `nix/dev-stack.nix`, the process-compose definition
+  behind `dev`. To add a helper you only need `nix/flake/shells.nix` and
+  `nix/scripts/`.
 
 The flake supports `x86_64-linux` and `aarch64-darwin`. nixpkgs has dropped
 `x86_64-darwin`, and nothing here needs `aarch64-linux`.

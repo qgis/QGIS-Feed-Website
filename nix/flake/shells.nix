@@ -19,8 +19,7 @@
         pkgs.writeShellApplication {
           inherit name runtimeInputs;
           text =
-            builtins.readFile ../nix/scripts/require-dev-shell.sh
-            + builtins.readFile (../nix/scripts + "/${name}.sh");
+            builtins.readFile ../scripts/require-dev-shell.sh + builtins.readFile (../scripts + "/${name}.sh");
         };
 
       djangoTools = [
@@ -57,7 +56,7 @@
       devStack = (import inputs.process-compose-flake.lib { inherit pkgs; }).makeProcessCompose {
         name = "dev";
         modules = [
-          ../nix/dev-stack.nix
+          ../dev-stack.nix
           {
             _module.args = {
               inherit devEnv postgresql scripts;
@@ -95,8 +94,7 @@
           ]
           ++ builtins.attrValues scripts;
 
-          shellHook =
-            builtins.readFile ../nix/scripts/dev-env.sh + builtins.readFile ../nix/scripts/shell-hook.sh;
+          shellHook = builtins.readFile ../scripts/dev-env.sh + builtins.readFile ../scripts/shell-hook.sh;
         }
       );
     };
