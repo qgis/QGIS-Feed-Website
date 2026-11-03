@@ -14,16 +14,7 @@ For development purposes only, you can run this application in debug mode with d
 
 ## 🏃Before you start
 
-This project requires [Docker](https://www.docker.com/) and [Docker Compose](https://docs.docker.com/compose/) or [Nix](https://nixos.org/) to run the development and production environments.
-Please ensure both are installed on your system before proceeding.
-
-![Docker logo](https://www.docker.com/wp-content/uploads/2022/03/Moby-logo.png)
-
-You can check your installation with:
-```bash
-docker --version
-docker-compose --version
-```
+[Nix](https://nixos.org/) to run the development and production environments. This project also has docker compose-based environment but will be deprecated in favour of Nix.
 
 ![-----------------------------------------------------](./img/green-gradient.png)
 
@@ -36,112 +27,43 @@ docker-compose --version
 
 ![-----------------------------------------------------](./img/green-gradient.png)
 
-## Pre-commit hooks
-
-This repository uses [pre-commit](https://pre-commit.com/) to automate code quality checks before each commit. To set it up:
-
-1. Install pre-commit (if not already installed):
-    ```sh
-    pip install pre-commit
-    ```
-
-2. Install the hooks defined in `.pre-commit-config.yaml`:
-    ```sh
-    pre-commit install
-    ```
-
-Now, the configured checks (such as linting and formatting) will run automatically when you commit changes.
-
-![-----------------------------------------------------](./img/green-gradient.png)
-
-
 ### ❄️ Nix
 
 The flake gives you the whole development stack: Python, Node, and a
 project-local PostgreSQL with PostGIS. You do not need Docker if you work this
 way.
 
+#### Quick Start
+
+You can quickly run the nix development process using:
+
 ```sh
-nix develop     # direnv users just need to cd into the checkout
-dev             # starts the database, webpack and the site on :8000
+nix run .#dev
 ```
 
-`dev` is the only command you need to run the site. It brings up PostgreSQL,
-downloads the GeoIP database if it is missing, applies the migrations, builds
-the webpack bundles and starts the development server, in that order.
+Go on your browser: http://localhost:8000/
 
-Run `db-reset` once to load the fixtures, which create the same users as the
-Docker path. Then open <http://localhost:8000>.
+#### Nix Develop Environment
 
-The shell prints what it provides on entry, and `dev-help` shows it again:
+The nix develop environment contains tools and commands for Django, database...
 
-| Command | What it does |
-|---|---|
-| `dev` | Start the database, webpack and the development server |
-| `manage` | Run a Django management command |
-| `tests` | Run the Django test suite |
-| `db-reset` | Drop and recreate the database, migrate, load the fixtures |
-| `db-restore` | Restore the database from a `pg_dump` archive |
-| `fetch-geoip` | Download the GeoLite2 City database |
+To enter the development environment:
 
-`dev` only exists inside the shell, and its processes inherit the environment
-from it. It is deliberately not a flake output, because one started without
-that environment would fail.
+```sh
+nix develop     # direnv users just need to cd into the checkout
+```
 
-`nix build .#qgisfeed` works from anywhere. `nix fmt` formats the Nix and shell
-files and lints the Python with ruff, all through treefmt. Python formatting
-belongs to the pre-commit hook, which runs black and isort over the files you
-touch.
-
-`nix flake check` runs three things: the Django test suite against a PostGIS
-cluster in the build sandbox, the application closure under systemd in a NixOS
-virtual machine, and treefmt in check mode. That is also what CI runs. The
-virtual machine check needs KVM, so it is Linux only.
-
-#### How it is put together
-
-- **The stack** is a [process-compose](https://github.com/F1bonacc1/process-compose)
-  configuration, with PostgreSQL coming from
-  [services-flake](https://github.com/juspay/services-flake). Nothing here
-  starts or stops a database by hand. Ctrl-C stops everything.
-- **State** lives in `.nix/`, which is git-ignored: the cluster in
-  `.nix/pgdata`, its socket in `.nix/run`, the GeoIP database in `.nix/geoip`.
-  Delete the directory to start over.
-- **The database** is an unprivileged cluster owned by you, and Django connects
-  as your own user, because the cluster has no other role. It listens on a
-  unix socket inside the repository and binds no network interface, so it
-  cannot clash with a system PostgreSQL or be reached from another machine.
-  PostGIS is installed into `template1`, so the throwaway database the Django
-  test runner creates inherits it.
-- **Settings** come from `qgisfeedproject/settings_nix.py`, which inherits
-  `settings.py`, relaxes `ALLOWED_HOSTS` and picks the database role.
-  Everything else arrives through the environment the dev shell exports.
-- **Python dependencies** come from nixpkgs, except three that nixpkgs cannot
-  supply at the version this project needs. Those are built from real
-  derivations in `nix/python-packages.nix`. There is no pip step and no
-  virtualenv.
-- **nixpkgs** is pinned centrally for every QGIS repository through
-  [qgis-nixpkgs-version](https://github.com/QGIS/qgis-nixpkgs-version). Bump it
-  there, not here.
-- **Shell helpers** are ordinary scripts in `nix/scripts/`, wrapped by the
-  flake. Nothing but wiring lives in the `.nix` files.
-- **The flake is split by output.** `flake.nix` holds the inputs and nothing
-  else, and each output class lives in its own file:
-
-  | File | Produces |
-  |---|---|
-  | `nix/flake/packages.nix` | The derivations, and the values the other parts share |
-  | `nix/flake/checks.nix` | Everything `nix flake check` runs |
-  | `nix/flake/shells.nix` | The development shell |
-  | `nix/flake/formatter.nix` | `nix fmt` |
-
-  `nix/flake/` wires outputs together. The rest of `nix/` holds the things that
-  build, which includes `nix/dev-stack.nix`, the process-compose definition
-  behind `dev`. To add a helper you only need `nix/flake/shells.nix` and
-  `nix/scripts/`.
-
-The flake supports `x86_64-linux` and `aarch64-darwin`. nixpkgs has dropped
-`x86_64-darwin`, and nothing here needs `aarch64-linux`.
+Available commands:
+```sh
+dev             # starts the database, webpack and the site on :8000
+manage          # run a Django management command
+tests           # run the Django test suite
+db-reset        # drop and recreate the database, migrate, load the fixtures
+db-restore      # restore the database from a pg_dump archive
+fetch-geoip     # download the GeoLite2 City database
+runserver       # run only the development server
+webpack-watch   # run only the webpack watcher
+```
 
 #### Configuration
 
@@ -210,7 +132,18 @@ restating them. The `nixos-service` check boots a virtual machine and runs the
 closure under systemd, which is the only place a unit that cannot write its
 state directory or reach PostgreSQL would show up before a host does.
 
-### ⚡️ Quick Start
+
+### Using Docker Compose (will be deprecated soon)
+
+The docker environment requires [Docker](https://www.docker.com/) and [Docker Compose](https://docs.docker.com/compose/)
+
+You can check your installation with:
+```bash
+docker --version
+docker-compose --version
+```
+
+#### ⚡️ Quick Start
 - Build the docker the container
 ```bash
 $ make dev-build
@@ -360,7 +293,7 @@ $ docker-compose -f docker-compose.dev.yml exec qgisfeed python qgisfeedproject/
 ```
 </details>
 
-## 🚀 Production Environment
+## 🚀 Production Environment (Will be deprecated soon)
 
 
 <details>
