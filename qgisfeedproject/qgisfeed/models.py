@@ -294,7 +294,6 @@ class QgisFeedEntry(models.Model):
 
     def get_all_reviewer_statuses(self):
         """Get the latest review status from each assigned reviewer"""
-        from django.db.models import Max
 
         statuses = {}
         for reviewer in self.reviewers.all():

@@ -14,16 +14,7 @@ For development purposes only, you can run this application in debug mode with d
 
 ## 🏃Before you start
 
-This project requires [Docker](https://www.docker.com/) and [Docker Compose](https://docs.docker.com/compose/) to run the development and production environments.
-Please ensure both are installed on your system before proceeding.
-
-![Docker logo](https://www.docker.com/wp-content/uploads/2022/03/Moby-logo.png)
-
-You can check your installation with:
-```bash
-docker --version
-docker-compose --version
-```
+[Nix](https://nixos.org/) to run the development and production environments. This project also has docker compose-based environment but will be deprecated in favour of Nix.
 
 ![-----------------------------------------------------](./img/green-gradient.png)
 
@@ -36,36 +27,123 @@ docker-compose --version
 
 ![-----------------------------------------------------](./img/green-gradient.png)
 
-## Pre-commit hooks
-
-This repository uses [pre-commit](https://pre-commit.com/) to automate code quality checks before each commit. To set it up:
-
-1. Install pre-commit (if not already installed):
-    ```sh
-    pip install pre-commit
-    ```
-
-2. Install the hooks defined in `.pre-commit-config.yaml`:
-    ```sh
-    pre-commit install
-    ```
-
-Now, the configured checks (such as linting and formatting) will run automatically when you commit changes.
-
-![-----------------------------------------------------](./img/green-gradient.png)
-
-
 ### ❄️ Nix
 
-For Nix/NixOS users, you can run the following command on this project root folder:
+The flake gives you the whole development stack: Python, Node, and a
+project-local PostgreSQL with PostGIS. You do not need Docker if you work this
+way.
+
+#### Quick Start
+
+You can quickly run the nix development process using:
 
 ```sh
-nix-shell
-./vscode.sh
+nix run .#dev
 ```
-TODO: Install all dependecies when running nix-shell.
 
-### ⚡️ Quick Start
+Go on your browser: http://localhost:8000/
+
+#### Nix Develop Environment
+
+The nix develop environment contains tools and commands for Django, database...
+
+To enter the development environment:
+
+```sh
+nix develop     # direnv users just need to cd into the checkout
+```
+
+Available commands:
+```sh
+dev             # starts the database, webpack and the site on :8000
+manage          # run a Django management command
+tests           # run the Django test suite
+db-reset        # drop and recreate the database, migrate, load the fixtures
+db-restore      # restore the database from a pg_dump archive
+fetch-geoip     # download the GeoLite2 City database
+runserver       # run only the development server
+webpack-watch   # run only the webpack watcher
+```
+
+#### Configuration
+
+The dev stack runs with no configuration at all. When you do want to change
+something, there is one file, and you create it by copying the template:
+
+```sh
+cd qgisfeedproject/qgisfeedproject
+cp settings_local.py.templ settings_local.py
+```
+
+`settings_local.py` is git-ignored, and `settings.py` applies it last, so
+anything you set there wins. Every value in the template is commented out, so
+a fresh copy changes nothing until you edit it.
+
+The two settings worth knowing about let you work against a copy of the live
+site:
+
+```python
+MEDIA_ROOT = '/home/you/data/feed.qgis.org/media'
+QGISFEED_BACKUP_DIR = '/home/you/data/feed.qgis.org/dbbackups'
+```
+
+Then `db-restore` finds `latest-qgisfeed.dmp` in that directory, and the
+uploads the restored rows refer to resolve against the same media. Secrets go
+here too: SMTP, the social tokens, the OIDC client secret. Keeping them in a
+settings file rather than the environment means they are not exported into
+every shell you open.
+
+The Docker stack's `.env` is deliberately not read. It sets
+`DJANGO_LOCAL_SETTINGS` to the Docker override, which calls `os.mkdir` on a
+path that exists only inside a container and takes every management command
+down with it.
+
+Production uses neither. Secrets reach the systemd unit through
+`EnvironmentFile`, so they never enter the world-readable Nix store.
+
+#### GeoIP data
+
+The geofence feature needs `GeoLite2-City.mmdb`. It is MaxMind licensed, so we
+neither commit nor vendor it. `dev` fetches it on first start, and
+`fetch-geoip` does it on demand. Delete the file to get a fresh copy. Without
+it, location lookups return no result.
+
+#### Deployment
+
+The flake exports no NixOS module. The QGIS infrastructure already has a
+generic `qgis.djangoApp` module that owns PostgreSQL, nginx, Metabase, ACME and
+the state directories, and a second module here would compete with it. This
+flake's job is to produce the application closure.
+
+`nix build` gives you two entry points:
+
+| Binary | Purpose |
+|---|---|
+| `qgisfeed-manage` | The `manage.py` wrapper, for `migrate` and `collectstatic` |
+| `qgisfeed-uwsgi` | uWSGI with the python3 plugin, speaking the uwsgi protocol to nginx |
+
+There is deliberately no gunicorn entry point. nginx uses `uwsgiPass`, and the
+Docker image runs gunicorn from its own entrypoint rather than from this
+closure.
+
+The package publishes a `passthru` set so a deployment reads the program names,
+the WSGI module and the base uWSGI tuning off the derivation instead of
+restating them. The `nixos-service` check boots a virtual machine and runs the
+closure under systemd, which is the only place a unit that cannot write its
+state directory or reach PostgreSQL would show up before a host does.
+
+
+### Using Docker Compose (will be deprecated soon)
+
+The docker environment requires [Docker](https://www.docker.com/) and [Docker Compose](https://docs.docker.com/compose/)
+
+You can check your installation with:
+```bash
+docker --version
+docker-compose --version
+```
+
+#### ⚡️ Quick Start
 - Build the docker the container
 ```bash
 $ make dev-build
@@ -112,12 +190,47 @@ QGISFEED_MAX_RECORDS=40  # default value is 20
 
 - Create settings_local_override.py file
 ```bash
-$ cp settings_local_override.py.templ settings_local_override.py
+$ cp settings_local.py.templ settings_local_override.py
 ```
 
 - Edit settings_local_override.py file and set your environment variables
 
-**IMPORTANT NOTE**: As we are migrating to a declarative based infrastructure, it is preferable to use the `settings_local_override.py` file for all new Django variables. This file is ignored when commiting so please make sure you define your new variables with an example value (**NOT THE REAL ONE FOR SECRETS AND PASSWORDS**) inside the `settings_local_override.py.templ` file.
+**IMPORTANT NOTE**: As we are migrating to a declarative based infrastructure, it is preferable to use the `settings_local_override.py` file for all new Django variables. This file is ignored when commiting so please make sure you define your new variables with an example value (**NOT THE REAL ONE FOR SECRETS AND PASSWORDS**) inside the `settings_local.py.templ` file.
+
+#### Where each setting comes from
+
+The application reads its configuration from two places, and it helps to know
+which one owns a given setting.
+
+The **environment** owns anything that changes between a laptop, the docker
+stack and production, and that is not a secret. `settings.py` reads these:
+
+| Variable | Default | What it does |
+|---|---|---|
+| `DEBUG` | `True` | Turn it off anywhere you would not want a stack trace on screen. |
+| `DOMAIN_NAME` | empty | Public hostnames, comma separated. `CSRF_TRUSTED_ORIGINS` is derived from it. |
+| `QGIS_FEED_PROD_URL` | empty | The older name for the same thing, still read as a fallback. |
+| `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT` | `qgisfeed`, `qgisfeed`, empty, `/var/run/postgresql`, `5432` | The database connection. The `QGISFEED_DOCKER_*` names still work as fallbacks. |
+| `STATIC_ROOT` | `qgisfeedproject/static_collected` | Where `collectstatic` writes. |
+| `MEDIA_ROOT` | `qgisfeedproject/media` | Where uploads are kept. |
+| `GEOIP_PATH` | `/var/opt/maxmind/` | The directory holding `GeoLite2-City.mmdb`. |
+| `GDAL_LIBRARY_PATH`, `GEOS_LIBRARY_PATH` | unset | Explicit paths to libgdal and libgeos. Leave them unset unless the usual library search fails. |
+
+The default database host is a path, which libpq reads as a unix socket
+directory. That suits a local PostgreSQL, so the compose files pass a hostname
+of their own.
+
+**`settings_local_override.py`** owns the secrets and the handful of settings
+that have no environment variable. It is applied last, so anything you name in
+it wins over the environment, including an empty string. Only list the settings
+you mean to set. See `settings_local.py.templ` for the full list.
+
+`SECRET_KEY` deserves a note. The value in `settings.py` is committed, so it is
+public, and anyone can forge a session or a password reset token against a site
+still using it. It is named `INSECURE_DEFAULT_SECRET_KEY` so a deployment can
+compare `SECRET_KEY` against it and refuse to start. Django's own deployment
+check will not catch this for you, because the committed key is long and varied
+enough to pass `security.W009`.
 
 #### Spin up the development environment
 
@@ -180,7 +293,7 @@ $ docker-compose -f docker-compose.dev.yml exec qgisfeed python qgisfeedproject/
 ```
 </details>
 
-## 🚀 Production Environment
+## 🚀 Production Environment (Will be deprecated soon)
 
 
 <details>

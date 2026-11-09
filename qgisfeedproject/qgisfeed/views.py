@@ -946,7 +946,7 @@ class FeedEntryShareTelegramView(View):
             )
             if response and response.get("ok"):
                 messages.success(
-                    request, f"Successfully shared to Telegram!", fail_silently=True
+                    request, "Successfully shared to Telegram!", fail_silently=True
                 )
             else:
                 messages.error(

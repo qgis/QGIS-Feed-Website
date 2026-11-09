@@ -15,6 +15,11 @@ services:
       context: .
       dockerfile: Dockerfile.testing
     command: /code/entrypoint_testing.sh
+    environment:
+      QGISFEED_DOCKER_DBHOST: ${QGISFEED_DOCKER_DBHOST:-postgis}
+      QGISFEED_DOCKER_DBNAME: ${QGISFEED_DOCKER_DBNAME:-qgisfeed}
+      QGISFEED_DOCKER_DBUSER: ${QGISFEED_DOCKER_DBUSER:-docker}
+      QGISFEED_DOCKER_DBPASSWORD: ${QGISFEED_DOCKER_DBPASSWORD:-docker}
     ports:
     - "8000:8000"
     depends_on:

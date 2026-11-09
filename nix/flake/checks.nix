@@ -1,0 +1,47 @@
+{
+  perSystem =
+    {
+      lib,
+      pkgs,
+      postgresql,
+      self',
+      ...
+    }:
+
+    let
+      inherit (self'.packages) qgisfeed;
+
+      # Bump with: nix store prefetch-file --name GeoLite2-City.mmdb <url>
+      geoipDb = pkgs.fetchurl {
+        url =
+          "https://raw.githubusercontent.com/maxmind/MaxMind-DB/"
+          + "d1551916cff0712d12ff602c309234471b0402a2/test-data/GeoLite2-City-Test.mmdb";
+        hash = "sha256-i2tJg8DWxh0pP22koB8DfCK3xEV2IeZCiSINyGzSUG8=";
+      };
+    in
+
+    {
+      checks = {
+        django-tests = pkgs.runCommand "django-tests" {
+          nativeBuildInputs = [ postgresql ];
+
+          app = qgisfeed;
+          inherit (qgisfeed) manageProgram;
+
+          # The package drops the media directory, so the fixture comes from here.
+          fixtureImage = ../../qgisfeedproject/media/feedimages/rust.png;
+
+          # The only version of the override a checkout has.
+          settingsTemplate = ../../qgisfeedproject/qgisfeedproject/settings_local.py.templ;
+
+          inherit geoipDb;
+        } (builtins.readFile ../tests/django-tests.sh);
+      }
+      # A virtual machine needs KVM, so this one cannot run on darwin.
+      // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+        nixos-service = pkgs.callPackage ../tests/nixos-service.nix {
+          inherit geoipDb postgresql qgisfeed;
+        };
+      };
+    };
+}

@@ -1,0 +1,13 @@
+# Linting only. black and isort own formatting, in treefmt and in pre-commit.
+
+[lint.per-file-ignores]
+# The Django settings override idiom.
+"qgisfeedproject/qgisfeedproject/settings.py" = ["F403"]
+"qgisfeedproject/qgisfeedproject/settings_nix.py" = ["F403", "F405"]
+
+# Objects built for their side effects, not read back.
+"qgisfeedproject/qgisfeed/tests.py" = ["F841"]
+
+# Pre-existing. Narrowing the except is a behaviour change, not a lint fix.
+"qgisfeedproject/qgisfeed/signals.py" = ["E722"]
+"qgisfeedproject/qgisfeed/views.py" = ["E741"]
