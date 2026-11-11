@@ -1,12 +1,6 @@
 {% extends 'layouts/base-fullscreen.html' %}
 {% load i18n %}
 
-{% comment %}
-One issued enrolment link, on a page of its own. It arrives through the session
-and is popped on the way in, so this renders it exactly once: a reload gets the
-recovery panel instead.
-{% endcomment %}
-
 {% block content %}
 <div class="sso-profile">
 
@@ -60,8 +54,6 @@ recovery panel instead.
         </div>
       </div>
 
-      {# The field above stays the primary way to take the link: a QR is not #}
-      {# reachable by keyboard or screen reader. #}
       <figure class="sso-qr mt-5">
         <div class="sso-qr-code" role="img"
              aria-label="{% trans 'QR code holding the enrolment link shown above' %}">

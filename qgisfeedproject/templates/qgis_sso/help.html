@@ -1,12 +1,6 @@
 {% extends 'layouts/base-fullscreen.html' %}
 {% load i18n %}
 
-{% comment %}
-The contributor's guide to signing in. Open to anybody, because somebody locked
-out cannot read a page behind the login. The role ladder is built from the same
-settings the rules are enforced from, so it cannot drift.
-{% endcomment %}
-
 {% block content %}
 <div class="sso-help">
 
@@ -195,7 +189,6 @@ settings the rules are enforced from, so it cannot drift.
                   {% endblocktrans %}
                 {% endif %}
               </td>
-              {# Both forms read the same in English. Translators need them apart. #}
             </tr>
           {% endfor %}
         </tbody>

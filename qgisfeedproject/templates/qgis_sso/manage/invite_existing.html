@@ -1,12 +1,6 @@
 {% extends 'layouts/base-fullscreen.html' %}
 {% load i18n %}
 
-{% comment %}
-Candidates for a realm account. Deliberately not paginated: this is the one
-place a selection is made, and a selection cannot be lost by paging if there is
-no paging. The search box is how a long list gets narrowed.
-{% endcomment %}
-
 {% block content %}
 <div class="box-content">
   <div class="is-flex is-justify-content-space-between is-align-items-center mb-4">

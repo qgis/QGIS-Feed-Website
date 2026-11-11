@@ -1,12 +1,6 @@
 {% extends 'layouts/base-fullscreen.html' %}
 {% load i18n %}
 
-{% comment %}
-Somebody's own account. The passkey buttons do not register anything here: they
-start a sign-in that asks Keycloak to run the action, because a passkey belongs
-to auth.qgis.org and no other site can create or delete one.
-{% endcomment %}
-
 {% block content %}
 <div class="sso-profile">
   <h1 class="title is-4">{% trans "Your account" %}</h1>

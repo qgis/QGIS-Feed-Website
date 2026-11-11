@@ -36,7 +36,6 @@
                                 class="navbar-item has-text-weight-semibold is-size-7">
                                 {% trans "Your account" %}
                             </a>
-                            {# Anyone with a realm account, and superusers who do not have one yet: at cutover they are the ones who need the page most. #}
                             {% if user.is_superuser or user.keycloak_identity %}
                                 <a class="navbar-item has-text-weight-semibold is-size-7"
                                     href="{% url "qgis_sso:enrolment" %}">

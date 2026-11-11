@@ -1,18 +1,5 @@
 {% load i18n %}
 
-{% comment %}
-Pager for any Django Page object. Include with:
-
-    {% include 'layouts/pagination.html' with page=feeds_entry count=count %}
-
-`count` is optional; without it the paginator's own total is used.
-
-Anchors rather than buttons carrying window.location, so paging works with
-JavaScript off and is reachable from the keyboard. {% querystring %} carries the
-current filters through, which a hand-built ?page=…&sort_by=… cannot do without
-somebody remembering to add each new parameter.
-{% endcomment %}
-
 <div class="columns">
   <nav class="field has-addons column is-6" role="navigation" aria-label="{% trans 'pagination' %}">
     <p class="control">

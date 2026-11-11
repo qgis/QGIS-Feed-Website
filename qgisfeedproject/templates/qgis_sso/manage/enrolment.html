@@ -1,11 +1,6 @@
 {% extends 'layouts/base-fullscreen.html' %}
 {% load i18n %}
 
-{% comment %}
-Accounts that exist in the realm. Each row acts on itself: a checkbox selection
-cannot survive paging, and a whole wave is what the Django admin is for.
-{% endcomment %}
-
 {% block content %}
 <div class="box-content">
 
@@ -129,7 +124,6 @@ cannot survive paging, and a whole wave is what the Django admin is for.
           <td>{{ row.role_labels|join:", "|default:"—" }}</td>
           <td>{{ row.identity.linked_at|date:"Y-m-d" }}</td>
           <td>
-            {# Icon buttons, so aria-label carries the name the icon only hints at. #}
             <form method="post" action="" class="is-flex sso-row-actions">
               {% csrf_token %}
               <input type="hidden" name="identity" value="{{ row.identity.pk }}">

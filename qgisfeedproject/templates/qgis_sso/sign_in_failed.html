@@ -1,13 +1,6 @@
 {% extends 'layouts/base-fullscreen.html' %}
 {% load i18n %}
 
-{% comment %}
-Shown instead of a traceback when authentication does not complete. By far the
-most common cause is a valid QGIS account with no account on this site, so
-that case is named; anything else gets a generic message rather than a reason
-we cannot actually establish.
-{% endcomment %}
-
 {% block content %}
 <div class="columns is-centered">
   <div class="column is-6">
