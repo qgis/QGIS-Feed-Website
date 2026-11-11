@@ -1,0 +1,35 @@
+{% extends 'qgis_sso/manage/_confirm.html' %}
+{% load i18n %}
+
+{% block heading %}
+  {% blocktrans trimmed with username=subject.user.username %}
+    Cancel the invitation for {{ username }}?
+  {% endblocktrans %}
+{% endblock heading %}
+
+{% block tone %}is-danger{% endblock tone %}
+
+{% block consequence %}
+  {% blocktrans trimmed with username=subject.user.username %}
+    This removes the account for {{ username }} completely, here and from QGIS
+    accounts. Nothing is kept, so their place comes back and you can invite them
+    again with the same name and address. This cannot be undone.
+  {% endblocktrans %}
+{% endblock consequence %}
+
+{% block detail %}
+  <p class="mb-4">
+    {% blocktrans trimmed with email=subject.user.email %}
+      Their setup link stops working, and the address {{ email }} is free for
+      somebody else.
+    {% endblocktrans %}
+  </p>
+{% endblock detail %}
+
+{% block action_class %}is-danger{% endblock action_class %}
+
+{% block action_icon %}fas fa-user-xmark{% endblock action_icon %}
+
+{% block action_label %}{% trans "Cancel the invitation" %}{% endblock action_label %}
+
+{% block escape_label %}{% trans "Keep the invitation" %}{% endblock escape_label %}

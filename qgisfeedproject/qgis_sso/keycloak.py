@@ -1,0 +1,361 @@
+# coding=utf-8
+"""A small Keycloak admin API client for provisioning.
+
+Deliberately narrow: it does what :mod:`qgis_sso.provisioning` needs and
+nothing more. The credentials it uses belong to a dedicated service-account
+client holding only ``view-users``, ``manage-users`` and ``view-clients``; the
+web application's own client must never hold them, because a compromise of the
+site would otherwise be a compromise of the realm.
+"""
+
+import logging
+import threading
+import time
+from urllib.parse import quote, urljoin
+
+import requests
+from django.conf import settings
+
+# Retry is urllib3's, re-exported here. Taken from requests so that urllib3
+# stays a transitive dependency rather than one we import without declaring.
+from requests.adapters import HTTPAdapter, Retry
+
+logger = logging.getLogger(__name__)
+
+#: Right for a management command working through a long list.
+DEFAULT_TIMEOUT = 30
+
+#: Right for a page somebody is watching: give up long before the reader does,
+#: and long before gunicorn's 120 second ceiling. Connect, then read.
+INTERACTIVE_TIMEOUT = (5, 10)
+
+#: Retry a read that failed on the way out or came back from a tired gateway.
+#: GET only, and that restriction is the point: retrying ``create_user`` after
+#: a reply we failed to read would create the account twice.
+RETRY_POLICY = Retry(
+    total=2,
+    backoff_factor=0.3,
+    status_forcelist=(502, 503, 504),
+    allowed_methods=frozenset(["GET"]),
+    raise_on_status=False,
+)
+
+
+class KeycloakError(RuntimeError):
+    """A Keycloak admin API call failed."""
+
+
+class KeycloakAdminClient:
+    """Client-credentials access to one realm's admin API."""
+
+    def __init__(
+        self,
+        server_url=None,
+        realm=None,
+        client_id=None,
+        client_secret=None,
+        timeout=DEFAULT_TIMEOUT,
+    ):
+        self.server_url = (
+            server_url or getattr(settings, "SSO_KEYCLOAK_SERVER_URL", "")
+        ).rstrip("/")
+        self.realm = realm or getattr(settings, "SSO_KEYCLOAK_REALM", "qgis")
+        self.client_id = client_id or getattr(settings, "SSO_PROVISIONER_CLIENT_ID", "")
+        self.client_secret = client_secret or getattr(
+            settings, "SSO_PROVISIONER_CLIENT_SECRET", ""
+        )
+        self.timeout = timeout
+        self._session = requests.Session()
+        # Enough pooled connections for the lookup fan-out to keep every
+        # worker on a live socket instead of opening one per call.
+        adapter = HTTPAdapter(
+            pool_connections=4, pool_maxsize=16, max_retries=RETRY_POLICY
+        )
+        self._session.mount("https://", adapter)
+        self._session.mount("http://", adapter)
+        self._token = None
+        self._token_expires_at = 0.0
+        # The lookups run across a thread pool. Only the token cache is shared
+        # mutable state; headers are passed per call and never set on the
+        # session, and urllib3's pool is itself thread-safe.
+        self._token_lock = threading.Lock()
+
+        missing = [
+            name
+            for name, value in (
+                ("SSO_KEYCLOAK_SERVER_URL", self.server_url),
+                ("SSO_PROVISIONER_CLIENT_ID", self.client_id),
+                ("SSO_PROVISIONER_CLIENT_SECRET", self.client_secret),
+            )
+            if not value
+        ]
+        if missing:
+            raise KeycloakError(
+                "Keycloak provisioning is not configured; missing "
+                + ", ".join(missing)
+                + ". The client secret belongs in settings_local, never in the "
+                "process environment."
+            )
+
+    # -- plumbing ----------------------------------------------------------
+
+    @property
+    def admin_base(self):
+        return f"{self.server_url}/admin/realms/{self.realm}/"
+
+    def access_token(self):
+        """Fetch, and cache until shortly before expiry, a service-account token.
+
+        Safe to call from several threads: they fetch one token between them
+        rather than one each.
+        """
+        if self._token and time.monotonic() < self._token_expires_at:
+            return self._token
+
+        with self._token_lock:
+            # Another thread may have fetched one while we waited for the lock.
+            if self._token and time.monotonic() < self._token_expires_at:
+                return self._token
+            return self._fetch_token()
+
+    def _fetch_token(self):
+        """The token request itself. Call with the lock held."""
+        response = self._session.post(
+            f"{self.server_url}/realms/{self.realm}/protocol/openid-connect/token",
+            data={
+                "grant_type": "client_credentials",
+                "client_id": self.client_id,
+                "client_secret": self.client_secret,
+            },
+            timeout=self.timeout,
+            verify=settings.DEBUG
+            == False,  # pragma: no cover - DEBUG is never True in production
+        )
+        if response.status_code != 200:
+            # The response body can echo the request; it is not logged.
+            raise KeycloakError(
+                f"Could not obtain a service-account token: HTTP {response.status_code}"
+            )
+        payload = response.json()
+        self._token = payload["access_token"]
+        # Renew a minute early so a long batch does not fail mid-run.
+        self._token_expires_at = time.monotonic() + max(
+            30, int(payload.get("expires_in", 60)) - 60
+        )
+        return self._token
+
+    def request(self, method, path, timeout=None, allow_missing=False, **kwargs):
+        url = urljoin(self.admin_base, path.lstrip("/"))
+        headers = kwargs.pop("headers", {})
+        headers["Authorization"] = f"Bearer {self.access_token()}"
+        response = self._session.request(
+            method,
+            url,
+            headers=headers,
+            timeout=timeout or self.timeout,
+            verify=settings.DEBUG
+            == False,  # pragma: no cover - DEBUG is never True in production
+            **kwargs,
+        )
+        if response.status_code == 404 and allow_missing:
+            # For the callers whose job is done if the thing is already gone.
+            # Undoing something halfway through has to be safe to repeat.
+            return None
+        if response.status_code >= 400:
+            raise KeycloakError(
+                f"{method} {path} failed: HTTP {response.status_code} "
+                f"{response.text[:500]}"
+            )
+        return response
+
+    # -- users --------------------------------------------------------------
+
+    def find_user_by_username(self, username):
+        """Return the realm user with exactly this username, or None.
+
+        ``exact=true`` matters: without it Keycloak does a prefix search and
+        ``alice`` would match ``alice2``.
+        """
+        response = self.request(
+            "GET",
+            "users",
+            params={"username": username, "exact": "true", "max": 2},
+            timeout=INTERACTIVE_TIMEOUT,
+        )
+        users = response.json()
+        if not users:
+            return None
+        if len(users) > 1:  # pragma: no cover - Keycloak enforces uniqueness
+            raise KeycloakError(f"More than one realm user named {username!r}")
+        return users[0]
+
+    def find_user_by_email(self, email):
+        """Return the realm user with exactly this address, or None.
+
+        ``exact=true`` for the same reason as the username search: without it
+        Keycloak matches on prefix.
+        """
+        response = self.request(
+            "GET",
+            "users",
+            params={"email": email, "exact": "true", "max": 2},
+            timeout=INTERACTIVE_TIMEOUT,
+        )
+        users = response.json()
+        return users[0] if users else None
+
+    def user_credentials(self, user_id):
+        """Every credential on one realm account.
+
+        Read-only. Credentials are never changed from here: the user does that
+        themselves at Keycloak, through an application-initiated action.
+        """
+        return self.request(
+            "GET",
+            f"users/{quote(user_id)}/credentials",
+            timeout=INTERACTIVE_TIMEOUT,
+        ).json()
+
+    def create_user(self, payload):
+        """Create a realm user and return the generated subject.
+
+        Keycloak returns the new id only in the ``Location`` header, and we
+        read it back rather than proposing an id of our own so that Keycloak
+        stays the sole authority for subject generation.
+        """
+        response = self.request("POST", "users", json=payload)
+        location = response.headers.get("Location", "")
+        sub = location.rstrip("/").rsplit("/", 1)[-1]
+        if not sub:
+            raise KeycloakError(
+                "Keycloak accepted the user but returned no Location header"
+            )
+        return sub
+
+    def delete_user(self, user_id):
+        """Remove a realm account, and say nothing if it has already gone.
+
+        Only for undoing an account this site created moments ago and nobody
+        ever used. Withdrawing trust from somebody who has arrived disables
+        their account instead, because their history has to stay readable.
+        """
+        self.request("DELETE", f"users/{quote(user_id)}", allow_missing=True)
+
+    def execute_actions_email(
+        self, user_id, actions, client_id, redirect_uri, lifespan
+    ):
+        """Send the account-setup email carrying the required actions."""
+        self.request(
+            "PUT",
+            f"users/{quote(user_id)}/execute-actions-email",
+            params={
+                "client_id": client_id,
+                "redirect_uri": redirect_uri,
+                "lifespan": int(lifespan),
+            },
+            json=list(actions),
+        )
+
+    def magic_link(self, username, client_id, redirect_uri, lifespan):
+        """Return a sign-in link for one user instead of emailing anything.
+
+        Keycloak's own API cannot: the action token is minted inside
+        ``execute-actions-email`` and never leaves the server. This calls
+        PhaseTwo's magic-link extension instead.
+
+        Returns ``(user_id, link)``. The caller must check that the id is the
+        subject it expected - this endpoint is keyed on the username, where the
+        rest of this app is keyed on ``sub``.
+        """
+        response = self._session.post(
+            settings.SSO_MAGIC_LINK_URL,
+            headers={"Authorization": f"Bearer {self.access_token()}"},
+            json={
+                "username": username,
+                "client_id": client_id,
+                "redirect_uri": redirect_uri,
+                "expiration_seconds": int(lifespan),
+                # All three default the other way, and all three matter.
+                "reusable": False,
+                "force_create": False,
+                "send_email": False,
+            },
+            timeout=self.timeout,
+            verify=settings.DEBUG
+            == False,  # pragma: no cover - DEBUG is never True in production
+        )
+        if response.status_code >= 400:
+            # Only the status: a body can echo the request, and a successful
+            # one is a credential.
+            raise KeycloakError(
+                f"Could not obtain a sign-in link: HTTP {response.status_code}"
+            )
+
+        payload = response.json()
+        link = (payload.get("link") or "").strip()
+        if not link.startswith("https://"):
+            raise KeycloakError(
+                "The magic-link extension returned no usable link. Is it deployed?"
+            )
+        return payload.get("user_id", ""), link
+
+    # -- clients and roles ---------------------------------------------------
+
+    def client_uuid(self, client_id):
+        """Resolve a client id to the internal UUID the role endpoints want."""
+        response = self.request(
+            "GET",
+            "clients",
+            params={"clientId": client_id},
+            timeout=INTERACTIVE_TIMEOUT,
+        )
+        clients = response.json()
+        if not clients:
+            raise KeycloakError(f"No client {client_id!r} in realm {self.realm!r}")
+        return clients[0]["id"]
+
+    def client_roles(self, client_uuid):
+        """Map role name to role representation for one client."""
+        response = self.request(
+            "GET", f"clients/{quote(client_uuid)}/roles", timeout=INTERACTIVE_TIMEOUT
+        )
+        return {role["name"]: role for role in response.json()}
+
+    def assign_client_roles(self, user_id, client_uuid, roles):
+        """Grant client roles to a user. Idempotent on Keycloak's side."""
+        if not roles:
+            return
+        self.request(
+            "POST",
+            f"users/{quote(user_id)}/role-mappings/clients/{quote(client_uuid)}",
+            json=list(roles),
+        )
+
+    def remove_client_roles(self, user_id, client_uuid, roles):
+        """Take client roles away. Idempotent on Keycloak's side."""
+        if not roles:
+            return
+        self.request(
+            "DELETE",
+            f"users/{quote(user_id)}/role-mappings/clients/{quote(client_uuid)}",
+            json=list(roles),
+        )
+
+    # -- withdrawing access --------------------------------------------------
+
+    def set_user_enabled(self, user_id, enabled):
+        """Turn a realm account on or off.
+
+        Disabling is what makes a revocation hold when this site is not
+        consulted: the account cannot authenticate anywhere in the realm,
+        including at hub and plugins.
+        """
+        self.request("PUT", f"users/{quote(user_id)}", json={"enabled": bool(enabled)})
+
+    def end_sessions(self, user_id):
+        """Sign a user out of the realm everywhere, immediately.
+
+        Without this, revocation only stops the *next* sign-in: an existing
+        session keeps working until its token expires.
+        """
+        self.request("POST", f"users/{quote(user_id)}/logout")

@@ -21,3 +21,8 @@ ua-parser~=1.0
 atproto~=0.0.61
 Mastodon.py~=2.0
 sqlparse~=0.5
+mozilla-django-oidc~=5.0
+# Renders the SSO enrolment link as inline SVG. Pure Python, no runtime
+# dependencies, and nothing leaves the process: a bearer credential never
+# reaches disk or a third-party image service.
+segno~=1.6

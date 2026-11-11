@@ -16,6 +16,8 @@ import os
 import sys
 from pathlib import Path
 
+from django.utils.translation import gettext_lazy as _
+
 logger = logging.getLogger(__name__)
 
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
@@ -55,6 +57,9 @@ INSTALLED_APPS = [
     "django.contrib.gis",
     # QGIS Feed applications
     "qgisfeed",
+    # Keycloak single sign-on. Deliberately feed-agnostic and namespaced, so
+    # that a second QGIS site can reuse it with its own role map.
+    "qgis_sso",
     # Dependencies
     "tinymce",  # HTML field
     "imagekit",  # Image crop and resize
@@ -62,6 +67,7 @@ INSTALLED_APPS = [
     "user_visit",
     # Webpack
     "webpack_loader",
+    "mozilla_django_oidc",  # OpenID Connect authentication
 ]
 
 # Useful debugging extensions
@@ -78,6 +84,11 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    # Re-checks the ID token with Keycloak once it goes stale, so that a
+    # revocation there takes effect within OIDC_RENEW_ID_TOKEN_EXPIRY_SECONDS
+    # rather than whenever the Django session happens to expire. Must come
+    # after AuthenticationMiddleware, which is what puts request.user in place.
+    "mozilla_django_oidc.middleware.SessionRefresh",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "qgisfeed.middleware.QgisFeedUserVisitMiddleware",
@@ -130,6 +141,33 @@ DATABASES = {
         "PORT": _db("DB_PORT", "QGISFEED_DOCKER_DBPORT", "5432"),
     }
 }
+
+# Stated rather than left to the default, because two things now depend on
+# what this is. It lives in the worker process, so each gunicorn worker keeps
+# its own copy and nothing here is shared between them or survives a restart.
+# That is fine for both users - the SSO client role catalogue and the login
+# rate limiter - but neither may be treated as a single source of truth. Point
+# this at a shared backend before anything relies on one.
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "qgisfeed",
+    }
+}
+
+# Local password login is a migration fallback with a bounded life, not a
+# standing second front door. One flag gates all three of its effects: the
+# ModelBackend below, the password form on the login page, and what Django
+# admin's own login view will accept. See docs/sso.md.
+LOCAL_LOGIN_ENABLED = os.environ.get("LOCAL_LOGIN_ENABLED", "True").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
+
+AUTHENTICATION_BACKENDS = ["qgis_sso.auth.QGISOIDCAuthenticationBackend"]
+if LOCAL_LOGIN_ENABLED:
+    AUTHENTICATION_BACKENDS.append("django.contrib.auth.backends.ModelBackend")
 
 
 # Password validation
@@ -243,6 +281,231 @@ BLUESKY_PASSWORD = os.environ.get("BLUESKY_PASSWORD", "")
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 
+# OpenID Connect authentication
+QGIS_AUTH_URL = os.environ.get("QGIS_AUTH_URL", "https://auth.qgis.org")
+OIDC_RP_CLIENT_ID = os.environ.get("OIDC_RP_CLIENT_ID", "feed-qgis-org")
+OIDC_RP_SIGN_ALGO = "RS256"
+OIDC_OP_AUTHORIZATION_ENDPOINT = (
+    f"{QGIS_AUTH_URL}/realms/qgis/protocol/openid-connect/auth"
+)
+OIDC_OP_TOKEN_ENDPOINT = f"{QGIS_AUTH_URL}/realms/qgis/protocol/openid-connect/token"
+OIDC_OP_USER_ENDPOINT = f"{QGIS_AUTH_URL}/realms/qgis/protocol/openid-connect/userinfo"
+OIDC_OP_JWKS_ENDPOINT = f"{QGIS_AUTH_URL}/realms/qgis/protocol/openid-connect/certs"
+
+# The realm that may issue tokens for this site. Asserted against every ID
+# token, because a subject is only unique within its issuer.
+SSO_KEYCLOAK_REALM = os.environ.get("SSO_KEYCLOAK_REALM", "qgis")
+SSO_ISSUER = f"{QGIS_AUTH_URL}/realms/{SSO_KEYCLOAK_REALM}"
+
+# Where a signed-in user manages their own passkeys and profile.
+SSO_ACCOUNT_URL = f"{SSO_ISSUER}/account/"
+
+# Retire the local password the first time an account signs in through
+# Keycloak. That sign-in is the proof the account is reachable, so waiting
+# longer only keeps a second way in open.
+SSO_RETIRE_PASSWORD_ON_LOGIN = os.environ.get(
+    "SSO_RETIRE_PASSWORD_ON_LOGIN", "True"
+).strip().lower() in ("1", "true", "yes")
+
+# feed-roles is a client scope provisioned on the realm specifically so that
+# the client role claim reaches the *userinfo* endpoint. Keycloak's built-in
+# 'roles' scope puts resource_access on the access token only, which
+# mozilla-django-oidc never reads - a naive integration therefore sees no
+# roles at all and everyone logs in with no permissions.
+OIDC_RP_SCOPES = "openid email profile feed-roles"
+
+# The client is confidential, so the code exchange cannot complete without
+# this. It belongs in settings_local.py, never in the process environment: the
+# deployment's environment is world-readable through the Nix store and
+# systemctl show. Empty still lets the backend load, so local login works.
+OIDC_RP_CLIENT_SECRET = ""
+
+# Never create a site account from a token. The realm is shared with hub and
+# plugins and is LDAP-federatable, so leaving this at its default would grant
+# a feed account to every user in the directory. The backend refuses in
+# create_user as well; this is the belt to that pair of braces.
+OIDC_CREATE_USER = False
+
+OIDC_USE_NONCE = True
+# Kept so that RP-initiated logout can pass id_token_hint. Without it, signing
+# out of Django leaves the Keycloak session live and the next sign-in
+# completes with no prompt, which looks like logout having failed.
+OIDC_STORE_ID_TOKEN = True
+OIDC_OP_LOGOUT_URL_METHOD = "qgis_sso.auth.provider_logout"
+
+# Pages SessionRefresh must leave alone. They are the ones a user reaches
+# *because* their session is in doubt, so bouncing them to Keycloak to renew
+# a token turns each of them into a round trip they did not ask for - and on
+# the login page, into a loop.
+OIDC_EXEMPT_URLS = [
+    "login",
+    "admin_login_override",
+    "qgis_sso:sign_in_failed",
+]
+
+# Where mozilla-django-oidc sends a failed authentication. Almost always a
+# realm user with no account here, so the page says so rather than showing a
+# traceback.
+LOGIN_REDIRECT_URL_FAILURE = "/sso/sign-in-failed/"
+
+# Bound the migration-linking path. Off by default; switched on only for the
+# Phase 5 cutover window, during which a token whose username *and* verified
+# email both match exactly one unlinked local account binds to it and that
+# account's password is made unusable.
+SSO_MIGRATION_LINKING = os.environ.get(
+    "SSO_MIGRATION_LINKING", "False"
+).strip().lower() in ("1", "true", "yes")
+
+# Keycloak client roles, mapped to what they mean on this site. Declarative
+# rather than branching code, so a second site supplies its own map without
+# touching qgis_sso. Membership is reconciled in full at every sign-in:
+# a role removed in Keycloak is removed here.
+SSO_ROLE_MAP = {
+    "admin": {
+        "groups": ["qgisfeedentry_authors", "qgisfeedentry_approver"],
+        "is_staff": True,
+        "is_superuser": True,
+    },
+    "web-maintainer": {
+        "groups": ["qgisfeedentry_authors", "qgisfeedentry_approver"],
+        "is_staff": True,
+        "is_superuser": True,
+    },
+    "reviewer": {
+        "groups": ["qgisfeedentry_authors", "qgisfeedentry_approver"],
+        "is_staff": True,
+        "is_superuser": False,
+    },
+    "usergroup-author": {
+        "groups": ["qgisfeedentry_authors"],
+        "is_staff": True,
+        "is_superuser": False,
+    },
+    "author": {
+        "groups": ["qgisfeedentry_authors"],
+        "is_staff": True,
+        "is_superuser": False,
+    },
+}
+
+# Only these groups are ever added or removed by role mirroring, so a group
+# created by hand for an unrelated purpose survives a sign-in.
+SSO_MANAGED_GROUPS = ["qgisfeedentry_authors", "qgisfeedentry_approver"]
+
+# What each role is called on screen. The identifiers above are Keycloak's and
+# mean nothing to a contributor.
+SSO_ROLE_LABELS = {
+    "admin": _("Administrator"),
+    "web-maintainer": _("Web maintainer"),
+    "reviewer": _("Reviewer"),
+    "usergroup-author": _("User group author"),
+    "author": _("Author"),
+}
+
+# One line saying what each role lets a person do, for the help page.
+SSO_ROLE_SUMMARIES = {
+    "admin": _("Runs the site, and can invite anybody."),
+    "web-maintainer": _("Looks after the site itself, and can invite anybody."),
+    "reviewer": _("Writes news items and publishes them."),
+    "usergroup-author": _("Writes news items for a QGIS user group."),
+    "author": _("Writes news items for a reviewer to publish."),
+}
+
+# What Django groups mean on screen, for the same reason.
+SSO_GROUP_LABELS = {
+    "qgisfeedentry_authors": _("Write news items"),
+    "qgisfeedentry_approver": _("Publish news items"),
+}
+
+# --- the web of trust -------------------------------------------------------
+# Who may invite whom. The ladder is generic; these names and numbers are this
+# site's. Lower is more privileged, and an invitation can never offer a role
+# above the inviter's own tier.
+SSO_ROLE_TIERS = {
+    "admin": 0,
+    "web-maintainer": 1,
+    "reviewer": 2,
+    "usergroup-author": 3,
+    "author": 4,
+}
+
+# Invitations one account may have outstanding at a time, by tier. None is
+# unlimited. Somebody holding roles at two tiers gets the larger allowance, not
+# the sum of the two.
+SSO_TIER_QUOTAS = {0: None, 1: 25, 2: 10, 3: 10, 4: 3}
+
+# How long a revocation can be undone in one action, subtree included. After it
+# the record stays but the button goes: reversing months later is a
+# re-invitation, not an undo.
+SSO_REVOCATION_GRACE_DAYS = int(os.environ.get("SSO_REVOCATION_GRACE_DAYS", "7"))
+
+# What this site does about a revoked person's unpublished work. qgis_sso calls
+# it and knows nothing about entries or statuses, which is what keeps that app
+# portable to the other QGIS sites.
+SSO_ON_REVOKE = "qgisfeed.trust.on_revoke"
+
+# --- account provisioning ---------------------------------------------------
+# None of this is read by the request path.
+#
+# Where this site reaches Keycloak's admin API. Usually the same host a browser
+# uses, and not always the same host: a maintainer working through a VPN
+# reaches the admin API on an internal address while tokens keep arriving from
+# the public one. Set it when the two differ, and leave QGIS_AUTH_URL as the
+# public address, because that is the one every token is checked against and
+# the one recorded on each identity.
+SSO_KEYCLOAK_SERVER_URL = os.environ.get("SSO_KEYCLOAK_SERVER_URL", QGIS_AUTH_URL)
+# A dedicated service-account client holding view-users and manage-users. The
+# web client must never hold them: a compromise of the site would otherwise be
+# a compromise of the realm.
+SSO_PROVISIONER_CLIENT_ID = os.environ.get(
+    "SSO_PROVISIONER_CLIENT_ID", "feed-qgis-org-provisioner"
+)
+SSO_PROVISIONER_CLIENT_SECRET = ""
+
+# Where Keycloak returns somebody who has just finished setting up. It starts
+# the OIDC flow rather than showing the login page: they have proved who they
+# are moments earlier, so Keycloak answers the authorisation request from the
+# session it just created and they arrive signed in.
+# Must also be a registered redirect URI on the feed-qgis-org client.
+SSO_SETUP_REDIRECT_URI = (
+    f"https://{os.environ.get("DOMAIN_NAME", "feed.qgis.org")}/oidc/authenticate/"
+)
+
+# 14 days. Keycloak's default of 12 hours is far too short for a migration
+# wave; people are on holiday.
+SSO_SETUP_LINK_LIFESPAN = 1209600
+
+# Users the admin action will provision in one request. Each costs several
+# synchronous calls to Keycloak, and there is no task queue in this project.
+SSO_ADMIN_ACTION_MAX_USERS = int(os.environ.get("SSO_ADMIN_ACTION_MAX_USERS", "25"))
+
+# Deep link to a user in the Keycloak admin console. Keycloak's API cannot
+# hand back a setup link, so this is the fallback when email does not arrive.
+# The console itself lives in the master realm regardless of the target realm.
+SSO_KEYCLOAK_CONSOLE_REALM = os.environ.get("SSO_KEYCLOAK_CONSOLE_REALM", "master")
+# Built on the admin address, not the public one: whoever can reach the admin
+# API is who this link is for, and where the two differ the console usually
+# lives with the API.
+SSO_KEYCLOAK_USER_CONSOLE_URL = (
+    f"{SSO_KEYCLOAK_SERVER_URL}/admin/{SSO_KEYCLOAK_CONSOLE_REALM}/console/"
+    f"#/{SSO_KEYCLOAK_REALM}/users/{{sub}}/credentials"
+)
+
+# Returns a sign-in link instead of emailing one. Added to the realm by
+# PhaseTwo's magic-link extension; not part of Keycloak. We call it, so it is on
+# the admin address. The link it hands back is built by Keycloak from the
+# realm's frontend URL, and stays the public one a person can open.
+SSO_MAGIC_LINK_URL = f"{SSO_KEYCLOAK_SERVER_URL}/realms/{SSO_KEYCLOAK_REALM}/magic-link"
+
+# Passkey only. No password is ever set on a provisioned account, so there is
+# none to phish or reuse, and no one-time code because a passkey already
+# combines something you have with something you are.
+SSO_REQUIRED_ACTIONS = ["VERIFY_EMAIL", "webauthn-register-passwordless"]
+
+# Where "Get help" goes from the sign-in failure page. Our own guide by
+# default, because the three reasons that page names are all answered there.
+SSO_SUPPORT_URL = os.environ.get("SSO_SUPPORT_URL", "/sso/help/#stuck")
+
 # Local settings overrides
 # Must be the last!
 DJANGO_LOCAL_SETTINGS = os.environ.get("DJANGO_LOCAL_SETTINGS", "settings_local.py")
@@ -276,3 +539,18 @@ def apply_local_settings_override(namespace: dict[str, object]) -> bool:
 
 
 apply_local_settings_override(globals())
+
+
+# Re-derived after every override has been applied. AUTHENTICATION_BACKENDS is
+# computed from LOCAL_LOGIN_ENABLED further up, before settings_local.py has had
+# its say; without this, a deployment that sets LOCAL_LOGIN_ENABLED = False
+# there would hide the password form and
+# still happily authenticate against ModelBackend.
+#
+# Dropping ModelBackend does not drop permission checking. The OIDC backend
+# subclasses it, so has_perm() and friends still resolve groups and
+# permissions from the database; what goes away is the username-and-password
+# authenticate(), which is the part being retired.
+AUTHENTICATION_BACKENDS = ["qgis_sso.auth.QGISOIDCAuthenticationBackend"]
+if LOCAL_LOGIN_ENABLED:
+    AUTHENTICATION_BACKENDS.append("django.contrib.auth.backends.ModelBackend")
