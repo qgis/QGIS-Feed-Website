@@ -212,8 +212,16 @@ p {
   background-color: #dddddd;
 }
 
-.login-container hr {
-  background-color: #dddddd;
+.login-hero-body {
+  min-height: 100dvh;
+
+  > .columns {
+    width: 100%;
+  }
+}
+
+.main-section {
+  margin-top: 6rem;
 }
 
 .box-container hr {

@@ -39,7 +39,7 @@
     {% include 'layouts/header.html' %}
     {% block pagetitle %}{% endblock %}
 
-    <section class="section" style="margin-top: 6rem;">
+    <section class="section main-section">
         <div class="container content">
             {% if user.keycloak_identity.trust_state == 'suspended' %}
                 <div class="notification is-warning">
