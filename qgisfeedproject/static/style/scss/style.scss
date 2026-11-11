@@ -220,6 +220,12 @@ p {
   }
 }
 
+// The hero runs under the fixed header, and .main-section clears it instead.
+html.has-navbar-fixed-top,
+body.has-navbar-fixed-top {
+  padding-top: 0;
+}
+
 .main-section {
   margin-top: 6rem;
 }
