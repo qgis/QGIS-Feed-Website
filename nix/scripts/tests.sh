@@ -4,4 +4,5 @@ set -euo pipefail
 
 cd "${PROJECT_ROOT}"
 
-exec manage test "${@:-qgisfeed}"
+[ "$#" -gt 0 ] || set -- qgisfeed qgis_sso
+exec manage test "$@"

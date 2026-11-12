@@ -59,6 +59,6 @@ echo "== migrate =="
 "${app}/bin/${manageProgram}" migrate --noinput
 
 echo "== test =="
-"${app}/bin/${manageProgram}" test qgisfeed --noinput
+"${app}/bin/${manageProgram}" test qgisfeed qgis_sso --noinput
 
 touch "${out}"
