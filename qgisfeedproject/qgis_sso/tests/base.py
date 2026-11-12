@@ -72,7 +72,9 @@ class FakeRealm:
     """A Keycloak realm that records what was asked of it.
 
     Stands in for :class:`~qgis_sso.keycloak.KeycloakAdminClient` so the tests
-    assert on intent - who was created and who was emailed - without HTTP.
+    assert on intent - who was created, who was emailed, whose link was handed
+    over - without HTTP. Shared by the admin-action and enrolment-page suites,
+    which exercise the same engine through different doors.
     """
 
     server_url = "https://auth.example.org"
@@ -93,7 +95,12 @@ class FakeRealm:
         self.fail_on = set(fail_on)
         self.created = []
         self.emailed = []
+        self.linked = []
+        self.link_payloads = []
         self.assigned = []
+        #: Set to answer a magic-link request with a different subject, the
+        #: case where a username has resolved to somebody else in the realm.
+        self.answer_with_subject = None
 
     def access_token(self):
         #: The real client fetches and caches one here. Callers warm it before
@@ -127,6 +134,18 @@ class FakeRealm:
 
     def execute_actions_email(self, sub, actions, **kwargs):
         self.emailed.append(sub)
+
+    def magic_link(self, username, **kwargs):
+        """Stand in for PhaseTwo's magic-link endpoint, keyed on the username."""
+        if username in self.fail_on:
+            raise KeycloakError("no link for you")
+        self.linked.append(username)
+        self.link_payloads.append(dict(kwargs, username=username))
+        sub = self.answer_with_subject or f"sub-{username}"
+        return (
+            sub,
+            f"https://auth.example.org/realms/qgis/login-actions/token?key={sub}",
+        )
 
 
 class SsoTestCase(TestCase):

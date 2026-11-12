@@ -50,19 +50,105 @@ groups in `SSO_MANAGED_GROUPS`, so any other group survives a sign-in.
 | `usergroup-author` | authors | ✅ | |
 | `author` | authors | ✅ | |
 
-## Linking to an account that already exists in the realm
+## The people page
+
+Only administrators can open `/sso/manage/`. It lists every account that has a
+Keycloak identity. The page shows ten rows at a time, and you can filter by
+state or search by name.
+
+The newest invitation is at the top. Click **Account**, **State** or **Date of
+invitation** to sort by that column, and click it again to turn the order
+around. **State** sorts in the order people move through it, from created to
+active, rather than by the alphabet. Sorting covers the whole list, not just
+the page you are looking at, and it keeps whatever you searched for or filtered
+by.
+
+The filtering, the search, the sorting and the paging all happen in the
+database, so the page costs the same whether the site has a hundred accounts or
+a hundred thousand.
+
+```mermaid
+stateDiagram-v2
+    state "No QGIS account" as NoAccount
+    state "Needs a decision" as Decision
+    state "Created" as Created
+    state "Link sent" as LinkSent
+
+    [*] --> NoAccount : local account only
+    NoAccount --> Decision : no email address, or deactivated
+    Decision --> Created : a human resolves it
+    NoAccount --> Created : invite, or create in bulk
+    Created --> LinkSent : send the setup email
+    LinkSent --> Active : first sign-in, passkey enrolled
+```
+
+Every button on a row acts on that row alone.
+
+An action that asks before it acts opens a page at its own address. You can read
+it, reload it, and leave again without anything having happened.
+
+| Action | What it does |
+|---|---|
+| Send email | Opens `/sso/manage/send-email/<id>/`, which asks first. The email reaches a real contributor and you cannot unsend it. |
+| Get the setup link | Shows the setup link on a page of its own. See [Handing over a link](#handing-over-a-link). |
+
+Some accounts cannot be invited at all, because they have no email address or
+somebody deactivated them. The invite page leaves those out and counts them in
+a line under its table. Deal with them in the admin user list, using its **SSO
+account** filter. Dormant accounts and accounts that have never been used do
+appear there, with the warning shown beside them. Those warnings belong to the
+invite page, where the question is whether to create an account. The people
+page is about accounts that already exist, so it does not repeat them.
+
+## Invitations
+
+A superuser can take an account that already exists here and give it a place in
+the realm. Open **Invite existing users** on the people page. You pick the
+people, and the next page names each one and what will happen to them before
+anything is created.
+
+### Linking to an account that already exists in the realm
 
 The realm is shared with hub and plugins, so a long-standing contributor here
-very likely has a QGIS account already. For those accounts *Create the Keycloak
-account* links to the QGIS account it matched. The confirmation page lists them
-as **Will be linked to**, followed by the realm username. We create nothing in
-the realm, and linking grants no privilege the account did not already hold
-here.
+very likely has a QGIS account already. For those accounts *Invite existing
+users* shows a third outcome, **will be linked**, and names the QGIS account it
+matched. We create nothing in the realm, and linking grants no privilege the
+account did not already hold here.
 
 We match on one thing only: an exact address that Keycloak reports as verified.
 Three cases are refused, and the page names which one it hit. The address
 differs, the realm has not verified it, or the realm account already belongs to
 somebody here. One run links up to `SSO_ADMIN_ACTION_MAX_USERS` accounts (25).
+
+## Handing over a link
+
+Sometimes you have somebody on a call and their email is not arriving. *Get
+the setup link* on their row takes you to `/sso/manage/link/`, a page that shows that
+one link and nothing else. We never store the link and never log it, and the
+page takes it out of the session as it renders, so a reload asks you to issue a
+fresh one.
+
+Under the link is a QR code of the same thing. The person can scan it straight
+onto the device their passkey will live on, instead of reading a long token out
+to you. It is the same credential in another shape, so hand it over with the
+same care.
+
+This works only for accounts that have not signed in yet. The button disappears
+after the first sign-in, and the view refuses the request in any case, because
+by then the link would sign the person in without asking for a passkey. If
+somebody who has signed in loses every device, use *Send the account-setup
+email* in the admin instead. It reaches their own address, not yours.
+
+The button needs an extension in Keycloak. It depends on PhaseTwo's
+[magic-link extension](https://github.com/p2-inc/keycloak-magic-link) deployed
+into `/opt/keycloak/providers/`. Without it the button reports a 404, and the
+identity's detail page links to the Keycloak admin console instead. There you
+can see the state of the person's credentials and retry the send, which uses
+Keycloak's own SMTP settings rather than Django's.
+
+> ⚠ **Verify a link end to end on a throwaway realm before relying on this.**
+> A magic link signs the person in, so if the required actions do not fire they
+> land signed in with no passkey, which is worse than the email path.
 
 ## Passkeys and the profile page
 
@@ -87,10 +173,11 @@ passkeys to manage.
 
 ## Migrating a wave in the admin
 
-To move a wave of people, use the Django admin: filter the changelist, select
-the accounts, then run an action. All four actions are superuser only and
-audited, and each one does a single thing, so no step happens as a side effect
-of another.
+The people page works one row at a time. To move a whole wave of people, use
+the Django admin: filter the changelist, select the accounts, then run an
+action. Both routes call the same code, so the rules and the wording match
+wherever you start. All four actions are superuser only and audited, and each
+one does a single thing, so no step happens as a side effect of another.
 
 | Where | Action | What it does |
 |---|---|---|
@@ -133,7 +220,7 @@ this became automatic, and to check where a batch stands.
 
 Every person in a wave costs at least one read against auth.qgis.org before we
 create anything, and one or two writes after you confirm. That is why the limit
-of 25 exists.
+of 25 exists, and why the page asks you to wait.
 
 The reads for a wave run together, eight at a time, so the lookups are a handful
 of rounds rather than a queue. The writes stay one after another, in the order
@@ -181,6 +268,7 @@ audit events**, filtered by action.
 | `QGIS_AUTH_URL` | The public address of the account service. The OIDC endpoints and the expected token issuer come from it. |
 | `SSO_KEYCLOAK_SERVER_URL` | The admin API address, when it differs from the public one. It defaults to `QGIS_AUTH_URL`. |
 | `SSO_KEYCLOAK_REALM` | The realm name, `qgis` by default. |
+| `SSO_MAGIC_LINK_URL` | The PhaseTwo magic-link endpoint that issues setup links. It is built from `SSO_KEYCLOAK_SERVER_URL`, because this site calls it. |
 
 ### Two addresses for one Keycloak
 

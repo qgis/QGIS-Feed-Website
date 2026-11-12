@@ -41,7 +41,89 @@
   }
 }
 
-// Shown on the profile page while the passkey list loads.
+// A left rule marks a confirmation without borrowing the message colours.
+.sso-confirm {
+  border-left: 4px solid $primary1;
+}
+
+.sso-issued {
+  // A long link stays readable.
+  .input {
+    font-size: 1rem;
+  }
+}
+
+// Large enough to scan off a shared screen, and on white for the quiet zone.
+.sso-qr {
+  .sso-qr-code {
+    max-width: 520px;
+    margin: auto;
+    padding: 0.75rem;
+    background: #fff;
+    border-radius: 4px;
+
+    svg {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+  }
+}
+
+// The title and its button share a row, and the button wraps below on a phone.
+.sso-page-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+
+  > :first-child {
+    flex: 1 1 20rem;
+  }
+}
+
+// The search box keeps a usable width, and the rest of the filter wraps below it.
+.sso-search {
+  flex-basis: 14rem;
+}
+
+.sso-row-actions {
+  gap: 0.5rem;
+  justify-content: center;
+}
+
+// Covers the screen while a wave runs, so nothing invites a second press.
+.sso-busy {
+  position: fixed;
+  inset: 0;
+  // Above the navbar (30) and Bulma's modal (200).
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.5);
+
+  &[hidden] {
+    display: none;
+  }
+
+  .sso-busy-message {
+    max-width: 28rem;
+    margin: 1.5rem;
+    padding: 2rem;
+    background: #fff;
+    border-radius: 6px;
+    text-align: center;
+  }
+}
+
+// Set on the root while a full screen busy overlay is up.
+.sso-busy-locked {
+  overflow: hidden;
+}
+
+// Also used on its own, by the profile page while the passkey list loads.
 .sso-busy-spinner {
   display: block;
   width: 2.5rem;
@@ -76,5 +158,30 @@
 
   .sso-account {
     text-align: left;
+  }
+}
+
+// A sort control keeps the heading colour. An inactive icon stays faint until reached.
+.sso-sortable {
+  a {
+    color: inherit;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    white-space: nowrap;
+
+    .icon {
+      opacity: 0.35;
+    }
+
+    &:hover .icon,
+    &:focus-visible .icon {
+      opacity: 1;
+    }
+  }
+
+  &[aria-sort='ascending'] a .icon,
+  &[aria-sort='descending'] a .icon {
+    opacity: 1;
   }
 }

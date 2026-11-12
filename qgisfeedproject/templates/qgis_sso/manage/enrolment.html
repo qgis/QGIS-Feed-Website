@@ -1,0 +1,124 @@
+{% extends 'layouts/base-fullscreen.html' %}
+{% load i18n %}
+
+{% block content %}
+<div class="box-content">
+
+  <div class="sso-page-head mb-4">
+    <div>
+      <h1 class="title is-4">{% trans "People" %}</h1>
+      <p class="subtitle is-6">
+        {% blocktrans trimmed %}
+          Everybody listed has a QGIS account. Until they first sign in, you can
+          send them their setup link.
+        {% endblocktrans %}
+      </p>
+      <p>
+        <i class="fa-solid fa-circle-info has-text-success mr-1" aria-hidden="true"></i>
+        <a href="{% url 'qgis_sso:help' %}">
+          {% trans "How signing in works" %}
+        </a>
+      </p>
+    </div>
+    <a class="button is-primary1" href="{% url 'qgis_sso:invite_existing' %}">
+      <span class="icon is-small"><i class="fas fa-user-plus"></i></span>
+      <span>{% trans "Invite existing users" %}</span>
+    </a>
+  </div>
+
+  <form method="get" action="" class="mb-4">
+    <div class="field is-grouped is-grouped-multiline">
+      <div class="control is-expanded sso-search">
+        <label class="is-sr-only" for="q">{% trans "Search by username or email" %}</label>
+        <input class="input" type="search" id="q" name="q" value="{{ search }}"
+               placeholder="{% trans 'Username or email' %}">
+      </div>
+      <div class="control">
+        <label class="is-sr-only" for="state">{% trans "Filter by state" %}</label>
+        <div class="select">
+          <select id="state" name="state">
+            <option value="">{% trans "All states" %}</option>
+            {% for key, label, count in totals %}
+              <option value="{{ key }}" {% if state == key %}selected{% endif %}>
+                {{ label }} ({{ count }})
+              </option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      <div class="control">
+        <button class="button is-primary1" type="submit">{% trans "Filter" %}</button>
+      </div>
+    </div>
+  </form>
+
+  <div class="table-container">
+    <table class="table is-fullwidth is-hoverable sso-table">
+      <thead>
+        <tr>
+          {% trans "Account" as account_label %}
+          {% include 'layouts/sort_header.html' with key='account' label=account_label natural='asc' classes='sso-account' %}
+          {% trans "State" as state_label %}
+          {% include 'layouts/sort_header.html' with key='state' label=state_label natural='asc' %}
+          <th scope="col">{% trans "Roles" %}</th>
+          {% trans "Date of invitation" as invited_label %}
+          {% include 'layouts/sort_header.html' with key='invited' label=invited_label natural='desc' %}
+          <th scope="col">{% trans "Invite" %}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+          <tr>
+            <td class="sso-account">
+              {{ row.user.username }}
+              <br>
+              <small>{{ row.user.email }}</small>
+            </td>
+            <td>
+              <span class="tag {{ row.css_class }}">{{ row.label }}</span>
+            </td>
+            <td>{{ row.role_labels|join:", "|default:"-" }}</td>
+            <td>{{ row.identity.linked_at|date:"Y-m-d" }}</td>
+            <td>
+              <form method="post" action="" class="is-flex sso-row-actions">
+                {% csrf_token %}
+                <input type="hidden" name="identity" value="{{ row.identity.pk }}">
+                {% if row.pending %}
+                  {% blocktrans trimmed asvar send_label with username=row.user.username %}
+                    Email the setup link to {{ username }}
+                  {% endblocktrans %}
+                  <a class="button is-small is-primary1 is-outlined"
+                     href="{% url 'qgis_sso:send_email' row.identity.pk %}{% if filters %}?{{ filters }}{% endif %}"
+                     title="{{ send_label }}" aria-label="{{ send_label }}">
+                    <span class="icon is-small"><i class="fas fa-envelope"></i></span>
+                  </a>
+                  {% blocktrans trimmed asvar link_label with username=row.user.username %}
+                    Get the setup link for {{ username }}
+                  {% endblocktrans %}
+                  <button class="button is-small is-primary1 is-outlined" type="submit"
+                          name="action" value="issue-link"
+                          title="{{ link_label }}" aria-label="{{ link_label }}">
+                    <span class="icon is-small"><i class="fas fa-link"></i></span>
+                  </button>
+                {% endif %}
+              </form>
+            </td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="5">
+              {% blocktrans trimmed %}
+                No accounts match. Nobody has a QGIS account yet, or the filter is
+                too narrow.
+              {% endblocktrans %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% include 'layouts/pagination.html' with page=page %}
+
+</div>
+{% endblock content %}
