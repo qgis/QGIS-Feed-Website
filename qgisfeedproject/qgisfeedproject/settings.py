@@ -16,6 +16,8 @@ import os
 import sys
 from pathlib import Path
 
+from django.utils.translation import gettext_lazy as _
+
 logger = logging.getLogger(__name__)
 
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
@@ -55,6 +57,7 @@ INSTALLED_APPS = [
     "django.contrib.gis",
     # QGIS Feed applications
     "qgisfeed",
+    "qgis_sso",
     # Dependencies
     "tinymce",  # HTML field
     "imagekit",  # Image crop and resize
@@ -62,6 +65,7 @@ INSTALLED_APPS = [
     "user_visit",
     # Webpack
     "webpack_loader",
+    "mozilla_django_oidc",  # OpenID Connect authentication
 ]
 
 # Useful debugging extensions
@@ -78,6 +82,8 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    # Renews a stale ID token, so a revocation in Keycloak applies within minutes.
+    "mozilla_django_oidc.middleware.SessionRefresh",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "qgisfeed.middleware.QgisFeedUserVisitMiddleware",
@@ -130,6 +136,14 @@ DATABASES = {
         "PORT": _db("DB_PORT", "QGISFEED_DOCKER_DBPORT", "5432"),
     }
 }
+
+
+# Turns the password backend and the password form on or off together.
+LOCAL_LOGIN_ENABLED = os.environ.get("LOCAL_LOGIN_ENABLED", "True").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
 
 
 # Password validation
@@ -243,6 +257,103 @@ BLUESKY_PASSWORD = os.environ.get("BLUESKY_PASSWORD", "")
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 
+# OpenID Connect authentication
+QGIS_AUTH_URL = os.environ.get("QGIS_AUTH_URL", "https://auth.qgis.org")
+SSO_KEYCLOAK_REALM = os.environ.get("SSO_KEYCLOAK_REALM", "qgis")
+# Every ID token must come from this issuer.
+SSO_ISSUER = f"{QGIS_AUTH_URL}/realms/{SSO_KEYCLOAK_REALM}"
+OIDC_RP_CLIENT_ID = os.environ.get("OIDC_RP_CLIENT_ID", "feed-qgis-org")
+OIDC_RP_SIGN_ALGO = "RS256"
+OIDC_OP_AUTHORIZATION_ENDPOINT = f"{SSO_ISSUER}/protocol/openid-connect/auth"
+OIDC_OP_TOKEN_ENDPOINT = f"{SSO_ISSUER}/protocol/openid-connect/token"
+OIDC_OP_USER_ENDPOINT = f"{SSO_ISSUER}/protocol/openid-connect/userinfo"
+OIDC_OP_JWKS_ENDPOINT = f"{SSO_ISSUER}/protocol/openid-connect/certs"
+OIDC_OP_LOGOUT_URL_METHOD = "qgis_sso.auth.provider_logout"
+
+# The feed-roles client scope puts the client roles in the userinfo response.
+OIDC_RP_SCOPES = "openid email profile feed-roles"
+
+# Set in settings_local.py. The process environment is readable on the server.
+OIDC_RP_CLIENT_SECRET = ""
+
+# The realm is shared, so a token must never create a site account.
+OIDC_CREATE_USER = False
+
+OIDC_USE_NONCE = True
+# Logout passes the ID token to Keycloak, so its session ends too.
+OIDC_STORE_ID_TOKEN = True
+
+# SessionRefresh must not send these pages to Keycloak, or the login page loops.
+OIDC_EXEMPT_URLS = [
+    "login",
+    "admin_login_override",
+    "qgis_sso:sign_in_failed",
+]
+
+LOGIN_REDIRECT_URL_FAILURE = "/sso/sign-in-failed/"
+
+# Retire the local password at the account's first SSO sign-in.
+SSO_RETIRE_PASSWORD_ON_LOGIN = os.environ.get(
+    "SSO_RETIRE_PASSWORD_ON_LOGIN", "True"
+).strip().lower() in ("1", "true", "yes")
+
+# Links a local account on an exact username and verified email match.
+# Switch it on only during the cutover.
+SSO_MIGRATION_LINKING = os.environ.get(
+    "SSO_MIGRATION_LINKING", "False"
+).strip().lower() in ("1", "true", "yes")
+
+# Keycloak client roles, and what each one grants here.
+SSO_ROLE_MAP = {
+    "admin": {
+        "groups": ["qgisfeedentry_authors", "qgisfeedentry_approver"],
+        "is_staff": True,
+        "is_superuser": True,
+    },
+    "web-maintainer": {
+        "groups": ["qgisfeedentry_authors", "qgisfeedentry_approver"],
+        "is_staff": True,
+        "is_superuser": True,
+    },
+    "reviewer": {
+        "groups": ["qgisfeedentry_authors", "qgisfeedentry_approver"],
+        "is_staff": True,
+        "is_superuser": False,
+    },
+    "usergroup-author": {
+        "groups": ["qgisfeedentry_authors"],
+        "is_staff": True,
+        "is_superuser": False,
+    },
+    "author": {
+        "groups": ["qgisfeedentry_authors"],
+        "is_staff": True,
+        "is_superuser": False,
+    },
+}
+
+# The only groups role mirroring adds or removes.
+SSO_MANAGED_GROUPS = ["qgisfeedentry_authors", "qgisfeedentry_approver"]
+
+SSO_ROLE_LABELS = {
+    "admin": _("Administrator"),
+    "web-maintainer": _("Web maintainer"),
+    "reviewer": _("Reviewer"),
+    "usergroup-author": _("User group author"),
+    "author": _("Author"),
+}
+
+SSO_ROLE_SUMMARIES = {
+    "admin": _("Runs the site."),
+    "web-maintainer": _("Looks after the site itself."),
+    "reviewer": _("Writes news items and publishes them."),
+    "usergroup-author": _("Writes news items for a QGIS user group."),
+    "author": _("Writes news items for a reviewer to publish."),
+}
+
+# Where "Get help" goes from the sign-in failure page.
+SSO_SUPPORT_URL = os.environ.get("SSO_SUPPORT_URL", "/sso/help/#stuck")
+
 # Local settings overrides
 # Must be the last!
 DJANGO_LOCAL_SETTINGS = os.environ.get("DJANGO_LOCAL_SETTINGS", "settings_local.py")
@@ -276,3 +387,10 @@ def apply_local_settings_override(namespace: dict[str, object]) -> bool:
 
 
 apply_local_settings_override(globals())
+
+
+# After the overrides, so LOCAL_LOGIN_ENABLED in settings_local.py takes effect.
+# Permission checks stay, because the OIDC backend subclasses ModelBackend.
+AUTHENTICATION_BACKENDS = ["qgis_sso.auth.QGISOIDCAuthenticationBackend"]
+if LOCAL_LOGIN_ENABLED:
+    AUTHENTICATION_BACKENDS.append("django.contrib.auth.backends.ModelBackend")

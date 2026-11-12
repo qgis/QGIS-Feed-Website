@@ -653,8 +653,14 @@ class FeedsListViewTestCase(TestCase):
 
         # Check if the user is redirected to the login page
         self.assertRedirects(
-            response, reverse("login") + "?next=" + reverse("feeds_list")
+            response,
+            reverse("login") + "?next=" + reverse("feeds_list"),
+            fetch_redirect_response=False,
         )
+
+        # A signed-in user is told they lack access, not shown the login form.
+        landing = self.client.get(reverse("login"), {"next": reverse("feeds_list")})
+        self.assertEqual(landing.status_code, 403)
 
     def test_feeds_list_filtering(self):
         self.client.login(username="admin", password="admin")
@@ -828,7 +834,9 @@ class FeedsItemFormTestCase(TestCase):
         response = self.client.get(reverse("feed_entry_add"))
         self.assertEqual(response.status_code, 302)
         self.assertRedirects(
-            response, reverse("login") + "?next=" + reverse("feed_entry_add")
+            response,
+            reverse("login") + "?next=" + reverse("feed_entry_add"),
+            fetch_redirect_response=False,
         )
         self.assertIsNone(response.context)
 
@@ -838,8 +846,13 @@ class FeedsItemFormTestCase(TestCase):
         self.assertRedirects(
             response,
             reverse("login") + "?next=" + reverse("feed_entry_update", args=[3]),
+            fetch_redirect_response=False,
         )
         self.assertIsNone(response.context)
+
+        # A signed-in user is told they lack access, not shown the login form.
+        landing = self.client.get(reverse("login"), {"next": reverse("feed_entry_add")})
+        self.assertEqual(landing.status_code, 403)
 
     def test_authenticated_user_add_feed(self):
         # Add a feed entry test
