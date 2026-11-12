@@ -185,6 +185,14 @@ class KeycloakAdminClient:
         users = response.json()
         return users[0] if users else None
 
+    def user_credentials(self, user_id):
+        """Every credential on one realm account. Nothing here ever changes one."""
+        return self.request(
+            "GET",
+            f"users/{quote(user_id)}/credentials",
+            timeout=INTERACTIVE_TIMEOUT,
+        ).json()
+
     def create_user(self, payload):
         """Create a realm user and return the subject Keycloak generated.
 

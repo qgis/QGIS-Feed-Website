@@ -64,6 +64,27 @@ Three cases are refused, and the page names which one it hit. The address
 differs, the realm has not verified it, or the realm account already belongs to
 somebody here. One run links up to `SSO_ADMIN_ACTION_MAX_USERS` accounts (25).
 
+## Passkeys and the profile page
+
+Your own page is at `/sso/profile/`, reached from the username in the header.
+It shows your username and address, what your Keycloak roles let you do here,
+and your passkeys with the date each one was enrolled.
+
+The passkey list arrives a moment after the rest of the page, because reading
+it means asking auth.qgis.org. A slow account service never holds up the rest
+of the page. The list comes from `/sso/profile/passkeys/`, which answers only
+about whoever is signed in and reads nothing from the URL.
+
+Adding or removing a passkey happens at `auth.qgis.org`, and it has to.
+*Add a passkey* starts an ordinary sign-in that asks Keycloak to run the
+enrolment, then brings you back to the profile page. This site never changes a
+credential itself. It also refuses to remove your last passkey, because that
+would lock you out. Enrol the replacement first.
+
+*Edit profile* opens your account at auth.qgis.org in a new tab. An account
+with no realm identity still gets the page, and we tell it there are no
+passkeys to manage.
+
 ## Migrating a wave in the admin
 
 To move a wave of people, use the Django admin: filter the changelist, select
