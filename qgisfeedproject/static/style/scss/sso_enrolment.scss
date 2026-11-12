@@ -1,0 +1,27 @@
+// The contributor's guide at /sso/help/.
+.sso-help {
+  max-width: 860px;
+  margin: auto;
+
+  // Bulma's .content resets list markers in this container.
+  .sso-help-contents {
+    list-style: disc outside;
+    margin-left: 1.25rem;
+  }
+
+  .sso-help-reasons {
+    dt {
+      font-weight: 600;
+      margin-top: 1rem;
+    }
+
+    dd {
+      margin-left: 1.25rem;
+    }
+  }
+
+  // Keeps anchor targets clear of the fixed navbar.
+  section {
+    scroll-margin-top: 5rem;
+  }
+}

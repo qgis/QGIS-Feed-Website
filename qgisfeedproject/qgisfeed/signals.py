@@ -13,18 +13,29 @@ __date__ = "2019-05-08"
 __copyright__ = "Copyright 2019, ItOpen"
 
 
-def setup_group(sender, **kwargs):
-    """Create qgisfeedentry_authors group and assign permissions"""
+def setup_group(sender, instance=None, **kwargs):
+    """Create qgisfeedentry_authors group and add the saved staff user to it.
 
-    from django.contrib.auth.models import Group, Permission, User
+    Only the user being saved is considered, and SSO-linked accounts are left
+    alone, because their groups are mirrored from Keycloak at each sign-in.
+    """
+
+    from django.contrib.auth.models import Group, Permission
 
     group, is_new = Group.objects.get_or_create(name="qgisfeedentry_authors")
     if is_new:
         for perm in ("view_qgisfeedentry", "add_qgisfeedentry"):
             group.permissions.add(Permission.objects.get(codename=perm))
 
-    for staff_user in User.objects.filter(is_staff=True, is_superuser=False):
-        group.user_set.add(staff_user)
+    if instance is None or not instance.is_staff or instance.is_superuser:
+        return
+
+    from qgis_sso.models import KeycloakIdentity
+
+    if KeycloakIdentity.objects.filter(user=instance).exists():
+        return
+
+    group.user_set.add(instance)
 
 
 def setup_approver_group(sender, **kwargs):
