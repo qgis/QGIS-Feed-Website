@@ -306,77 +306,7 @@
       </tbody>
   </table>
 
-  <div class="columns">
-    <div class="field has-addons column is-6">
-        <p class="control">
-
-            <button class="button"
-                {% if feeds_entry.has_previous  %}
-                onclick="window.location.href='?page=1&sort_by={{sort_by}}&order={{current_order}}';"
-                {% else %}
-                disabled
-                {% endif %}
-            >
-                <span class="icon is-small">
-                <i class="fas fa-backward-fast"></i>
-                </span>
-                <span>First</span>
-            </button>
-
-        </p>
-        <p class="control">
-          <button class="button"
-            {% if feeds_entry.has_previous  %}
-            onclick="window.location.href='?page={{ feeds_entry.previous_page_number }}&sort_by={{sort_by}}&order={{current_order}}';"
-            {% else %}
-            disabled
-            {% endif %}
-          >
-            <span class="icon is-small">
-              <i class="fas fa-backward-step"></i>
-            </span>
-            <span>Prev</span>
-          </button>
-        </p>
-        <p class="control">
-          <button class="button" disabled>
-            <span>{{ feeds_entry.number }}</span>
-          </button>
-        </p>
-        <p class="control">
-          <button class="button"
-          {% if feeds_entry.has_next  %}
-          onclick="window.location.href='?page={{ feeds_entry.next_page_number }}&sort_by={{sort_by}}&order={{current_order}}';"
-          {% else %}
-          disabled
-          {% endif %}
-          >
-          <span>Next</span>
-          <span class="icon is-small">
-            <i class="fas fa-forward-step"></i>
-          </span>
-          </button>
-        </p>
-        <p class="control">
-          <button class="button"
-          {% if feeds_entry.has_next  %}
-          onclick="window.location.href='?page={{ feeds_entry.paginator.num_pages }}&sort_by={{sort_by}}&order={{current_order}}';"
-          {% else %}
-          disabled
-          {% endif %}
-          >
-          <span>Last</span>
-          <span class="icon is-small">
-            <i class="fas fa-forward-fast"></i>
-          </span>
-          </button>
-        </p>
-    </div>
-    <div class="column is-6 is-flex is-align-items-center is-justify-content-end">
-
-      <p class="is-small"><strong>{{count}}</strong> records found</p>
-    </div>
-  </div>
+  {% include 'layouts/pagination.html' with page=feeds_entry count=count %}
 </div>
 
 {% endblock content %}
