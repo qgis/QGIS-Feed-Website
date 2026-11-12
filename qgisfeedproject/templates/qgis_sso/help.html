@@ -16,6 +16,8 @@
     <h2 class="title is-6" id="contents-heading">{% trans "On this page" %}</h2>
     <ul class="sso-help-contents">
       <li><a href="#account">{% trans "How do I get a QGIS account?" %}</a></li>
+      <li><a href="#link">{% trans "Someone sent me a link. What do I do?" %}</a></li>
+      <li><a href="#passkeys">{% trans "What is a passkey?" %}</a></li>
       <li><a href="#permissions">{% trans "What am I allowed to do here?" %}</a></li>
       <li><a href="#stuck">{% trans "I cannot sign in" %}</a></li>
     </ul>
@@ -25,13 +27,70 @@
     <h2 class="title is-5">{% trans "How do I get a QGIS account?" %}</h2>
     <p>
       {% blocktrans trimmed %}
-        A feed maintainer sets up your account on this site. There is no sign
-        up form. An account on another QGIS site is not enough on its own.
+        A feed maintainer invites you. There is no sign up form. An account on
+        another QGIS site is not enough on its own.
       {% endblocktrans %}
     </p>
     <p class="mt-3">
       {% blocktrans trimmed %}
-        Ask a feed maintainer to set it up for you.
+        Ask a feed maintainer. They create your account and send you a link.
+      {% endblocktrans %}
+    </p>
+  </section>
+
+  <section class="box-content mb-5" id="link">
+    <h2 class="title is-5">{% trans "Someone sent me a link. What do I do?" %}</h2>
+    <p>
+      {% blocktrans trimmed %}
+        The link signs you in once, so that you can set the account up. Do not
+        forward it to anyone.
+      {% endblocktrans %}
+    </p>
+    <ol class="sso-help-steps mt-3">
+      <li>
+        {% blocktrans trimmed %}
+          Open the link on the device you want to sign in with from now on. Your
+          phone or your laptop both work.
+        {% endblocktrans %}
+      </li>
+      <li>{% trans "Confirm your email address when you are asked to." %}</li>
+      <li>{% trans "Create a passkey. Your device will offer to do this for you." %}</li>
+    </ol>
+    <p class="mt-3">
+      {% blocktrans trimmed %}
+        From then on, sign in with your passkey. The link stops working. If it
+        has already expired, ask for a new one.
+      {% endblocktrans %}
+    </p>
+  </section>
+
+  <section class="box-content mb-5" id="passkeys">
+    <h2 class="title is-5">{% trans "What is a passkey?" %}</h2>
+    <p>
+      {% blocktrans trimmed %}
+        A passkey lets your device prove who you are, using the same face scan,
+        fingerprint or screen lock you already use to unlock it. There is no
+        password on your QGIS account at all.
+      {% endblocktrans %}
+    </p>
+    <p class="mt-3">
+      {% blocktrans trimmed %}
+        This is safer and quicker. There is no password to forget, to reuse, or
+        for somebody to steal. A passkey also cannot be given to a fake sign in
+        page by mistake.
+      {% endblocktrans %}
+    </p>
+    <p class="mt-3">
+      {% blocktrans trimmed %}
+        A passkey can live on your phone, your laptop, or a hardware key. Keep
+        at least two, on two different devices. If you have only one and you
+        lose it, you cannot sign in.
+      {% endblocktrans %}
+    </p>
+    <p class="mt-3">
+      {% blocktrans trimmed %}
+        You add and remove passkeys in
+        <a href="{{ account_url }}">your QGIS account</a>.
       {% endblocktrans %}
     </p>
   </section>

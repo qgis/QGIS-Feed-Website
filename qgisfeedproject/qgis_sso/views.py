@@ -28,7 +28,7 @@ def failure_page(request: HttpRequest, status: int, **reason: bool) -> HttpRespo
 
 
 class HelpView(TemplateView):
-    """The contributor's guide to signing in, open to anybody.
+    """The contributor's guide to signing in and passkeys, open to anybody.
 
     The role table comes from the settings that define the roles, so it stays
     current.
@@ -38,6 +38,7 @@ class HelpView(TemplateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+        context["account_url"] = getattr(settings, "SSO_ACCOUNT_URL", "")
         context["roles"] = [
             {"name": tiers.label(role), "summary": tiers.summary(role)}
             for role in getattr(settings, "SSO_ROLE_LABELS", {})

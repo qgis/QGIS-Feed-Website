@@ -11,7 +11,7 @@ LABELS = {
 }
 
 SUMMARIES = {
-    "admin": "Runs the site.",
+    "admin": "Runs the site, and can invite anybody.",
     "reviewer": "Writes news items and publishes them.",
     "author": "Writes news items for a reviewer to publish.",
 }
@@ -50,7 +50,7 @@ class HelpPageTest(TestCase):
     def test_it_answers_the_questions_it_promises(self):
         response = self.visit()
 
-        for anchor in ("account", "permissions", "stuck"):
+        for anchor in ("account", "link", "passkeys", "permissions", "stuck"):
             self.assertContains(response, f'id="{anchor}"')
 
 

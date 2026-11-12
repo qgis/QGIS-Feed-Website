@@ -28,15 +28,40 @@ first token would give every person in it a feed account. The backend's
 ### Client secrets live in `settings_local`
 
 Anybody on the server can read the process environment, through the Nix store
-and `systemctl show`. `OIDC_RP_CLIENT_SECRET` goes in `settings_local` instead.
+and `systemctl show`. `OIDC_RP_CLIENT_SECRET` and
+`SSO_PROVISIONER_CLIENT_SECRET` go in `settings_local` instead.
+
+Provisioning uses its own service account. The web client never holds
+`manage-users`, so a compromised site cannot change the realm.
+
+## Enrolment
+
+### Linking matches on a verified address and nothing else
+
+A username can belong to somebody else, so it proves nothing. We refuse an
+address that differs and an address the realm has not verified. The page says
+which one it was, because you fix them in different ways.
+
+We also refuse a realm account that is already linked to somebody here. Two
+local accounts on one subject would break every lookup in the app.
+
+`proposed_roles` works out the client role from what the account can already do
+here, so linking grants no new privilege.
 
 ## Migration
+
+### The four admin actions stay separate
+
+Each one does a single thing, so no step happens as a side effect of another.
+Creating an account never emails anybody, and you can invite somebody again
+without touching their account.
 
 ### We retire a password at the first SSO sign-in, and not before
 
 That sign-in proves the person can reach their Keycloak account. Retiring the
-password earlier could lock somebody out. Set `SSO_RETIRE_PASSWORD_ON_LOGIN`
-to `False` to keep both ways in open if a cutover needs it.
+password earlier could lock somebody out, so the backfill action skips those
+accounts and reports them. Set `SSO_RETIRE_PASSWORD_ON_LOGIN` to `False` to
+keep both ways in open if a cutover needs it.
 
 ### Local login needs break-glass access before it goes
 

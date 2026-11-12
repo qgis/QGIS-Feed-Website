@@ -137,6 +137,13 @@ DATABASES = {
     }
 }
 
+# Each worker keeps its own copy, so nothing here is shared or survives a restart.
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "qgisfeed",
+    }
+}
 
 # Turns the password backend and the password form on or off together.
 LOCAL_LOGIN_ENABLED = os.environ.get("LOCAL_LOGIN_ENABLED", "True").strip().lower() in (
@@ -270,6 +277,9 @@ OIDC_OP_USER_ENDPOINT = f"{SSO_ISSUER}/protocol/openid-connect/userinfo"
 OIDC_OP_JWKS_ENDPOINT = f"{SSO_ISSUER}/protocol/openid-connect/certs"
 OIDC_OP_LOGOUT_URL_METHOD = "qgis_sso.auth.provider_logout"
 
+# Where a signed-in user manages their own passkeys and profile.
+SSO_ACCOUNT_URL = f"{SSO_ISSUER}/account/"
+
 # The feed-roles client scope puts the client roles in the userinfo response.
 OIDC_RP_SCOPES = "openid email profile feed-roles"
 
@@ -344,12 +354,42 @@ SSO_ROLE_LABELS = {
 }
 
 SSO_ROLE_SUMMARIES = {
-    "admin": _("Runs the site."),
-    "web-maintainer": _("Looks after the site itself."),
+    "admin": _("Runs the site, and can invite anybody."),
+    "web-maintainer": _("Looks after the site itself, and can invite anybody."),
     "reviewer": _("Writes news items and publishes them."),
     "usergroup-author": _("Writes news items for a QGIS user group."),
     "author": _("Writes news items for a reviewer to publish."),
 }
+
+# Account provisioning from the admin. The request path reads none of this.
+# The admin API address, when it differs from the public QGIS_AUTH_URL.
+SSO_KEYCLOAK_SERVER_URL = os.environ.get("SSO_KEYCLOAK_SERVER_URL", QGIS_AUTH_URL)
+# A separate service account, so the web client never holds manage-users.
+SSO_PROVISIONER_CLIENT_ID = os.environ.get(
+    "SSO_PROVISIONER_CLIENT_ID", "feed-qgis-org-provisioner"
+)
+SSO_PROVISIONER_CLIENT_SECRET = ""
+
+# Starts the OIDC flow, so people arrive signed in. Register it on the client too.
+SSO_SETUP_REDIRECT_URI = (
+    f"https://{os.environ.get("DOMAIN_NAME", "feed.qgis.org")}/oidc/authenticate/"
+)
+
+# 14 days. Keycloak's default of 12 hours is too short for a migration wave.
+SSO_SETUP_LINK_LIFESPAN = 1209600
+
+# Each user costs several synchronous Keycloak calls, and there is no task queue.
+SSO_ADMIN_ACTION_MAX_USERS = int(os.environ.get("SSO_ADMIN_ACTION_MAX_USERS", "25"))
+
+# The admin console link, for when a setup email does not arrive.
+SSO_KEYCLOAK_CONSOLE_REALM = os.environ.get("SSO_KEYCLOAK_CONSOLE_REALM", "master")
+SSO_KEYCLOAK_USER_CONSOLE_URL = (
+    f"{SSO_KEYCLOAK_SERVER_URL}/admin/{SSO_KEYCLOAK_CONSOLE_REALM}/console/"
+    f"#/{SSO_KEYCLOAK_REALM}/users/{{sub}}/credentials"
+)
+
+# Passkey only, so a provisioned account never has a password.
+SSO_REQUIRED_ACTIONS = ["VERIFY_EMAIL", "webauthn-register-passwordless"]
 
 # Where "Get help" goes from the sign-in failure page.
 SSO_SUPPORT_URL = os.environ.get("SSO_SUPPORT_URL", "/sso/help/#stuck")

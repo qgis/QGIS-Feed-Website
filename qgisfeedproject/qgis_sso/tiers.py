@@ -13,6 +13,10 @@ def label(role: str) -> str:
     return getattr(settings, "SSO_ROLE_LABELS", {}).get(role, role)
 
 
+def labels(roles: list[str]) -> list[str]:
+    return [label(role) for role in roles]
+
+
 def summary(role: str) -> str:
     """One line on what the role lets a person do, or an empty string."""
     return getattr(settings, "SSO_ROLE_SUMMARIES", {}).get(role, "")
