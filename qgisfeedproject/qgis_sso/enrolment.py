@@ -8,7 +8,7 @@ Keycloak to render. An account moves through the states in order.
 from dataclasses import dataclass, field
 
 from django.contrib.auth.models import User
-from django.db.models import Case, CharField, IntegerField, Q, Value, When
+from django.db.models import Case, CharField, IntegerField, Q, QuerySet, Value, When
 from django.db.models.functions import Coalesce, Concat, NullIf, Trim
 from django.utils.translation import gettext_lazy as _
 
@@ -61,6 +61,10 @@ class Row:
     proposed_roles: list = field(default_factory=list)
     #: Set by the view, which knows who is looking.
     may_revoke: bool = False
+    may_reparent: bool = False
+    may_sponsor: bool = False
+    #: A suspended account found by its full username shows the name and nothing else.
+    hide_contact: bool = False
 
     @property
     def label(self):
@@ -181,16 +185,28 @@ SPONSOR_NAME = Coalesce(
 )
 
 
-def linked_identities(sponsored_by=None):
+def linked_identities(
+    sponsored_by: User | None = None, suspended_named: str = ""
+) -> QuerySet[KeycloakIdentity]:
     """Accounts that exist in the realm, as a queryset the database can page.
 
     ``sponsored_by`` narrows it to the accounts one person vouched for.
+
+    ``suspended_named`` adds back one suspended account, matched on its full
+    username, so a colleague can find somebody to offer to sponsor. A partial
+    name matches nothing, so nobody can browse accounts outside their branch.
     """
     identities = KeycloakIdentity.objects.annotate(
         state=STATE_EXPRESSION, sponsor_name=SPONSOR_NAME
     )
     if sponsored_by is not None:
-        identities = identities.filter(sponsor=sponsored_by)
+        mine = Q(sponsor=sponsored_by)
+        if suspended_named:
+            mine |= Q(
+                trust_state=TrustState.SUSPENDED,
+                user__username__iexact=suspended_named,
+            )
+        identities = identities.filter(mine)
     return identities
 
 

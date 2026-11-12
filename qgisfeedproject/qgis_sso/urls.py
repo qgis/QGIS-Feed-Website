@@ -51,4 +51,14 @@ urlpatterns = [
         views_manage.RevokeView.as_view(),
         name="revoke",
     ),
+    path(
+        "manage/reparent/<int:pk>/",
+        views_manage.ReparentView.as_view(),
+        name="reparent",
+    ),
+    path(
+        "manage/sponsor/<int:pk>/",
+        views_manage.SponsorOfferView.as_view(),
+        name="sponsor_offer",
+    ),
 ]

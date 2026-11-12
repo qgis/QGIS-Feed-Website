@@ -28,7 +28,7 @@ from django.utils.translation import gettext as _
 from django.utils.translation import gettext_noop
 from django.views import View
 
-from . import provisioning, revocation, validation
+from . import provisioning, revocation, sponsorship, validation
 from .actions import (
     Run,
     is_sso_administrator,
@@ -48,7 +48,7 @@ from .enrolment import (
     rows_for,
 )
 from .keycloak import KeycloakError
-from .models import KeycloakIdentity, LinkMethod, SsoAuditEvent
+from .models import KeycloakIdentity, LinkMethod, SsoAuditEvent, TrustState
 from .provisioning import Provisioner, setup_redirect_uri
 from .tiers import invitable_roles
 from .tiers import label as role_label
@@ -283,8 +283,10 @@ class EnrolmentView(SignedInMixin, View):
         search = request.GET.get("q", "").strip()
 
         # A queryset up to the paginator, so a page of ten costs a page of ten.
+        # A full username also finds one suspended account outside the branch.
         matching = linked_identities(
             sponsored_by=None if request.user.is_superuser else request.user,
+            suspended_named=search,
         )
 
         # Counted before filtering, so each state shows its full total. The
@@ -334,7 +336,7 @@ class EnrolmentView(SignedInMixin, View):
 
     @staticmethod
     def mark_actions(actor: User, rows: list[Row]) -> None:
-        """Say which rows may offer Withdraw trust, so no row offers a refusal.
+        """Say which actions each row offers, so no row offers a refusal.
 
         The trust chains above every row and above the actor come from one
         recursive query, so the loop issues none.
@@ -347,12 +349,22 @@ class EnrolmentView(SignedInMixin, View):
         above_actor = (
             above.get(actor_identity.pk, set()) if actor_identity is not None else set()
         )
+        moves_people = revocation.may_reparent(actor)
         for row in rows:
             row.may_revoke = revocation.may_revoke(
                 actor,
                 row.identity,
                 actor_ancestors=above_actor,
                 subject_ancestors=above.get(row.identity.pk, set()),
+            )
+            row.may_reparent = (
+                moves_people and row.identity.trust_state == TrustState.SUSPENDED
+            )
+            row.may_sponsor = revocation.may_sponsor(
+                actor, row.identity, actor_ancestors=above_actor
+            )
+            row.hide_contact = not (
+                actor.is_superuser or row.identity.sponsor_id == actor.pk
             )
 
 
@@ -804,6 +816,154 @@ class InviteNewView(SignedInMixin, View):
             ],
             "remaining": left,
             "unlimited": left is None,
+        }
+
+
+class ReparentView(RowConfirmView):
+    """Move a suspended account to a new sponsor, on a page of its own.
+
+    It is the only way back once the grace window has closed. It asks for a
+    reason and names everybody it brings back.
+    """
+
+    template_name = "qgis_sso/manage/reparent.html"
+
+    def dispatch(self, request: HttpRequest, *args, **kwargs) -> HttpResponse:
+        if signed_in(request) and not revocation.may_reparent(request.user):
+            return self.refuse(request, _("You cannot move people to a new sponsor."))
+        return super().dispatch(request, *args, **kwargs)
+
+    def blocked(self, identity: KeycloakIdentity) -> str | None:
+        if identity.trust_state != TrustState.SUSPENDED:
+            return _("Only a suspended account can be moved to a new sponsor.")
+        return None
+
+    def act(self, request: HttpRequest, identity: KeycloakIdentity) -> HttpResponse:
+        sponsors = revocation.eligible_sponsors(identity)
+        wanted = request.POST.get("sponsor", "")
+        # Checked against the picker, so a typed id cannot name somebody else.
+        sponsor = next(
+            (each.user for each in sponsors if str(each.user_id) == wanted), None
+        )
+        reason = request.POST.get("reason", "").strip()
+        if sponsor is None or not reason:
+            return render(
+                request,
+                self.template_name,
+                dict(
+                    self.context(request, identity),
+                    chosen=wanted,
+                    reason=reason,
+                    reason_missing=not reason,
+                    sponsor_missing=sponsor is None,
+                ),
+                status=400,
+            )
+
+        try:
+            rescued = revocation.reparent(request.user, identity, sponsor, reason)
+        except revocation.RevocationError as error:
+            return self.refuse(request, str(error))
+
+        messages.success(
+            request,
+            _(
+                "%(sponsor)s now sponsors %(username)s. %(count)d other "
+                "account(s) came back with them."
+            )
+            % {
+                "username": identity.user.username,
+                "sponsor": sponsor.username,
+                "count": len(rescued) - 1,
+            },
+        )
+        return HttpResponseRedirect(list_url(request))
+
+    @staticmethod
+    def context(request: HttpRequest, identity: KeycloakIdentity) -> dict[str, object]:
+        return {
+            "subject": identity,
+            "back": list_url(request),
+            "sponsors": revocation.eligible_sponsors(identity),
+            "rescued": revocation.suspended_with(identity),
+            "reason": "",
+        }
+
+
+class SponsorOfferView(RowConfirmView):
+    """Offer to sponsor somebody a suspension reached.
+
+    The account is usually outside the reader's own branch, so it is looked up
+    among the accounts that can be rescued, not among the reader's own.
+    """
+
+    template_name = "qgis_sso/manage/sponsor.html"
+
+    def get(self, request: HttpRequest, pk: int) -> HttpResponse:
+        identity = self.rescuable(pk)
+        refused = self.refusal_for(request, identity)
+        if refused:
+            return refused
+        return render(request, self.template_name, self.context(request, identity))
+
+    def post(self, request: HttpRequest, pk: int) -> HttpResponse:
+        identity = self.rescuable(pk)
+        refused = self.refusal_for(request, identity)
+        if refused:
+            return refused
+
+        reason = request.POST.get("reason", "").strip()
+        if not reason:
+            return render(
+                request,
+                self.template_name,
+                dict(self.context(request, identity), reason_missing=True),
+                status=400,
+            )
+
+        try:
+            sponsorship.offer(request.user, identity, reason)
+        except revocation.RevocationError as error:
+            return self.refuse(request, str(error))
+
+        messages.success(
+            request,
+            _("We sent your offer to %(username)s. Nothing changes until they accept.")
+            % {"username": identity.user.username},
+        )
+        return HttpResponseRedirect(list_url(request))
+
+    def refusal_for(
+        self, request: HttpRequest, identity: KeycloakIdentity | None
+    ) -> HttpResponse | None:
+        if identity is None:
+            return self.refuse(request, _(NOT_FOUND))
+        refused = revocation.sponsor_refusal(request.user, identity)
+        if refused:
+            return self.refuse(request, str(refused))
+        return None
+
+    @staticmethod
+    def rescuable(pk: int) -> KeycloakIdentity | None:
+        """A suspended account that can be offered a sponsor, or None.
+
+        Anything else gets the same answer as a missing account, so typing ids
+        cannot tell anybody what other accounts exist.
+        """
+        return (
+            KeycloakIdentity.objects.select_related("user", "sponsor")
+            .filter(pk=pk, trust_state=TrustState.SUSPENDED, revoked_directly=False)
+            .first()
+        )
+
+    @staticmethod
+    def context(request: HttpRequest, identity: KeycloakIdentity) -> dict[str, object]:
+        return {
+            "subject": identity,
+            "back": list_url(request),
+            "roles": [role_label(role) for role in identity.last_seen_roles or []],
+            "rescued": revocation.suspended_with(identity),
+            "reason": "",
         }
 
 

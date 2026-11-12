@@ -15,7 +15,7 @@ because mirroring rebuilds them from the token at the next sign-in.
 import logging
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from django.conf import settings
 from django.contrib.auth.models import User
@@ -26,9 +26,15 @@ from django.utils.translation import gettext_lazy as _
 
 from .keycloak import KeycloakAdminClient, KeycloakError
 from .migration import feed_client_id
-from .models import KeycloakIdentity, SsoAuditEvent, TrustState
+from .models import (
+    KeycloakIdentity,
+    OfferState,
+    SponsorshipOffer,
+    SsoAuditEvent,
+    TrustState,
+)
 from .roles import mirror_roles
-from .tiers import effective_tier, tier_of
+from .tiers import NO_TIER, effective_tier, labels, may_invite, remaining, tier_of
 
 logger = logging.getLogger(__name__)
 
@@ -67,8 +73,9 @@ class Blast:
 def subtree(identity: KeycloakIdentity) -> list[KeycloakIdentity]:
     """Every identity below this one, breadth first.
 
-    A cycle should be impossible, but the walk still stops at ``MAX_DEPTH`` and
-    never visits an identity twice.
+    A cycle should be impossible, because :func:`reparent` refuses a sponsor
+    from inside the subtree. The walk still stops at ``MAX_DEPTH`` and never
+    visits an identity twice.
     """
     found = []
     seen = {identity.pk}
@@ -350,28 +357,37 @@ def revoke(
     return blast
 
 
-def reactivate(
-    identity: KeycloakIdentity, revoked_at: datetime | None
-) -> list[KeycloakIdentity]:
+def suspended_with(identity: KeycloakIdentity) -> list[KeycloakIdentity]:
+    """The accounts below this one that the same revocation suspended.
+
+    Every account one revocation touches carries the same ``revoked_at``.
+    """
+    return [
+        node
+        for node in subtree(identity)
+        if node.trust_state == TrustState.SUSPENDED
+        and node.revoked_at == identity.revoked_at
+    ]
+
+
+def reactivate(identity: KeycloakIdentity) -> list[KeycloakIdentity]:
     """Bring a branch back from suspension, and say who came with it.
 
-    ``identity`` always comes back. Below it, only accounts suspended by the
-    same revocation do, which ``revoked_at`` identifies. Purely local, because
-    the realm never knew about the suspension.
+    ``identity`` always comes back, with whoever :func:`suspended_with` finds
+    below it. Offers to sponsor them close, because nobody needs one now. Purely
+    local, because the realm never knew about the suspension.
     """
     brought_back = []
-    for node in [identity] + subtree(identity):
-        if node.pk != identity.pk:
-            if node.trust_state != TrustState.SUSPENDED:
-                continue
-            if node.revoked_at != revoked_at:
-                continue
+    for node in [identity] + suspended_with(identity):
         node.trust_state = TrustState.ACTIVE
         node.revoked_directly = False
         node.save(update_fields=["trust_state", "revoked_directly"])
         # Now, or a restored account sees nothing until its next sign-in.
         mirror_roles(node.user, node.last_seen_roles)
         brought_back.append(node)
+    SponsorshipOffer.objects.filter(
+        identity__in=brought_back, state=OfferState.PENDING
+    ).update(state=OfferState.WITHDRAWN, responded_at=timezone.now())
     return brought_back
 
 
@@ -390,11 +406,16 @@ def restore(
     if identity.user_id == actor.pk or out_of_reach(actor, identity):
         raise RevocationError(_("You cannot restore that account."))
     if not within_grace(identity):
-        raise RevocationError(_("This revocation is too old to undo in one step."))
+        raise RevocationError(
+            _(
+                "This revocation is too old to undo in one step. To bring back "
+                "somebody it suspended, move them to a new sponsor instead."
+            )
+        )
 
     roles = list(identity.roles_at_revocation or [])
     with transaction.atomic():
-        reactivate(identity, identity.revoked_at)
+        reactivate(identity)
 
         identity.last_seen_roles = roles
         identity.save(update_fields=["last_seen_roles"])
@@ -417,6 +438,199 @@ def restore(
 def within_grace(identity: KeycloakIdentity) -> bool:
     """Whether a revocation is recent enough to undo in one action."""
     return bool(identity.revoked_at and timezone.now() - identity.revoked_at <= grace())
+
+
+def may_reparent(actor: User) -> bool:
+    """Whether ``actor`` may move accounts between sponsors.
+
+    Web maintainers and administrators may, so whoever can cause a cascade can
+    also undo it. A suspended account holds no tier, so it never may.
+    """
+    return actor.is_superuser and effective_tier(actor) <= 1
+
+
+def sponsor_refusal(
+    actor: User,
+    identity: KeycloakIdentity,
+    actor_ancestors: set[int] | None = None,
+) -> str | None:
+    """Why ``actor`` may not offer to sponsor ``identity``, or None.
+
+    The rule is the actor's own standing, not their rank. They must be able to
+    invite every role the account holds, and have a free place if it never
+    signed in. A caller listing many rows can pass ``actor_ancestors`` from
+    :func:`ancestor_user_ids`.
+    """
+    actor_identity = getattr(actor, "keycloak_identity", None)
+    if actor_identity is None or actor_identity.trust_state != TrustState.ACTIVE:
+        return _("Your account cannot sponsor anybody.")
+    if effective_tier(actor) == NO_TIER:
+        return _("Your account holds no role here, so it cannot sponsor anybody.")
+
+    # Somebody revoked in their own right is not a rescue case.
+    if identity.trust_state != TrustState.SUSPENDED or identity.revoked_directly:
+        return _(
+            "You can only sponsor an account that was suspended because "
+            "somebody above it lost their access."
+        )
+    if identity.user_id == actor.pk:
+        return _("You cannot sponsor your own account.")
+    if identity.sponsor_id == actor.pk:
+        return _("You already sponsor that account.")
+
+    if actor_ancestors is None:
+        actor_ancestors = {node.user_id for node in ancestors(actor_identity)}
+    if identity.user_id in actor_ancestors:
+        return _("That account is above yours in the tree, so you cannot sponsor it.")
+
+    refused = [
+        role for role in identity.last_seen_roles or [] if not may_invite(actor, role)
+    ]
+    if refused:
+        return _(
+            "You cannot sponsor somebody with the role %(roles)s. Ask a feed "
+            "maintainer instead."
+        ) % {"roles": ", ".join(map(str, labels(refused)))}
+
+    if no_free_place(actor, identity):
+        return _(
+            "You have no free place for this account. Cancel an invitation on "
+            "the people page to make one."
+        )
+    return None
+
+
+def may_sponsor(
+    actor: User,
+    identity: KeycloakIdentity,
+    actor_ancestors: set[int] | None = None,
+) -> bool:
+    """Whether ``actor`` may offer to sponsor ``identity``."""
+    return sponsor_refusal(actor, identity, actor_ancestors=actor_ancestors) is None
+
+
+def no_free_place(sponsor: User, identity: KeycloakIdentity) -> bool:
+    """Whether taking this account on would go over the sponsor's quota.
+
+    The quota counts accounts nobody has signed in to yet, so taking on
+    somebody who already arrived costs nothing.
+    """
+    if identity.first_sso_login_at is not None:
+        return False
+    left = remaining(sponsor)
+    return left is not None and left < 1
+
+
+def eligible_sponsors(identity: KeycloakIdentity) -> list[KeycloakIdentity]:
+    """The active accounts that could take this one on, for the picker.
+
+    The account itself and everything below it are left out, because either
+    would close the tree into a loop.
+    """
+    roles = list(identity.last_seen_roles or [])
+    barred = {identity.user_id} | {node.user_id for node in subtree(identity)}
+    candidates = (
+        KeycloakIdentity.objects.filter(trust_state=TrustState.ACTIVE)
+        .exclude(user_id__in=barred)
+        .select_related("user")
+        .order_by("user__username")
+    )
+    offered = []
+    for candidate in candidates:
+        # So may_invite reads the row in hand instead of querying again.
+        candidate.user.keycloak_identity = candidate
+        if all(may_invite(candidate.user, role) for role in roles):
+            offered.append(candidate)
+    return offered
+
+
+def reparent(
+    actor: User,
+    identity: KeycloakIdentity,
+    new_sponsor: User,
+    reason: str,
+    offer: SponsorshipOffer | None = None,
+) -> list[KeycloakIdentity]:
+    """Move an account to a new sponsor, and bring it back if it was suspended.
+
+    Without an ``offer``, a maintainer is moving somebody. With one, ``actor``
+    is the suspended person accepting it, and the sponsor's standing is checked
+    again now. The grace window does not apply, because after it this is the
+    only way back. Returns the accounts that came back, this one included.
+    """
+    if offer is None:
+        if not may_reparent(actor):
+            raise RevocationError(
+                _("Your account cannot move people to a new sponsor.")
+            )
+    else:
+        if not offer.waiting:
+            raise RevocationError(_("That offer has already been answered."))
+        if offer.identity_id != identity.pk or offer.sponsor_id != new_sponsor.pk:
+            raise RevocationError(_("That offer is about somebody else."))
+        if actor.pk != identity.user_id:
+            raise RevocationError(
+                _("Only %(username)s can accept that offer.")
+                % {"username": identity.user.username}
+            )
+    reason = (reason or "").strip()
+    if not reason:
+        raise RevocationError(_("Give a reason. It goes in the audit trail."))
+
+    # From the database, because a cached identity may predate a revocation.
+    sponsor_identity = KeycloakIdentity.objects.filter(user=new_sponsor).first()
+    if sponsor_identity is None or sponsor_identity.trust_state != TrustState.ACTIVE:
+        raise RevocationError(_("That account cannot sponsor anybody right now."))
+    new_sponsor.keycloak_identity = sponsor_identity
+
+    if offer is not None:
+        refused = sponsor_refusal(new_sponsor, identity)
+    else:
+        refused = placement_refusal(new_sponsor, identity)
+    if refused:
+        raise RevocationError(refused)
+
+    was = identity.sponsor
+    rescued = []
+    with transaction.atomic():
+        identity.sponsor = new_sponsor
+        identity.save(update_fields=["sponsor"])
+        if identity.trust_state == TrustState.SUSPENDED:
+            rescued = reactivate(identity)
+
+        SsoAuditEvent.record(
+            SsoAuditEvent.Action.REPARENTED,
+            user=identity.user,
+            sub=identity.sub,
+            by=actor.username,
+            reason=reason,
+            was=was.username if was else "",
+            now=new_sponsor.username,
+            rescued=[node.user.username for node in rescued],
+        )
+    return rescued
+
+
+def placement_refusal(sponsor: User, identity: KeycloakIdentity) -> str | None:
+    """Why a maintainer may not give ``identity`` to ``sponsor``, or None."""
+    if sponsor.pk == identity.user_id:
+        return _("An account cannot sponsor itself.")
+    if any(node.user_id == sponsor.pk for node in subtree(identity)):
+        return _("That person was invited by this account, so they cannot sponsor it.")
+    refused = [
+        role for role in identity.last_seen_roles or [] if not may_invite(sponsor, role)
+    ]
+    if refused:
+        return _("%(username)s cannot sponsor somebody with the role %(roles)s.") % {
+            "username": sponsor.username,
+            "roles": ", ".join(map(str, labels(refused))),
+        }
+    if no_free_place(sponsor, identity):
+        return _(
+            "%(username)s has no free place for this account. They can cancel "
+            "an invitation on the people page to make one."
+        ) % {"username": sponsor.username}
+    return None
 
 
 def withdraw_in_realm(
