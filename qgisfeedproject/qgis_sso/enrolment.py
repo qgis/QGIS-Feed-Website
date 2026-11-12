@@ -9,11 +9,12 @@ from dataclasses import dataclass, field
 
 from django.contrib.auth.models import User
 from django.db.models import Case, CharField, IntegerField, Q, Value, When
+from django.db.models.functions import Coalesce, Concat, NullIf, Trim
 from django.utils.translation import gettext_lazy as _
 
 from . import tiers
 from .migration import flag_users, proposed_roles, proposed_username
-from .models import KeycloakIdentity
+from .models import KeycloakIdentity, LinkMethod
 
 #: The permission that makes somebody a reviewer in Keycloak. Matched on the
 #: app label too, so a same-named permission in another app cannot grant it.
@@ -26,7 +27,8 @@ PROVISIONED = "provisioned"
 LINK_SENT = "link-sent"
 ACTIVE = "active"
 
-#: Label and Bulma modifier per state. The colour only repeats the label.
+#: Label and Bulma modifier per state. The colour only repeats the label, and the
+#: sponsor column says how an account arrived.
 STATES = {
     BLOCKED: (_("Needs a decision"), "is-danger"),
     NOT_PROVISIONED: (_("No QGIS account"), "is-light"),
@@ -67,6 +69,10 @@ class Row:
         return STATES[self.state][1]
 
     @property
+    def sponsor(self):
+        return getattr(self.identity, "sponsor", None)
+
+    @property
     def password_retired(self):
         """Whether the local password is retired. It says nothing about state."""
         return bool(getattr(self.identity, "local_password_disabled_at", None))
@@ -75,12 +81,30 @@ class Row:
     def pending(self):
         """True for a realm account nobody has signed in to yet.
 
-        Only these are offered the setup email and the setup link.
+        Only these are offered the setup email and the setup link. They hold a
+        place against a sponsor's quota, and so does an account with no sponsor.
         """
         identity = self.identity
         if identity is None:
             return False
         return identity.first_sso_login_at is None
+
+    @property
+    def cancellable(self):
+        """True for a pending invitation this site created in full.
+
+        ``INVITATION`` is written in one place only, the invite form, which is
+        also the only path that creates the Django user and the realm account
+        together. Everything else - the migration wave, an invitation to
+        somebody who already had an account here - keeps its own records, so
+        cancelling must not reach them.
+        """
+        identity = self.identity
+        return (
+            self.pending
+            and identity.sponsor_id is not None
+            and identity.link_method == LinkMethod.INVITATION
+        )
 
     @property
     def enrollable(self):
@@ -117,10 +141,29 @@ STATE_ORDER = Case(
     output_field=IntegerField(),
 )
 
+#: The sponsor as the column shows them, which is also what it sorts on:
+#: their full name, falling back to their username. Null exactly when there is
+#: no sponsor, which is what keeps those rows together at one end.
+SPONSOR_NAME = Coalesce(
+    NullIf(
+        Trim(Concat("sponsor__first_name", Value(" "), "sponsor__last_name")),
+        Value(""),
+    ),
+    "sponsor__username",
+)
 
-def linked_identities():
-    """Accounts that exist in the realm, as a queryset the database can page."""
-    return KeycloakIdentity.objects.annotate(state=STATE_EXPRESSION)
+
+def linked_identities(sponsored_by=None):
+    """Accounts that exist in the realm, as a queryset the database can page.
+
+    ``sponsored_by`` narrows it to the accounts one person vouched for.
+    """
+    identities = KeycloakIdentity.objects.annotate(
+        state=STATE_EXPRESSION, sponsor_name=SPONSOR_NAME
+    )
+    if sponsored_by is not None:
+        identities = identities.filter(sponsor=sponsored_by)
+    return identities
 
 
 def rows_for(identities):
@@ -156,7 +199,9 @@ def rows(users, flags=None):
 
     identities = {
         identity.user_id: identity
-        for identity in KeycloakIdentity.objects.filter(user__in=users)
+        for identity in KeycloakIdentity.objects.select_related("sponsor").filter(
+            user__in=users
+        )
     }
     can_publish = publishers(among=[user.pk for user in users])
 

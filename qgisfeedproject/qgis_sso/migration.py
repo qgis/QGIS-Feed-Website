@@ -41,7 +41,8 @@ def proposed_username(user):
     """The Keycloak username this Django account should get.
 
     Keycloak lowercases usernames and Django does not, so two accounts here can
-    want one realm account. Provisioning never claims one it did not create.
+    want one realm account. The invite form refuses a name taken here in any
+    case, and provisioning never claims a realm account it did not create.
     """
     return validation.clean_username(user.username)
 

@@ -14,6 +14,7 @@ class LinkMethod(models.TextChoices):
     """How a Django account came to be bound to a Keycloak identity."""
 
     PRE_SSO_MIGRATION = "pre-sso-migration", _("Pre-SSO migration")
+    INVITATION = "invitation", _("Invitation")
 
 
 class KeycloakIdentity(models.Model):
@@ -56,8 +57,24 @@ class KeycloakIdentity(models.Model):
         verbose_name=_("last seen roles"),
         help_text=_(
             "Roles carried by the most recent token, and so the role set as of "
-            "that sign-in. Permissions come from the Django groups."
+            "that sign-in. Permissions come from the Django groups, and the "
+            "invitation tier from these roles."
         ),
+    )
+    sponsor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        # An account that vouched for others cannot be deleted before them.
+        on_delete=models.PROTECT,
+        related_name="vouched_for",
+        verbose_name=_("sponsor"),
+        help_text=_("Who vouched for this account. Null only for a root."),
+    )
+    is_root = models.BooleanField(
+        default=False,
+        verbose_name=_("root of a trust tree"),
+        help_text=_("Vouched for by nobody. There may be several, and they are peers."),
     )
     setup_email_sent_at = models.DateTimeField(
         null=True, blank=True, verbose_name=_("setup email last sent at")
@@ -87,6 +104,16 @@ class KeycloakIdentity(models.Model):
         verbose_name = _("Keycloak identity")
         verbose_name_plural = _("Keycloak identities")
         ordering = ("-linked_at",)
+        constraints = [
+            # Migrated accounts are exempt, because nobody vouched for them and
+            # the graph should not pretend somebody did.
+            models.CheckConstraint(
+                condition=models.Q(sponsor__isnull=False)
+                | models.Q(is_root=True)
+                | models.Q(link_method=LinkMethod.PRE_SSO_MIGRATION),
+                name="identity_has_a_sponsor_or_is_a_root",
+            )
+        ]
 
     def __str__(self):
         return f"{self.user} → {self.sub}"
@@ -110,6 +137,10 @@ class SsoAuditEvent(models.Model):
         SETUP_EMAIL_SENT = "setup-email-sent", _("Setup email sent")
         SETUP_LINK_ISSUED = "setup-link-issued", _(
             "Setup link issued to an administrator"
+        )
+        INVITED = "invited", _("Invited: account created for somebody new")
+        INVITATION_CANCELLED = "invitation-cancelled", _(
+            "Invitation cancelled: the account it made was removed"
         )
         LOCAL_PASSWORD_DISABLED = "local-password-disabled", _(
             "Local password made unusable"

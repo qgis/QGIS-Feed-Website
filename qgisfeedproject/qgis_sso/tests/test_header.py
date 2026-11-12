@@ -58,11 +58,23 @@ class HeaderAccountMenuTest(TestCase):
         self.assertContains(response, "Your account")
         self.assertNotContains(response, ACCOUNT_URL)
 
-    def test_the_enrolment_page_is_not_offered_to_somebody_who_cannot_open_it(self):
-        """The page is for administrators, so the link follows being one."""
+    def test_the_enrolment_page_is_offered_to_anybody_in_the_realm(self):
+        """The page shows each person only what they may see, so the link
+        follows having a realm account rather than being a superuser."""
+        from ..models import KeycloakIdentity
+
+        enrolment = reverse("qgis_sso:enrolment")
         self.client.force_login(self.user, backend=LOCAL_BACKEND)
 
-        self.assertNotContains(self.home(), reverse("qgis_sso:enrolment"))
+        self.assertNotContains(self.home(), enrolment)
+
+        KeycloakIdentity.objects.create(
+            user=self.user,
+            sub="sub-1",
+            issuer="https://auth.example.org",
+            link_method="pre-sso-migration",
+        )
+        self.assertContains(self.home(), enrolment)
 
     def test_a_superuser_is_offered_it_before_they_are_linked(self):
         """The bootstrap case. At cutover the first superuser has no realm

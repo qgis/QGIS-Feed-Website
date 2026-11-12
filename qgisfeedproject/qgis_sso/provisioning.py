@@ -10,7 +10,10 @@ import logging
 from dataclasses import dataclass, field
 
 from django.conf import settings
+from django.contrib.auth.models import User
 from django.core.cache import cache
+from django.db import transaction
+from django.db.models import ProtectedError
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
@@ -124,6 +127,7 @@ class Provisioner:
         flags=(),
         include_flagged=False,
         linked_ids=None,
+        roles=None,
         can_publish=None,
         linked_subs=None,
     ):
@@ -132,6 +136,9 @@ class Provisioner:
         A caller can resolve ``linked_ids``, ``linked_subs`` and ``can_publish``
         for a whole batch first. That saves queries per user, and a worker
         thread then has nothing left to query.
+
+        ``roles`` replaces the roles derived from the account's groups. An
+        invitation names the role it offers.
         """
         decision = Decision(
             user=user,
@@ -155,7 +162,7 @@ class Provisioner:
 
         # The realm is shared with hub and plugins, so most people are already in it.
         linked = self._consider_link(
-            decision, can_publish=can_publish, linked_subs=linked_subs
+            decision, roles, can_publish=can_publish, linked_subs=linked_subs
         )
         if linked is not None:
             return linked
@@ -173,7 +180,11 @@ class Provisioner:
                 % {"username": decision.username},
             )
 
-        decision.roles = proposed_roles(user, can_publish=can_publish)
+        decision.roles = (
+            list(roles)
+            if roles is not None
+            else proposed_roles(user, can_publish=can_publish)
+        )
         unknown = [role for role in decision.roles if role not in self.available_roles]
         if unknown:
             return self._error(
@@ -187,7 +198,7 @@ class Provisioner:
 
         return decision
 
-    def _consider_link(self, decision, can_publish=None, linked_subs=None):
+    def _consider_link(self, decision, roles=None, can_publish=None, linked_subs=None):
         """Whether this account can be bound to one the realm already has.
 
         We match on an exact address that Keycloak reports as verified, and on
@@ -235,7 +246,12 @@ class Provisioner:
                 _("that QGIS account is already linked to another account here"),
             )
 
-        roles = proposed_roles(decision.user, can_publish=can_publish)
+        # The same override as the create path.
+        roles = (
+            list(roles)
+            if roles is not None
+            else proposed_roles(decision.user, can_publish=can_publish)
+        )
         missing = [role for role in roles if role not in self.available_roles]
         if missing:
             # Linking assigns roles, so the client must already have them.
@@ -254,7 +270,12 @@ class Provisioner:
         decision.roles = roles
         return decision
 
-    def link(self, decision):
+    def link(
+        self,
+        decision,
+        sponsor=None,
+        link_method=LinkMethod.PRE_SSO_MIGRATION,
+    ):
         """Bind an account here to one the realm already has.
 
         It creates nothing in the realm. It assigns the roles the account holds
@@ -275,7 +296,8 @@ class Provisioner:
             issuer=issuer_of_record(),
             preferred_username=decision.realm_username or decision.username,
             email_at_link=decision.email,
-            link_method=LinkMethod.PRE_SSO_MIGRATION,
+            link_method=link_method,
+            sponsor=sponsor,
         )
         SsoAuditEvent.record(
             SsoAuditEvent.Action.LINKED,
@@ -284,11 +306,19 @@ class Provisioner:
             keycloak_username=decision.realm_username,
             matched_email=decision.email,
             roles=decision.roles,
+            sponsor=getattr(sponsor, "username", None),
         )
         return identity
 
-    def provision(self, decision):
+    def provision(
+        self,
+        decision,
+        sponsor=None,
+        link_method=LinkMethod.PRE_SSO_MIGRATION,
+    ):
         """Create the realm account described by ``decision`` and record it.
+
+        ``sponsor`` goes in with the insert, where the check constraint fires.
 
         Raises :class:`~qgis_sso.keycloak.KeycloakError`. Callers handle it per
         user, so one failure does not stop the run.
@@ -319,7 +349,8 @@ class Provisioner:
             issuer=issuer_of_record(),
             preferred_username=decision.username,
             email_at_link=decision.email,
-            link_method=LinkMethod.PRE_SSO_MIGRATION,
+            link_method=link_method,
+            sponsor=sponsor,
         )
         SsoAuditEvent.record(
             SsoAuditEvent.Action.PROVISIONED,
@@ -327,6 +358,7 @@ class Provisioner:
             sub=sub,
             keycloak_username=decision.username,
             roles=decision.roles,
+            sponsor=getattr(sponsor, "username", None),
         )
         return identity
 
@@ -449,6 +481,53 @@ DEFAULT_LIFESPAN_SECONDS = 1209600
 
 def setup_link_lifespan():
     return getattr(settings, "SSO_SETUP_LINK_LIFESPAN", DEFAULT_LIFESPAN_SECONDS)
+
+
+class CancelError(Exception):
+    """Cancelling could not be finished, and nothing was changed."""
+
+
+def cancel_invitation(
+    identity: KeycloakIdentity,
+    actor: User,
+    client: KeycloakAdminClient | None = None,
+) -> None:
+    """Undo an invitation completely: the realm account, the identity, the user.
+
+    Only for an account the invite form made and nobody has used. The caller
+    checks both. The local deletes and the realm delete share one transaction,
+    with the realm last, so a failure on either side changes nothing.
+
+    Raises :class:`CancelError`.
+    """
+    user = identity.user
+    username = user.username
+    try:
+        with transaction.atomic():
+            # Written before the deletes. The event keeps the username and lets
+            # its user go null.
+            SsoAuditEvent.record(
+                SsoAuditEvent.Action.INVITATION_CANCELLED,
+                user=user,
+                sub=identity.sub,
+                username=username,
+                sponsor=getattr(identity.sponsor, "username", ""),
+                cancelled_by=actor.username,
+            )
+            identity.delete()
+            user.delete()
+            (client or KeycloakAdminClient()).delete_user(identity.sub)
+    except ProtectedError:
+        logger.warning("Could not remove %s: something here refers to them", username)
+        raise CancelError(
+            _("%(username)s has work on this site, so their account was kept.")
+            % {"username": username}
+        )
+    except KeycloakError as error:
+        logger.warning("Could not remove %s from the realm: %s", identity.sub, error)
+        raise CancelError(
+            _("We could not reach the QGIS account service, so nothing was changed.")
+        )
 
 
 def issuer_of_record():

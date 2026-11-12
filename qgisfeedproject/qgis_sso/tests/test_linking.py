@@ -146,7 +146,7 @@ class LinkTest(TestCase):
 
     def link(self):
         decision = self.provisioner.inspect(self.user)
-        return self.provisioner.link(decision)
+        return self.provisioner.link(decision, sponsor=None)
 
     def test_it_creates_nothing_in_the_realm(self):
         self.link()

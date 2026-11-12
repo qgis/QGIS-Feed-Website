@@ -10,20 +10,32 @@
       <p class="subtitle is-6">
         {% blocktrans trimmed %}
           Everybody listed has a QGIS account. Until they first sign in, you can
-          send them their setup link.
+          send them their setup link, or cancel an invitation nobody takes up.
         {% endblocktrans %}
       </p>
       <p>
         <i class="fa-solid fa-circle-info has-text-success mr-1" aria-hidden="true"></i>
-        <a href="{% url 'qgis_sso:help' %}">
-          {% trans "How signing in works" %}
+        <a href="{% url 'qgis_sso:help' %}#trust">
+          {% trans "How inviting works" %}
         </a>
       </p>
     </div>
-    <a class="button is-primary1" href="{% url 'qgis_sso:invite_existing' %}">
-      <span class="icon is-small"><i class="fas fa-user-plus"></i></span>
-      <span>{% trans "Invite existing users" %}</span>
-    </a>
+    {% if everyone or may_invite_new %}
+      <div class="buttons">
+        {% if may_invite_new %}
+          <a class="button is-primary1" href="{% url 'qgis_sso:invite_new' %}">
+            <span class="icon is-small"><i class="fas fa-user-plus" aria-hidden="true"></i></span>
+            <span>{% trans "Invite a new user" %}</span>
+          </a>
+        {% endif %}
+        {% if everyone %}
+          <a class="button is-primary1 is-outlined" href="{% url 'qgis_sso:invite_existing' %}">
+            <span class="icon is-small"><i class="fas fa-users" aria-hidden="true"></i></span>
+            <span>{% trans "Invite existing users" %}</span>
+          </a>
+        {% endif %}
+      </div>
+    {% endif %}
   </div>
 
   <form method="get" action="" class="mb-4">
@@ -60,6 +72,10 @@
           {% include 'layouts/sort_header.html' with key='account' label=account_label natural='asc' classes='sso-account' %}
           {% trans "State" as state_label %}
           {% include 'layouts/sort_header.html' with key='state' label=state_label natural='asc' %}
+          {% if everyone %}
+            {% trans "Invited by" as sponsor_label %}
+            {% include 'layouts/sort_header.html' with key='sponsor' label=sponsor_label natural='asc' %}
+          {% endif %}
           <th scope="col">{% trans "Roles" %}</th>
           {% trans "Date of invitation" as invited_label %}
           {% include 'layouts/sort_header.html' with key='invited' label=invited_label natural='desc' %}
@@ -77,6 +93,15 @@
             <td>
               <span class="tag {{ row.css_class }}">{{ row.label }}</span>
             </td>
+            {% if everyone %}
+              <td>
+                {% if row.sponsor %}
+                  {{ row.sponsor.username }}
+                {% else %}
+                  <span title="{% trans 'Nobody. This account was created before invitations existed.' %}">-</span>
+                {% endif %}
+              </td>
+            {% endif %}
             <td>{{ row.role_labels|join:", "|default:"-" }}</td>
             <td>{{ row.identity.linked_at|date:"Y-m-d" }}</td>
             <td>
@@ -101,12 +126,22 @@
                     <span class="icon is-small"><i class="fas fa-link"></i></span>
                   </button>
                 {% endif %}
+                {% if row.cancellable %}
+                  {% blocktrans trimmed asvar cancel_label with username=row.user.username %}
+                    Cancel the invitation for {{ username }}
+                  {% endblocktrans %}
+                  <a class="button is-small is-danger is-outlined"
+                     href="{% url 'qgis_sso:cancel_invitation' row.identity.pk %}{% if filters %}?{{ filters }}{% endif %}"
+                     title="{{ cancel_label }}" aria-label="{{ cancel_label }}">
+                    <span class="icon is-small"><i class="fas fa-user-xmark"></i></span>
+                  </a>
+                {% endif %}
               </form>
             </td>
           </tr>
         {% empty %}
           <tr>
-            <td colspan="5">
+            <td colspan="{% if everyone %}6{% else %}5{% endif %}">
               {% blocktrans trimmed %}
                 No accounts match. Nobody has a QGIS account yet, or the filter is
                 too narrow.

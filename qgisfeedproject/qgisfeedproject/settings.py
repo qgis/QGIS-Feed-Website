@@ -367,6 +367,19 @@ SSO_GROUP_LABELS = {
     "qgisfeedentry_approver": _("Publish news items"),
 }
 
+# Who may invite whom. Lower is more trusted, and an invitation never offers a
+# role above the inviter's own tier.
+SSO_ROLE_TIERS = {
+    "admin": 0,
+    "web-maintainer": 1,
+    "reviewer": 2,
+    "usergroup-author": 3,
+    "author": 4,
+}
+
+# Open invitations per account, by tier. None is unlimited.
+SSO_TIER_QUOTAS = {0: None, 1: 25, 2: 10, 3: 10, 4: 3}
+
 # Account provisioning from the admin. The request path reads none of this.
 # The admin API address, when it differs from the public QGIS_AUTH_URL.
 SSO_KEYCLOAK_SERVER_URL = os.environ.get("SSO_KEYCLOAK_SERVER_URL", QGIS_AUTH_URL)

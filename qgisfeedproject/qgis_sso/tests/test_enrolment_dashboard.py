@@ -180,14 +180,16 @@ class AccessTest(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertIn(reverse("login"), response["Location"])
 
-    def test_staff_who_are_not_superusers_are_turned_away_from_both(self):
-        """Both pages reach the whole user list, so both are superuser-only."""
+    def test_the_list_is_open_but_inviting_an_existing_user_is_not(self):
+        """The list scopes what each person sees rather than turning them away.
+        Grafting an existing account reaches the whole user list, so that stays
+        superuser-only."""
         staff = User.objects.create_user(
             "bob", "bob@example.org", "x", is_staff=True, is_superuser=False
         )
         self.client.force_login(staff, backend=LOCAL_BACKEND)
 
-        self.assertEqual(self.client.get(PAGE).status_code, 302)
+        self.assertEqual(self.client.get(PAGE).status_code, 200)
         self.assertEqual(self.client.get(CREATE).status_code, 302)
 
 
@@ -248,9 +250,9 @@ class ListingTest(SuperuserPage):
 
 @override_settings(**PAGE_SETTINGS)
 class SortingTest(SuperuserPage):
-    """The order of the list."""
+    """The order of the list, and the column not everybody sees."""
 
-    def invite(self, username, days_ago):
+    def invite(self, username, days_ago, sponsor=None):
         """One linked account, invited a given number of days ago.
 
         ``linked_at`` is ``auto_now_add``, so the date has to be written back
@@ -259,7 +261,7 @@ class SortingTest(SuperuserPage):
         user = User.objects.create_user(
             username, f"{username}@example.org", "x", last_login=timezone.now()
         )
-        identity = link(user)
+        identity = link(user, sponsor=sponsor)
         KeycloakIdentity.objects.filter(pk=identity.pk).update(
             linked_at=timezone.now() - timedelta(days=days_ago)
         )
@@ -336,6 +338,58 @@ class SortingTest(SuperuserPage):
         self.assertEqual(states[-2:], ["link-sent", "active"])
         self.assertEqual(set(states[:-2]), {"provisioned"})
 
+    def test_a_superuser_sees_who_invited_each_account(self):
+        self.assertContains(self.client.get(PAGE), "Invited by")
+
+    def test_the_sponsor_column_sorts_by_the_name_it_shows(self):
+        zara = User.objects.create_user(
+            "zara", "zara@example.org", "x", last_login=timezone.now()
+        )
+        link(zara)
+        self.invite("dave", days_ago=2, sponsor=zara)
+        self.invite("erin", days_ago=3, sponsor=self.superuser)
+
+        response = self.client.get(PAGE, {"sort_by": "sponsor", "order": "asc"})
+
+        # Sponsored by root, then by zara. Accounts from before invitations
+        # existed have no sponsor, and gather at the far end rather than
+        # scattering through the names. They compare equal to each other, so
+        # the primary key breaks the tie and they read in the order they were
+        # created. That tiebreaker is what stops a row appearing on two pages.
+        self.assertEqual(self.usernames(response)[:2], ["erin", "dave"])
+        self.assertEqual(
+            self.usernames(response)[2:], ["carol", "alice", "bob", "zara"]
+        )
+
+
+@override_settings(**PAGE_SETTINGS)
+class SponsorColumnTest(TestCase):
+    """The column that only means something to a superuser."""
+
+    def setUp(self):
+        self.staff = User.objects.create_user(
+            "bob", "bob@example.org", "x", is_staff=True, last_login=timezone.now()
+        )
+        link(self.staff)
+        self.client.force_login(self.staff, backend=LOCAL_BACKEND)
+        for username in ("alice", "carol"):
+            user = User.objects.create_user(
+                username, f"{username}@example.org", "x", last_login=timezone.now()
+            )
+            link(user, sponsor=self.staff)
+
+    def test_nobody_reads_a_column_of_their_own_name(self):
+        """Everybody who is not a superuser only sees what they vouched for."""
+        response = self.client.get(PAGE)
+
+        self.assertContains(response, "alice")
+        self.assertNotContains(response, "Invited by")
+
+    def test_sorting_by_a_column_they_cannot_see_falls_back(self):
+        response = self.client.get(PAGE, {"sort_by": "sponsor"})
+
+        self.assertEqual(response.context["sort_by"], "invited")
+
 
 class StateExpressionTest(TestCase):
     """The database and Python have to agree about where an account has got to.
@@ -381,7 +435,7 @@ class PageCostTest(SuperuserPage):
     site grows.
     """
 
-    def accounts(self, count, start=0):
+    def accounts(self, count, start=0, sponsor=None):
         for index in range(start, start + count):
             user = User.objects.create_user(
                 f"user{index}",
@@ -389,7 +443,7 @@ class PageCostTest(SuperuserPage):
                 "x",
                 last_login=timezone.now(),
             )
-            link(user, first_sso_login_at=timezone.now())
+            link(user, sponsor=sponsor, first_sso_login_at=timezone.now())
 
     def cost(self):
         with CaptureQueriesContext(connection) as queries:

@@ -28,10 +28,10 @@ def failure_page(request: HttpRequest, status: int, **reason: bool) -> HttpRespo
 
 
 class HelpView(TemplateView):
-    """The contributor's guide to signing in and passkeys, open to anybody.
+    """The contributor's guide to signing in, passkeys and invitations.
 
-    The role table comes from the settings that define the roles, so it stays
-    current.
+    Open to anybody. The ladder comes from the settings that enforce it, so it
+    stays current.
     """
 
     template_name = "qgis_sso/help.html"
@@ -40,11 +40,25 @@ class HelpView(TemplateView):
         context = super().get_context_data(**kwargs)
         context["account_url"] = getattr(settings, "SSO_ACCOUNT_URL", "")
         context["profile_url"] = reverse("qgis_sso:profile")
-        context["roles"] = [
-            {"name": tiers.label(role), "summary": tiers.summary(role)}
-            for role in getattr(settings, "SSO_ROLE_LABELS", {})
-        ]
+        context["ladder"] = self.ladder()
         return context
+
+    @staticmethod
+    def ladder() -> list[dict[str, object]]:
+        """Every role, most trusted first, with what it may do and invite."""
+        quotas = tiers.quotas()
+        ordered = sorted(tiers.ladder().items(), key=lambda pair: pair[1])
+        return [
+            {
+                "name": tiers.label(role),
+                "summary": tiers.summary(role),
+                # None means unlimited, which the template tells apart from zero.
+                "quota": quotas.get(level),
+                "unlimited": quotas.get(level) is None,
+                "invites": [tiers.label(other) for other, at in ordered if at >= level],
+            }
+            for role, level in ordered
+        ]
 
 
 def sign_in_failed(request: HttpRequest) -> HttpResponse:
