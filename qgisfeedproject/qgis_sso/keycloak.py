@@ -211,7 +211,7 @@ class KeycloakAdminClient:
         """Remove a realm account, and say nothing if it has already gone.
 
         Only for undoing an account this site created moments ago and nobody
-        ever used.
+        ever used. Withdrawing trust disables an account instead.
         """
         self.request("DELETE", f"users/{quote(user_id)}", allow_missing=True)
 
@@ -295,3 +295,21 @@ class KeycloakAdminClient:
             f"users/{quote(user_id)}/role-mappings/clients/{quote(client_uuid)}",
             json=list(roles),
         )
+
+    def remove_client_roles(self, user_id, client_uuid, roles):
+        """Take client roles away. Idempotent on Keycloak's side."""
+        if not roles:
+            return
+        self.request(
+            "DELETE",
+            f"users/{quote(user_id)}/role-mappings/clients/{quote(client_uuid)}",
+            json=list(roles),
+        )
+
+    def set_user_enabled(self, user_id, enabled):
+        """Turn a realm account on or off, everywhere in the realm."""
+        self.request("PUT", f"users/{quote(user_id)}", json={"enabled": bool(enabled)})
+
+    def end_sessions(self, user_id):
+        """Sign a user out of the realm everywhere, at once."""
+        self.request("POST", f"users/{quote(user_id)}/logout")

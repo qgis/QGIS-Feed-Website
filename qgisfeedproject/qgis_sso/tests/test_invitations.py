@@ -18,10 +18,10 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from .. import tiers
+from .. import revocation, tiers
 from ..auth import expected_issuer
 from ..keycloak import KeycloakAdminClient, KeycloakError
-from ..models import KeycloakIdentity, LinkMethod, SsoAuditEvent
+from ..models import KeycloakIdentity, LinkMethod, SsoAuditEvent, TrustState
 from ..provisioning import Provisioner
 from .base import FakeRealm
 
@@ -169,6 +169,17 @@ class TierTest(TestCase):
         self.assertEqual(tiers.remaining(reviewer), 0)
 
         invitee.keycloak_identity.delete()
+
+        self.assertEqual(tiers.remaining(reviewer), 1)
+
+    @override_settings(SSO_TIER_QUOTAS={0: None, 1: 25, 2: 1, 3: 10, 4: 3})
+    def test_a_place_held_by_an_untrusted_account_does_not_count(self):
+        """Nobody can ever use it, so charging the sponsor for it is a leak."""
+        reviewer = contributor("rita", ["reviewer"])
+        invitee = contributor("one", ["author"], sponsor=reviewer)
+        identity = invitee.keycloak_identity
+        identity.trust_state = TrustState.REVOKED
+        identity.save(update_fields=["trust_state"])
 
         self.assertEqual(tiers.remaining(reviewer), 1)
 
@@ -737,7 +748,7 @@ class CancellingAnInvitationTest(TestCase):
 
         response = self.cancel(identity)
 
-        self.assertContains(response, "no invitation left to cancel")
+        self.assertContains(response, "Withdraw trust from them instead")
         self.assertEqual(self.realm.deleted, [])
         self.assertTrue(User.objects.filter(username="one").exists())
 
@@ -765,14 +776,16 @@ class CancellingAnInvitationTest(TestCase):
         self.assertContains(response, "send-email")
         self.assertContains(response, "issue-link")
         self.assertContains(response, "cancel-invitation")
+        self.assertNotContains(response, "Withdraw trust from one")
 
-    def test_an_account_that_signed_in_offers_no_setup_and_no_cancelling(self):
+    def test_an_account_that_signed_in_offers_withdrawing_trust_only(self):
         identity = self.invitee.keycloak_identity
         identity.first_sso_login_at = timezone.now()
         identity.save(update_fields=["first_sso_login_at"])
 
         response = self.client.get(MANAGE)
 
+        self.assertContains(response, "Withdraw trust from one")
         self.assertNotContains(response, "send-email")
         self.assertNotContains(response, "issue-link")
         self.assertNotContains(response, "cancel-invitation")
@@ -800,6 +813,12 @@ class CancellingAnInvitationTest(TestCase):
 
             self.assertContains(response, "has already signed in")
         self.assertEqual(self.realm.emailed, [])
+
+    def test_trust_cannot_be_withdrawn_from_somebody_who_never_arrived(self):
+        """Cancelling the invitation is what is meant, and the reason says so."""
+        reason = revocation.refusal(self.reviewer, self.invitee.keycloak_identity)
+
+        self.assertIn("Cancel their invitation instead", str(reason))
 
 
 CLIENT_SETTINGS = {

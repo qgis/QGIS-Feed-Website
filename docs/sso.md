@@ -1,8 +1,8 @@
 # Single sign-on with auth.qgis.org
 
 This page is for the people who run the feed site. It explains how people sign
-in through the QGIS account service, who may invite whom, and which settings
-control it.
+in through the QGIS account service, who may invite whom, how to withdraw
+trust, and which settings control it.
 
 Contributors have their own guide at `/sso/help/`. It explains how to get an
 account, set up a passkey, invite somebody, what each role allows, and what to
@@ -61,7 +61,7 @@ shows ten rows at a time, and you can filter by state or search by name.
 The newest invitation is at the top. Click **Account**, **State**, **Date of
 invitation** or **Invited by** to sort by that column, and click it again to
 turn the order around. **State** sorts in the order people move through it,
-from created to active, rather than by the alphabet. Sorting covers the whole
+from created to revoked, rather than by the alphabet. Sorting covers the whole
 list, not just the page you are looking at, and it keeps whatever you searched
 for or filtered by. **Invited by** only appears for a superuser, because
 everybody else sees their own invitations and would read their own name on
@@ -84,6 +84,10 @@ stateDiagram-v2
     NoAccount --> Created : invite, or create in bulk
     Created --> LinkSent : send the setup email
     LinkSent --> Active : first sign-in, passkey enrolled
+    Active --> Revoked : withdraw trust
+    Active --> Suspended : their sponsor was revoked
+    Revoked --> Active : reverse (7d)
+    Suspended --> Active : their sponsor's revocation is reversed (7d)
 ```
 
 Every button on a row acts on that row alone. If the account sits outside your
@@ -98,6 +102,7 @@ it, reload it, and leave again without anything having happened.
 | Send email | Opens `/sso/manage/send-email/<id>/`, which asks first. The email reaches a real contributor and you cannot unsend it. |
 | Get the setup link | Shows the setup link on a page of its own. See [Handing over a link](#handing-over-a-link). |
 | Cancel invitation | Opens `/sso/manage/cancel-invitation/<id>/`, which asks first. See [Cancelling an invitation](#cancelling-an-invitation). |
+| Withdraw trust | Opens `/sso/manage/revoke/<id>/`. See [Withdrawing trust](#withdrawing-trust). |
 
 Some accounts cannot be invited at all, because they have no email address or
 somebody deactivated them. The invite page leaves those out and counts them in
@@ -167,7 +172,8 @@ Before the person signs in, the whole invitation can be undone. The row offers
 it, and `/sso/manage/cancel-invitation/<id>/` asks first, because it removes the
 account here and in the realm and cannot be undone. Nothing is kept, so the
 place comes back to you and the same person can be invited again with the same
-name and address. Once they have signed in there is nothing to cancel.
+name and address. Once they have signed in there is nothing to cancel, and
+[withdrawing trust](#withdrawing-trust) is what is meant instead.
 
 ### Linking to an account that already exists in the realm
 
@@ -181,6 +187,57 @@ We match on one thing only: an exact address that Keycloak reports as verified.
 Three cases are refused, and the page names which one it hit. The address
 differs, the realm has not verified it, or the realm account already belongs to
 somebody here. One run links up to `SSO_ADMIN_ACTION_MAX_USERS` accounts (25).
+
+## Withdrawing trust
+
+One action has two outcomes. The person you act on is **revoked**. Everybody
+they vouched for is **suspended**, which is deliberately lighter, because those
+people have done nothing wrong.
+
+```mermaid
+flowchart TD
+    A["Administrator"] --> B["Reviewer Bea<br/>revoked"]
+    A --> E["Reviewer Eli<br/>untouched"]
+    B --> C["Author Cai<br/>suspended"]
+    B --> D["Author Dee<br/>suspended"]
+    E --> F["Author Fen<br/>untouched"]
+
+    classDef gone fill:#c0392b,stroke:#7b241c,color:#fff
+    classDef held fill:#f39c12,stroke:#b9770e,color:#fff
+    class B gone
+    class C,D held
+```
+
+| | Revoked | Suspended |
+|---|---|---|
+| Client roles | removed, recorded first | none here, now and at every sign-in |
+| Realm account | disabled at `auth.qgis.org` | untouched |
+| Local account | deactivated | active, with a banner explaining why |
+| Can sign in | no | yes, with no permissions |
+
+Who may act:
+
+- You can act anywhere in your own part of the tree and nowhere else. Never on
+  somebody above you, never across into another branch. This holds for
+  administrators as well.
+- No administrator can revoke another administrator. Take the `admin` role off
+  them in Keycloak first, then revoke.
+- Standing down voluntarily is not built yet. It would move the people below
+  somebody to a new sponsor rather than suspend them, so it is not this button.
+
+Opening `/sso/manage/revoke/<id>/` changes nothing, so you can read the page
+and leave it. It asks you for a reason, which goes into the audit trail, and it
+names every person the revocation would reach.
+
+You can reverse a revocation for `SSO_REVOCATION_GRACE_DAYS` (7). One action
+puts the recorded roles back, re-enables the realm account, and clears the
+suspension for everybody below them. After that the record stays but the button
+goes. Anybody suspended by a *different* revocation is left alone.
+
+We keep the person's content. `SSO_ON_REVOKE` points at
+`qgisfeed.trust.on_revoke`, which sends entries in *pending review* or
+*approved* back to *draft*. Published entries stay published, and we delete
+nothing and re-attribute nothing.
 
 ## Handing over a link
 
@@ -327,6 +384,7 @@ audit events**, filtered by action.
 | `SSO_ADMIN_ACTION_MAX_USERS` | How many accounts one run creates or links (25). |
 | `SSO_LOOKUP_CONCURRENCY` | How many realm lookups run at once while we decide about a wave (8). Writes stay one at a time. |
 | `SSO_SETUP_REDIRECT_URI` | Where Keycloak sends somebody who has finished setting up. Register it as a redirect URI on the `feed-qgis-org` client. |
+| `SSO_REVOCATION_GRACE_DAYS` | How many days you can undo a revocation in one action (7). |
 | `QGIS_AUTH_URL` | The public address of the account service. The OIDC endpoints and the expected token issuer come from it. |
 | `SSO_KEYCLOAK_SERVER_URL` | The admin API address, when it differs from the public one. It defaults to `QGIS_AUTH_URL`. |
 | `SSO_KEYCLOAK_REALM` | The realm name, `qgis` by default. |

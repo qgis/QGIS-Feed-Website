@@ -17,6 +17,19 @@ class LinkMethod(models.TextChoices):
     INVITATION = "invitation", _("Invitation")
 
 
+class TrustState(models.TextChoices):
+    """Whether this account's trust still stands.
+
+    ``REVOKED`` is the account somebody acted on, which loses its realm roles
+    and access. ``SUSPENDED`` is everybody it vouched for. They can still sign
+    in and see why, but hold no permissions.
+    """
+
+    ACTIVE = "active", _("Active")
+    REVOKED = "revoked", _("Revoked")
+    SUSPENDED = "suspended", _("Suspended")
+
+
 class KeycloakIdentity(models.Model):
     """The binding between a Django user and a Keycloak subject.
 
@@ -76,6 +89,37 @@ class KeycloakIdentity(models.Model):
         verbose_name=_("root of a trust tree"),
         help_text=_("Vouched for by nobody. There may be several, and they are peers."),
     )
+    trust_state = models.CharField(
+        max_length=16,
+        choices=TrustState.choices,
+        default=TrustState.ACTIVE,
+        db_index=True,
+        verbose_name=_("trust"),
+    )
+    revoked_at = models.DateTimeField(null=True, blank=True)
+    revoked_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="revocations_performed",
+        verbose_name=_("revoked by"),
+    )
+    revocation_reason = models.TextField(blank=True, verbose_name=_("reason"))
+    roles_at_revocation = models.JSONField(
+        default=list,
+        blank=True,
+        # Keycloak loses these roles on revocation, so a restore needs this copy.
+        help_text=_("The client roles held when trust was withdrawn."),
+    )
+    revoked_directly = models.BooleanField(
+        default=False,
+        verbose_name=_("revoked directly"),
+        help_text=_(
+            "True for the account somebody acted on, false for one suspended "
+            "because its sponsor was."
+        ),
+    )
     setup_email_sent_at = models.DateTimeField(
         null=True, blank=True, verbose_name=_("setup email last sent at")
     )
@@ -119,6 +163,11 @@ class KeycloakIdentity(models.Model):
         return f"{self.user} → {self.sub}"
 
     @property
+    def trusted(self) -> bool:
+        """Whether this account may hold any permission at all."""
+        return self.trust_state == TrustState.ACTIVE
+
+    @property
     def has_logged_in_via_sso(self) -> bool:
         """True once this identity has signed in through Keycloak at least once."""
         return self.first_sso_login_at is not None
@@ -139,6 +188,9 @@ class SsoAuditEvent(models.Model):
             "Setup link issued to an administrator"
         )
         INVITED = "invited", _("Invited: account created for somebody new")
+        REVOKED_TRUST = "revoked-trust", _("Trust withdrawn")
+        SUSPENDED = "suspended", _("Suspended: their sponsor was revoked")
+        RESTORED = "restored", _("Trust restored")
         INVITATION_CANCELLED = "invitation-cancelled", _(
             "Invitation cancelled: the account it made was removed"
         )

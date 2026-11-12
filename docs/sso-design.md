@@ -50,6 +50,9 @@ mirrors `state_of` exactly, and a test compares the two state for state,
 because a filter that disagreed with the tag beside it would be worse than no
 filter.
 
+We read the trust chains for a whole page in one recursive query, so deciding
+which rows may offer *Withdraw trust* costs no query per row.
+
 ### The invite page is capped, and has no paging
 
 Each account costs us several calls to Keycloak inside one request, and there
@@ -88,8 +91,8 @@ comes from the mirrored Django permissions.
 
 Quota counts the invitations still open, not every account somebody ever
 invited, so a sponsor is not punished for people who arrived and got to work.
-Two things end an open invitation: the person signs in, or the sponsor cancels
-it.
+Three things end an open invitation: the person signs in, the sponsor cancels
+it, or trust in the account is withdrawn.
 
 ### Cancelling an invitation undoes it
 
@@ -108,11 +111,63 @@ first and the realm account stays too.
 Cancelling is only for an account the invite form made, and only before anybody
 has used it. The invite form is the one place that writes `link_method` as
 `invitation`. Somebody who has signed in has a history, so their invitation can
-no longer be cancelled.
+no longer be cancelled. Withdraw trust from them instead.
 
 The quota bounds how many unused accounts one sponsor holds at a time. It does
 not bound how many accounts somebody creates over the years, because every
-account names who vouched for it, and that is what holds people to account.
+account names who vouched for it, and revoking a sponsor suspends everybody
+they brought in.
+
+## Withdrawing trust
+
+### Revocation reaches Keycloak, suspension stays local
+
+`mirror_roles` rebuilds Django's groups from the token at every sign-in, so
+taking somebody's groups away here would last only until their next sign-in.
+
+Revocation disables the realm account, so the block holds at `auth.qgis.org`
+and does not depend on anybody asking this site. Suspension can stay local,
+because mirroring already reduces a suspended account to no permissions. It is
+the lighter of the two, because the people it reaches have done nothing wrong.
+
+We record somebody's roles before we remove them, so a restore has something to
+put back.
+
+### Administrators follow the same subtree rule as everybody else
+
+An administrator can only revoke accounts below them in the tree. Otherwise an
+administrator could revoke whoever invited them, and be suspended by their own
+cascade.
+
+### An administrator cannot revoke another administrator
+
+Removing one should need a second administrator to agree, and we have not built
+that. So we refuse the case rather than allow half of it. To remove an
+administrator, take the `admin` role off them in Keycloak first, then revoke.
+
+### The revoke page names everybody it will reach
+
+A cascade larger than you expected is hard to walk back, so we name every
+affected person before you act, and we ask for a reason for the audit trail.
+Opening the page changes nothing. Seeing the page runs the same permission
+check as acting on it, and an account you may not touch looks exactly like one
+that does not exist, so nobody can use the page to map the tree.
+
+### The grace window closes
+
+Within `SSO_REVOCATION_GRACE_DAYS`, one action puts the roles back, re-enables
+the realm account and clears the suspension across the subtree. After that the
+record stays but the button goes, because reversing a revocation months later
+is a new invitation rather than an undo.
+
+### We keep the content, and we do not leave unpublished work live
+
+`SSO_ON_REVOKE` says what this site does about a revoked person's work, and
+`qgis_sso` itself knows nothing about entries or statuses.
+`qgisfeed.trust.on_revoke` sends entries in *pending review* or *approved* back
+to *draft*. Otherwise a reviewer working through the queue could publish an
+entry from somebody revoked an hour ago. Published entries stay published, and
+we delete nothing and re-attribute nothing.
 
 ## Setup links
 

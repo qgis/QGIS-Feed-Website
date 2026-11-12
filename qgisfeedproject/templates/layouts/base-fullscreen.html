@@ -1,4 +1,4 @@
-{% load static feed_utils %}
+{% load static feed_utils i18n %}
 
 <!DOCTYPE html>
 <html lang="en" class="has-navbar-fixed-top">
@@ -41,6 +41,19 @@
 
     <section class="section main-section">
         <div class="container content">
+            {% if user.keycloak_identity.trust_state == 'suspended' %}
+                <div class="notification is-warning">
+                    {% blocktrans trimmed %}
+                        Your account is suspended because the person who invited
+                        you had their access withdrawn. You can sign in, but you
+                        cannot make changes until that is reversed.
+                    {% endblocktrans %}
+                    <i class="fa-solid fa-circle-info has-text-success mr-1" aria-hidden="true"></i>
+                    <a href="{% url 'qgis_sso:help' %}#suspended">
+                        {% trans "What suspended means" %}
+                    </a>
+                </div>
+            {% endif %}
             {% if messages %}
                 {% for message in messages %}
                     <div class="notification is-light

@@ -380,6 +380,12 @@ SSO_ROLE_TIERS = {
 # Open invitations per account, by tier. None is unlimited.
 SSO_TIER_QUOTAS = {0: None, 1: 25, 2: 10, 3: 10, 4: 3}
 
+# Days a revocation can be undone in one action. Later, it takes a new invitation.
+SSO_REVOCATION_GRACE_DAYS = int(os.environ.get("SSO_REVOCATION_GRACE_DAYS", "7"))
+
+# Handles a revoked person's unpublished work, so qgis_sso knows nothing of entries.
+SSO_ON_REVOKE = "qgisfeed.trust.on_revoke"
+
 # Account provisioning from the admin. The request path reads none of this.
 # The admin API address, when it differs from the public QGIS_AUTH_URL.
 SSO_KEYCLOAK_SERVER_URL = os.environ.get("SSO_KEYCLOAK_SERVER_URL", QGIS_AUTH_URL)

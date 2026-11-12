@@ -49,6 +49,15 @@ def signed_in(request: HttpRequest) -> bool:
     return str(user.pk) == str(request.session.get(SESSION_KEY))
 
 
+def trusted(user: User) -> bool:
+    """Whether this account may still change anything.
+
+    A suspended account stays active and can sign in, so views ask this too.
+    """
+    identity = getattr(user, "keycloak_identity", None)
+    return identity is None or identity.trusted
+
+
 @method_decorator(never_cache, name="dispatch")
 class ProfileView(View):
     """Somebody's own account: who they are here, and their passkeys."""

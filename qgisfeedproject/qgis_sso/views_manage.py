@@ -28,7 +28,7 @@ from django.utils.translation import gettext as _
 from django.utils.translation import gettext_noop
 from django.views import View
 
-from . import provisioning, validation
+from . import provisioning, revocation, validation
 from .actions import (
     Run,
     is_sso_administrator,
@@ -42,6 +42,7 @@ from .enrolment import (
     LINKED_STATES,
     STATE_ORDER,
     STATES,
+    Row,
     candidate_rows,
     linked_identities,
     rows_for,
@@ -52,12 +53,13 @@ from .provisioning import Provisioner, setup_redirect_uri
 from .tiers import invitable_roles
 from .tiers import label as role_label
 from .tiers import may_invite, remaining
-from .views_profile import signed_in
+from .views_profile import signed_in, trusted
 
 logger = logging.getLogger(__name__)
 
-#: The one row action that acts at once. Emailing and cancelling ask first.
+#: The row actions that act at once. Emailing, cancelling and revoking ask first.
 ISSUE_LINK = "issue-link"
+RESTORE = "restore"
 
 #: Where a freshly issued setup link waits for the page that shows it once.
 #: Never the messages framework, whose fallback storage is a cookie.
@@ -79,6 +81,7 @@ DEFAULT_SORT = "invited"
 FILTER_KEYS = ("state", "q", "page", "sort_by", "order")
 
 #: Translated where they are shown.
+UNTRUSTED = gettext_noop("Your account cannot make changes.")
 UNREACHABLE = gettext_noop(
     "We could not reach the QGIS account service. Try again in a moment."
 )
@@ -190,12 +193,20 @@ class EnrolmentView(SignedInMixin, View):
         return render(request, self.template_name, self.page_context(request))
 
     def post(self, request: HttpRequest) -> HttpResponse:
+        # A suspended account may still sign in, so nothing else stops it here.
+        if not trusted(request.user):
+            messages.error(request, _(UNTRUSTED))
+            return self.back(request)
+
         identity = actionable_identity(request.user, request.POST.get("identity", ""))
         if identity is None:
             messages.error(request, _(NOT_FOUND))
             return self.back(request)
 
-        if request.POST.get("action", "") != ISSUE_LINK:
+        action = request.POST.get("action", "")
+        if action == RESTORE:
+            return self.restore(request, identity)
+        if action != ISSUE_LINK:
             messages.error(request, _("That action is not available here."))
             return self.back(request)
 
@@ -232,6 +243,19 @@ class EnrolmentView(SignedInMixin, View):
             "link": issued[0].link,
         }
         return HttpResponseRedirect(reverse("qgis_sso:issued_link"))
+
+    def restore(self, request: HttpRequest, identity: KeycloakIdentity) -> HttpResponse:
+        try:
+            revocation.restore(request.user, identity)
+        except revocation.RevocationError as error:
+            messages.error(request, str(error))
+        else:
+            messages.success(
+                request,
+                _("%(username)s and everyone they invited can sign in again.")
+                % {"username": identity.user.username},
+            )
+        return self.back(request)
 
     @staticmethod
     def back(request: HttpRequest) -> HttpResponse:
@@ -292,9 +316,12 @@ class EnrolmentView(SignedInMixin, View):
         except EmptyPage:
             page = paginator.page(paginator.num_pages)
 
+        rows = rows_for(page.object_list)
+        self.mark_actions(request.user, rows)
+
         return {
             "page": page,
-            "rows": rows_for(page.object_list),
+            "rows": rows,
             "state": state,
             "search": search,
             "totals": [(key, STATES[key][0], counts[key]) for key in LINKED_STATES],
@@ -304,6 +331,29 @@ class EnrolmentView(SignedInMixin, View):
             "order": order,
             "filters": filter_query(request),
         }
+
+    @staticmethod
+    def mark_actions(actor: User, rows: list[Row]) -> None:
+        """Say which rows may offer Withdraw trust, so no row offers a refusal.
+
+        The trust chains above every row and above the actor come from one
+        recursive query, so the loop issues none.
+        """
+        actor_identity = getattr(actor, "keycloak_identity", None)
+        above = revocation.ancestor_user_ids(
+            [row.identity.pk for row in rows]
+            + ([actor_identity.pk] if actor_identity is not None else [])
+        )
+        above_actor = (
+            above.get(actor_identity.pk, set()) if actor_identity is not None else set()
+        )
+        for row in rows:
+            row.may_revoke = revocation.may_revoke(
+                actor,
+                row.identity,
+                actor_ancestors=above_actor,
+                subject_ancestors=above.get(row.identity.pk, set()),
+            )
 
 
 class IssuedLinkView(SignedInMixin, View):
@@ -349,6 +399,11 @@ class RowConfirmView(SignedInMixin, View):
     """
 
     template_name = ""
+
+    def dispatch(self, request: HttpRequest, *args, **kwargs) -> HttpResponse:
+        if signed_in(request) and not trusted(request.user):
+            return self.refuse(request, _(UNTRUSTED))
+        return super().dispatch(request, *args, **kwargs)
 
     def get(self, request: HttpRequest, pk: int) -> HttpResponse:
         identity = actionable_identity(request.user, pk)
@@ -425,8 +480,8 @@ class CancelInvitationView(RowConfirmView):
     def blocked(self, identity: KeycloakIdentity) -> str | None:
         if identity.has_logged_in_via_sso:
             return _(
-                "%(username)s signed in already, so there is no invitation "
-                "left to cancel."
+                "%(username)s signed in already. Withdraw trust from them "
+                "instead of cancelling their invitation."
             ) % {"username": identity.user.username}
         if identity.sponsor_id is None or identity.link_method != LinkMethod.INVITATION:
             return _(
@@ -574,7 +629,10 @@ class InviteNewView(SignedInMixin, View):
     template_name = "qgis_sso/manage/invite_new.html"
 
     def dispatch(self, request: HttpRequest, *args, **kwargs) -> HttpResponse:
-        if signed_in(request) and not invitable_roles(request.user):
+        # trusted() is about suspension. invitable_roles() is about capability.
+        if signed_in(request) and (
+            not trusted(request.user) or not invitable_roles(request.user)
+        ):
             messages.error(request, _("Your account cannot invite anybody."))
             return HttpResponseRedirect(reverse("qgis_sso:enrolment"))
         return super().dispatch(request, *args, **kwargs)
@@ -747,3 +805,84 @@ class InviteNewView(SignedInMixin, View):
             "remaining": left,
             "unlimited": left is None,
         }
+
+
+class RevokeView(SignedInMixin, View):
+    """Withdraw trust from one account, on a page of its own.
+
+    It asks for a reason and names everybody the suspension would reach.
+    """
+
+    template_name = "qgis_sso/manage/revoke.html"
+
+    def get(self, request: HttpRequest, pk: int) -> HttpResponse:
+        blast = self.blast_or_none(request, pk)
+        if blast is None:
+            return self.refuse(request)
+        return render(request, self.template_name, self.context(blast, ""))
+
+    def post(self, request: HttpRequest, pk: int) -> HttpResponse:
+        blast = self.blast_or_none(request, pk)
+        if blast is None:
+            return self.refuse(request)
+
+        reason = request.POST.get("reason", "").strip()
+        if not reason:
+            return render(
+                request,
+                self.template_name,
+                dict(self.context(blast, reason), reason_missing=True),
+                status=400,
+            )
+
+        try:
+            revocation.revoke(request.user, blast.target, reason)
+        except revocation.RevocationError as error:
+            messages.error(request, str(error))
+            return HttpResponseRedirect(reverse("qgis_sso:enrolment"))
+
+        messages.success(
+            request,
+            _(
+                "Trust withdrawn from %(username)s. %(count)d other account(s) "
+                "suspended."
+            )
+            % {
+                "username": blast.target.user.username,
+                "count": len(blast.descendants),
+            },
+        )
+        return HttpResponseRedirect(reverse("qgis_sso:enrolment"))
+
+    @staticmethod
+    def context(blast: "revocation.Blast", reason: str) -> dict[str, object]:
+        return {
+            "blast": blast,
+            "reason": reason,
+            "grace_days": revocation.grace().days,
+        }
+
+    @staticmethod
+    def blast_or_none(request: HttpRequest, pk: int) -> "revocation.Blast | None":
+        """What revoking this account would do, or None if it may not be.
+
+        ``preview`` applies the permission rule, so seeing the page and acting
+        on it are the same check. "No such account" and "not yours" give one
+        answer, so the page cannot reveal who exists.
+        """
+        identity = (
+            KeycloakIdentity.objects.select_related("user", "sponsor")
+            .filter(pk=pk)
+            .first()
+        )
+        if identity is None:
+            return None
+        try:
+            return revocation.preview(request.user, identity)
+        except revocation.RevocationError:
+            return None
+
+    @staticmethod
+    def refuse(request: HttpRequest) -> HttpResponse:
+        messages.error(request, _("You cannot withdraw trust from that account."))
+        return HttpResponseRedirect(reverse("qgis_sso:enrolment"))
