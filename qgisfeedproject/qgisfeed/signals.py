@@ -13,18 +13,40 @@ __date__ = "2019-05-08"
 __copyright__ = "Copyright 2019, ItOpen"
 
 
-def setup_group(sender, **kwargs):
-    """Create qgisfeedentry_authors group and assign permissions"""
+def setup_group(sender, instance=None, **kwargs):
+    """Create qgisfeedentry_authors group and assign permissions
 
-    from django.contrib.auth.models import Group, Permission, User
+    Staff users are added to the group, with two deliberate narrowings against
+    the original behaviour, both needed once Keycloak roles are mirrored onto
+    Django groups at every sign-in (see qgis_sso.roles.mirror_roles):
+
+    * Only the user being saved is considered. Sweeping every staff user on
+      each save meant that *any* user save - including the last_login write
+      that django.contrib.auth.login performs after authentication - re-added
+      every staff user to the group, undoing a revocation the mirror had just
+      applied to somebody else. Every path that grants staff saves that user,
+      so this receiver still fires for them.
+    * SSO-linked accounts are left alone. Their group membership belongs to
+      Keycloak; anything granted here would be revoked at their next sign-in,
+      or would silently re-grant what the mirror had just taken away.
+    """
+
+    from django.contrib.auth.models import Group, Permission
 
     group, is_new = Group.objects.get_or_create(name="qgisfeedentry_authors")
     if is_new:
         for perm in ("view_qgisfeedentry", "add_qgisfeedentry"):
             group.permissions.add(Permission.objects.get(codename=perm))
 
-    for staff_user in User.objects.filter(is_staff=True, is_superuser=False):
-        group.user_set.add(staff_user)
+    if instance is None or not instance.is_staff or instance.is_superuser:
+        return
+
+    from qgis_sso.models import KeycloakIdentity
+
+    if KeycloakIdentity.objects.filter(user=instance).exists():
+        return
+
+    group.user_set.add(instance)
 
 
 def setup_approver_group(sender, **kwargs):

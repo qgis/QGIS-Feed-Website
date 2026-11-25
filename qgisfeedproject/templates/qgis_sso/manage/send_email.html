@@ -1,0 +1,28 @@
+{% extends 'qgis_sso/manage/_confirm.html' %}
+{% load i18n %}
+
+{% block heading %}
+  {% blocktrans trimmed with username=subject.user.username %}
+    Send the setup email to {{ username }}?
+  {% endblocktrans %}
+{% endblock heading %}
+
+{% block consequence %}
+  {% blocktrans trimmed with username=subject.user.username email=subject.user.email %}
+    This emails {{ username }} at {{ email }}, which is a real address. An email
+    that has gone out cannot be called back.
+  {% endblocktrans %}
+{% endblock consequence %}
+
+{% block detail %}
+  <p class="mb-4">
+    {% blocktrans trimmed %}
+      The email carries a link that lasts 14 days. They use it to confirm their
+      address and set up a passkey. You can send it again later if it expires.
+    {% endblocktrans %}
+  </p>
+{% endblock detail %}
+
+{% block action_icon %}fas fa-envelope{% endblock action_icon %}
+
+{% block action_label %}{% trans "Send the setup email" %}{% endblock action_label %}

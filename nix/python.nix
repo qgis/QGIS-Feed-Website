@@ -14,6 +14,9 @@ python.withPackages (ps: [
   # Database
   ps.psycopg2
 
+  # OIDC authentication
+  ps.mozilla-django-oidc
+
   # Imaging
   ps.pillow
   ps.pilkit
@@ -38,6 +41,9 @@ python.withPackages (ps: [
   # User agent parsing
   ps.user-agents
   ps.ua-parser
+
+  # QR codes
+  ps.segno
 
   # Misc
   ps.sentry-sdk
