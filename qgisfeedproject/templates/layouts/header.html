@@ -36,6 +36,12 @@
                                 class="navbar-item has-text-weight-semibold is-size-7">
                                 {% trans "Your account" %}
                             </a>
+                            {% if user.is_superuser %}
+                                <a class="navbar-item has-text-weight-semibold is-size-7"
+                                    href="{% url "qgis_sso:enrolment" %}">
+                                    {% trans "People" %}
+                                </a>
+                            {% endif %}
                             <form method="POST" action="{% url 'oidc_logout' %}">
                                 {% csrf_token %}
                                 <button type="submit"

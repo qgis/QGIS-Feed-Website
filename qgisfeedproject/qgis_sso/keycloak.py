@@ -222,6 +222,42 @@ class KeycloakAdminClient:
             json=list(actions),
         )
 
+    def magic_link(self, username, client_id, redirect_uri, lifespan):
+        """Return a sign-in link for one user, from PhaseTwo's magic-link extension.
+
+        Core Keycloak never hands back a setup link. Returns ``(user_id, link)``.
+        The endpoint is keyed on the username, so the caller must check the id.
+        """
+        response = self._session.post(
+            settings.SSO_MAGIC_LINK_URL,
+            headers={"Authorization": f"Bearer {self.access_token()}"},
+            json={
+                "username": username,
+                "client_id": client_id,
+                "redirect_uri": redirect_uri,
+                "expiration_seconds": int(lifespan),
+                # All three default the other way.
+                "reusable": False,
+                "force_create": False,
+                "send_email": False,
+            },
+            timeout=self.timeout,
+            verify=not settings.DEBUG,
+        )
+        if response.status_code >= 400:
+            # Only the status, because a body can echo the request.
+            raise KeycloakError(
+                f"Could not obtain a sign-in link: HTTP {response.status_code}"
+            )
+
+        payload = response.json()
+        link = (payload.get("link") or "").strip()
+        if not link.startswith("https://"):
+            raise KeycloakError(
+                "The magic-link extension returned no usable link. Is it deployed?"
+            )
+        return payload.get("user_id", ""), link
+
     def client_uuid(self, client_id):
         """Resolve a client id to the internal UUID the role endpoints want."""
         response = self.request(

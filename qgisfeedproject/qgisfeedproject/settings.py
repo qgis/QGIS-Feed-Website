@@ -394,6 +394,9 @@ SSO_KEYCLOAK_USER_CONSOLE_URL = (
     f"#/{SSO_KEYCLOAK_REALM}/users/{{sub}}/credentials"
 )
 
+# PhaseTwo's magic-link extension, not core Keycloak. We call it on the admin address.
+SSO_MAGIC_LINK_URL = f"{SSO_KEYCLOAK_SERVER_URL}/realms/{SSO_KEYCLOAK_REALM}/magic-link"
+
 # Passkey only, so a provisioned account never has a password.
 SSO_REQUIRED_ACTIONS = ["VERIFY_EMAIL", "webauthn-register-passwordless"]
 

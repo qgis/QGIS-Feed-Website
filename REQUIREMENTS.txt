@@ -22,3 +22,5 @@ atproto~=0.0.61
 Mastodon.py~=2.0
 sqlparse~=0.5
 mozilla-django-oidc~=5.0
+# Draws the SSO setup link as an inline SVG QR code, inside the process.
+segno~=1.6

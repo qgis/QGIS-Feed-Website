@@ -6,6 +6,7 @@
 confirmation page shows exactly what will run.
 """
 
+import logging
 from dataclasses import dataclass, field
 
 from django.conf import settings
@@ -22,6 +23,8 @@ from .migration import (
     required_actions,
 )
 from .models import KeycloakIdentity, LinkMethod, SsoAuditEvent
+
+logger = logging.getLogger(__name__)
 
 CREATE = "create"
 LINK = "link"
@@ -351,6 +354,47 @@ class Provisioner:
             lifespan=lifespan,
             send_count=identity.setup_email_send_count,
         )
+
+    def issue_setup_link(self, identity, redirect_uri, lifespan=None):
+        """Return one user's setup link for an administrator to hand over.
+
+        Following it signs the person in, and Keycloak then asks for the
+        outstanding required actions, as the emailed link does. The link is
+        never stored. The audit records only that one was issued.
+
+        Raises :class:`~qgis_sso.keycloak.KeycloakError`.
+        """
+        username = identity.preferred_username or proposed_username(identity.user)
+        lifespan = lifespan or setup_link_lifespan()
+        user_id, link = self.client.magic_link(
+            username,
+            client_id=self.client_id,
+            redirect_uri=redirect_uri,
+            lifespan=lifespan,
+        )
+        if user_id != identity.sub:
+            # A username that resolved to somebody else would sign the wrong person in.
+            logger.warning(
+                "Magic link for %s answered for subject %s, not %s",
+                identity.user.username,
+                user_id,
+                identity.sub,
+            )
+            raise KeycloakError(
+                "The QGIS account service answered for a different account, so "
+                "we did not issue a link."
+            )
+        identity.setup_link_issued_at = timezone.now()
+        identity.setup_link_issue_count += 1
+        identity.save(update_fields=["setup_link_issued_at", "setup_link_issue_count"])
+        SsoAuditEvent.record(
+            SsoAuditEvent.Action.SETUP_LINK_ISSUED,
+            user=identity.user,
+            sub=identity.sub,
+            lifespan=lifespan,
+            issue_count=identity.setup_link_issue_count,
+        )
+        return link
 
     @staticmethod
     def _skip(decision, reason):

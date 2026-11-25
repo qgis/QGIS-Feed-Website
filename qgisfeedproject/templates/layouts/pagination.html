@@ -4,22 +4,22 @@
   <nav class="field has-addons column is-6" role="navigation" aria-label="{% trans 'pagination' %}">
     <p class="control">
       {% if page.has_previous %}
-        <a class="button" href="{% querystring page=1 %}">
+        <a class="button" href="{% querystring page=1 %}" aria-label="{% trans "First page" %}">
       {% else %}
-        <a class="button" aria-disabled="true" disabled>
+        <a class="button" aria-disabled="true" disabled aria-label="{% trans "First page" %}">
       {% endif %}
-        <span class="icon is-small"><i class="fas fa-backward-fast"></i></span>
-        <span>{% trans "First" %}</span>
+        <span class="icon is-small"><i class="fas fa-backward-fast" aria-hidden="true"></i></span>
+        <span class="is-hidden-mobile">{% trans "First" %}</span>
       </a>
     </p>
     <p class="control">
       {% if page.has_previous %}
-        <a class="button" href="{% querystring page=page.previous_page_number %}">
+        <a class="button" href="{% querystring page=page.previous_page_number %}" aria-label="{% trans "Previous page" %}">
       {% else %}
-        <a class="button" aria-disabled="true" disabled>
+        <a class="button" aria-disabled="true" disabled aria-label="{% trans "Previous page" %}">
       {% endif %}
-        <span class="icon is-small"><i class="fas fa-backward-step"></i></span>
-        <span>{% trans "Prev" %}</span>
+        <span class="icon is-small"><i class="fas fa-backward-step" aria-hidden="true"></i></span>
+        <span class="is-hidden-mobile">{% trans "Prev" %}</span>
       </a>
     </p>
     <p class="control">
@@ -29,22 +29,22 @@
     </p>
     <p class="control">
       {% if page.has_next %}
-        <a class="button" href="{% querystring page=page.next_page_number %}">
+        <a class="button" href="{% querystring page=page.next_page_number %}" aria-label="{% trans "Next page" %}">
       {% else %}
-        <a class="button" aria-disabled="true" disabled>
+        <a class="button" aria-disabled="true" disabled aria-label="{% trans "Next page" %}">
       {% endif %}
-        <span>{% trans "Next" %}</span>
-        <span class="icon is-small"><i class="fas fa-forward-step"></i></span>
+        <span class="is-hidden-mobile">{% trans "Next" %}</span>
+        <span class="icon is-small"><i class="fas fa-forward-step" aria-hidden="true"></i></span>
       </a>
     </p>
     <p class="control">
       {% if page.has_next %}
-        <a class="button" href="{% querystring page=page.paginator.num_pages %}">
+        <a class="button" href="{% querystring page=page.paginator.num_pages %}" aria-label="{% trans "Last page" %}">
       {% else %}
-        <a class="button" aria-disabled="true" disabled>
+        <a class="button" aria-disabled="true" disabled aria-label="{% trans "Last page" %}">
       {% endif %}
-        <span>{% trans "Last" %}</span>
-        <span class="icon is-small"><i class="fas fa-forward-fast"></i></span>
+        <span class="is-hidden-mobile">{% trans "Last" %}</span>
+        <span class="icon is-small"><i class="fas fa-forward-fast" aria-hidden="true"></i></span>
       </a>
     </p>
   </nav>

@@ -58,6 +58,25 @@ class HeaderAccountMenuTest(TestCase):
         self.assertContains(response, "Your account")
         self.assertNotContains(response, ACCOUNT_URL)
 
+    def test_the_enrolment_page_is_not_offered_to_somebody_who_cannot_open_it(self):
+        """The page is for administrators, so the link follows being one."""
+        self.client.force_login(self.user, backend=LOCAL_BACKEND)
+
+        self.assertNotContains(self.home(), reverse("qgis_sso:enrolment"))
+
+    def test_a_superuser_is_offered_it_before_they_are_linked(self):
+        """The bootstrap case. At cutover the first superuser has no realm
+        account, and they are the one who has to link everybody else - so
+        hiding the page from them hides it exactly when it is needed."""
+        self.user.is_superuser = True
+        self.user.save(update_fields=["is_superuser"])
+        self.client.force_login(self.user, backend=LOCAL_BACKEND)
+
+        self.assertContains(self.home(), reverse("qgis_sso:enrolment"))
+
+    def test_an_anonymous_visitor_is_not_offered_it(self):
+        self.assertNotContains(self.home(), reverse("qgis_sso:enrolment"))
+
     def test_logging_out_is_a_post(self):
         """A GET logout can be triggered by any image tag on any other site."""
         self.client.force_login(self.user, backend=LOCAL_BACKEND)

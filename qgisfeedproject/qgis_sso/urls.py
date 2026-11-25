@@ -1,9 +1,12 @@
 # coding=utf-8
-"""Routes under ``/sso/``. The help page is open to anybody."""
+"""Routes under ``/sso/``. The help page is open to anybody.
+
+Everything under ``manage/`` is for administrators.
+"""
 
 from django.urls import path
 
-from . import views, views_profile
+from . import views, views_manage, views_profile
 
 app_name = "qgis_sso"
 
@@ -15,5 +18,21 @@ urlpatterns = [
         "profile/passkeys/",
         views_profile.PasskeyListView.as_view(),
         name="passkey_list",
+    ),
+    path("manage/", views_manage.EnrolmentView.as_view(), name="enrolment"),
+    path(
+        "manage/link/",
+        views_manage.IssuedLinkView.as_view(),
+        name="issued_link",
+    ),
+    path(
+        "manage/send-email/<int:pk>/",
+        views_manage.SendEmailView.as_view(),
+        name="send_email",
+    ),
+    path(
+        "manage/invite/existing/",
+        views_manage.InviteExistingView.as_view(),
+        name="invite_existing",
     ),
 ]

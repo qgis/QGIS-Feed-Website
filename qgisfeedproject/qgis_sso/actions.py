@@ -1,8 +1,9 @@
 # coding=utf-8
 """Run an enrolment step over a selection of accounts.
 
-The admin actions take their guards, their order and their messages from here,
-so they can be tested without a browser. Nothing here reads the request.
+The admin actions and the people pages take their guards, their order and
+their messages from here, so the two never drift apart. Nothing here reads the
+request.
 """
 
 from concurrent.futures import ThreadPoolExecutor
@@ -76,6 +77,8 @@ class Outcome:
     username: str
     level: str = OK
     message: str = ""
+    #: Only ever set by :func:`issue_setup_links`, and never persisted.
+    link: str = ""
 
     @property
     def ok(self):
@@ -100,8 +103,8 @@ class Run:
     def problems(self):
         return [outcome for outcome in self.outcomes if not outcome.ok]
 
-    def add(self, username, level=OK, message=""):
-        self.outcomes.append(Outcome(username, level, message))
+    def add(self, username, level=OK, message="", link=""):
+        self.outcomes.append(Outcome(username, level, message, link))
         return self.outcomes[-1]
 
 
@@ -203,6 +206,36 @@ def send_setup_emails(session, identities, redirect_uri=None):
             run.add(identity.user.username, FAILED, str(error))
             continue
         run.add(identity.user.username, OK, _("setup email sent"))
+    return run
+
+
+def issue_setup_links(session, identities, redirect_uri=None):
+    """Fetch each identity's setup link for an administrator to hand over.
+
+    The link is a bearer credential, so it travels on the outcome and nowhere
+    else. Once somebody has signed in, a link would sign the holder in as them
+    with no passkey, so those accounts are held back.
+    """
+    redirect_uri = redirect_uri or setup_redirect_uri()
+    run = Run()
+    for identity in identities:
+        if identity.has_logged_in_via_sso:
+            run.add(
+                identity.user.username,
+                HELD_BACK,
+                _(
+                    "has already signed in and has a passkey. A link would sign "
+                    "you in as them, on every QGIS site. Send the setup email "
+                    "instead. That reaches them, not you."
+                ),
+            )
+            continue
+        try:
+            link = session.issue_setup_link(identity, redirect_uri)
+        except KeycloakError as error:
+            run.add(identity.user.username, FAILED, str(error))
+            continue
+        run.add(identity.user.username, OK, _("link issued"), link=link)
     return run
 
 

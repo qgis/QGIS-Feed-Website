@@ -36,6 +36,26 @@ Provisioning uses its own service account. The web client never holds
 
 ## Enrolment
 
+### The people pages read local state
+
+We build both listings from this site's own database. Nothing waits on Keycloak
+to render, so an outage there does not take the page down. We contact the realm
+only when you press something.
+
+### The people list is answered by the database
+
+Every question the list asks is a queryset: the search, the state filter, the
+order and the page. The state is a `CASE` expression that mirrors `state_of`
+exactly, and a test compares the two state for state, because a filter that
+disagreed with the tag beside it would be worse than no filter.
+
+### The invite page is capped, and has no paging
+
+Each account costs us several calls to Keycloak inside one request, and there
+is no task queue here, so `SSO_ADMIN_ACTION_MAX_USERS` caps what one run will
+do. We left paging out on purpose. You cannot lose a selection by paging if
+there is no paging.
+
 ### Linking matches on a verified address and nothing else
 
 A username can belong to somebody else, so it proves nothing. We refuse an
@@ -47,6 +67,56 @@ local accounts on one subject would break every lookup in the app.
 
 `proposed_roles` works out the client role from what the account can already do
 here, so linking grants no new privilege.
+
+## Setup links
+
+### Keycloak will not hand back a setup link
+
+Keycloak mints the action token inside `execute-actions-email` and returns
+nothing, and its own API gives us no way to ask for it back. So showing a link
+needs PhaseTwo's
+[magic-link extension](https://github.com/p2-inc/keycloak-magic-link),
+authorised with `manage-users`, which our provisioner service account already
+holds.
+
+### A magic link signs the person in
+
+It is not an action token. Enrolment still happens because the required actions
+we set at provisioning are still outstanding on the account, and Keycloak
+presents them as soon as it has authenticated somebody. That is also why we
+offer the link only before the first sign-in. After it, those actions are
+spent, so the link authenticates straight through without asking for a passkey
+and opens a session across the whole realm, hub and plugins included.
+
+Follow a link all the way through on a throwaway realm before you rely on this.
+If the required actions do not fire, the person lands signed in with no
+passkey, which is worse than the email path.
+
+### We send `reusable` and `force_create` as false
+
+Both of them default the wrong way for us. A reusable link is a standing
+credential, and `force_create` would have this site creating realm accounts as
+a side effect of asking for a link.
+
+### We check the returned `user_id` against the identity
+
+The magic-link endpoint works from the username, where the rest of this app
+works from `sub`. If a username has come to point at somebody else, the link
+would sign that person into this account, so we throw the link away when the
+two do not match.
+
+### The link travels in the session
+
+It does not go through the messages framework, whose fallback storage is a
+cookie. The page takes the link out of the session as it renders, so a reload
+has nothing left to show. The audit trail records that we issued a link and for
+whom, never the token itself.
+
+We build the QR code in the web process with
+[segno](https://pypi.org/project/segno/) and embed it as inline SVG, so the
+credential never touches disk and no external image service sees it. The
+copyable field stays the main route, because a QR code is reachable by neither
+keyboard nor screen reader.
 
 ## Passkeys
 
