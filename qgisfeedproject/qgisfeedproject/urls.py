@@ -13,18 +13,30 @@ Including another URLconf
     1. Import the include() function: from django.urls import include, path
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
-from django.contrib import admin
-from django.urls import path, re_path, include
+
 from django.conf import settings
 from django.conf.urls.static import static
-from django.contrib.auth.views import LoginView, LogoutView
+from django.contrib import admin
+from django.contrib.auth.views import LogoutView
+from django.urls import include, path, re_path
+from qgis_sso.views import RateLimitedCallbackView, admin_login, site_login
 
 urlpatterns = [
-    path('admin/', admin.site.urls),
-    re_path(r'^tinymce/', include('tinymce.urls')),
-    path('', include('qgisfeed.urls')),
-    path('accounts/login/', LoginView.as_view(), name='login'),
-    path('accounts/logout/', LogoutView.as_view(), name='logout')
+    # Before admin.site.urls, so the admin's own login form is replaced.
+    path("admin/login/", admin_login, name="admin_login_override"),
+    path("admin/", admin.site.urls),
+    re_path(r"^tinymce/", include("tinymce.urls")),
+    path("", include("qgisfeed.urls")),
+    path("accounts/login/", site_login, name="login"),
+    path("accounts/logout/", LogoutView.as_view(), name="logout"),
+    path("sso/", include("qgis_sso.urls")),
+    # Shadows the library's callback below with the rate-limited one.
+    path(
+        "oidc/callback/",
+        RateLimitedCallbackView.as_view(),
+        name="oidc_authentication_callback",
+    ),
+    path("oidc/", include("mozilla_django_oidc.urls")),
 ]
 
 if settings.DEBUG:

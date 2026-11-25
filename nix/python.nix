@@ -14,6 +14,9 @@ python.withPackages (ps: [
   # Database
   ps.psycopg2
 
+  # OIDC authentication
+  ps.mozilla-django-oidc
+
   # Imaging
   ps.pillow
   ps.pilkit

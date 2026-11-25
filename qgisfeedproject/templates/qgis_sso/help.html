@@ -1,0 +1,108 @@
+{% extends 'layouts/base-fullscreen.html' %}
+{% load i18n %}
+
+{% block content %}
+<div class="sso-help">
+
+  <h1 class="title is-3">{% trans "How signing in works" %}</h1>
+  <p class="subtitle is-6">
+    {% blocktrans trimmed %}
+      Signing in uses your QGIS account. This page explains how it works. If
+      your question is not answered here, ask a feed maintainer.
+    {% endblocktrans %}
+  </p>
+
+  <nav class="box-content mb-5" aria-labelledby="contents-heading">
+    <h2 class="title is-6" id="contents-heading">{% trans "On this page" %}</h2>
+    <ul class="sso-help-contents">
+      <li><a href="#account">{% trans "How do I get a QGIS account?" %}</a></li>
+      <li><a href="#permissions">{% trans "What am I allowed to do here?" %}</a></li>
+      <li><a href="#stuck">{% trans "I cannot sign in" %}</a></li>
+    </ul>
+  </nav>
+
+  <section class="box-content mb-5" id="account">
+    <h2 class="title is-5">{% trans "How do I get a QGIS account?" %}</h2>
+    <p>
+      {% blocktrans trimmed %}
+        A feed maintainer sets up your account on this site. There is no sign
+        up form. An account on another QGIS site is not enough on its own.
+      {% endblocktrans %}
+    </p>
+    <p class="mt-3">
+      {% blocktrans trimmed %}
+        Ask a feed maintainer to set it up for you.
+      {% endblocktrans %}
+    </p>
+  </section>
+
+  <section class="box-content mb-5" id="permissions">
+    <h2 class="title is-5">{% trans "What am I allowed to do here?" %}</h2>
+    <p>
+      {% blocktrans trimmed %}
+        Your role decides it. Roles are refreshed each time you sign in. If
+        yours has just changed, sign out and in again.
+      {% endblocktrans %}
+    </p>
+    <div class="table-container mt-4">
+      <table class="table is-fullwidth">
+        <caption class="is-sr-only">
+          {% trans "Every role and what it allows" %}
+        </caption>
+        <thead>
+          <tr>
+            <th scope="col">{% trans "Role" %}</th>
+            <th scope="col">{% trans "What it does" %}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for role in roles %}
+            <tr>
+              <th scope="row">{{ role.name }}</th>
+              <td>{{ role.summary }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="box-content mb-5" id="stuck">
+    <h2 class="title is-5">{% trans "I cannot sign in" %}</h2>
+    <dl class="sso-help-reasons">
+      <dt>{% trans "You need an invitation" %}</dt>
+      <dd>
+        {% blocktrans trimmed %}
+          Your QGIS account works, but there is no account for you on this site
+          yet. Ask a feed maintainer to invite you, and tell them the QGIS
+          account name you signed in with.
+        {% endblocktrans %}
+      </dd>
+
+      <dt>{% trans "You do not have access to that page" %}</dt>
+      <dd>
+        {% blocktrans trimmed %}
+          You are signed in, but your role does not cover that page. Sign out
+          and in again first. If it still will not open, ask a feed maintainer
+          to check your role.
+        {% endblocktrans %}
+      </dd>
+
+      <dt>{% trans "Too many sign in attempts" %}</dt>
+      <dd>
+        {% blocktrans trimmed %}
+          Wait a few minutes and try again. We slow repeated attempts down to
+          keep accounts safe.
+        {% endblocktrans %}
+      </dd>
+    </dl>
+    <p class="mt-4">
+      {% blocktrans trimmed %}
+        For anything else, ask a feed maintainer. They handle roles, permissions
+        and the account service itself.
+      {% endblocktrans %}
+    </p>
+  </section>
+
+</div>
+{% endblock content %}
