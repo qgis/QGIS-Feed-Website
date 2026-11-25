@@ -403,6 +403,21 @@ SSO_REQUIRED_ACTIONS = ["VERIFY_EMAIL", "webauthn-register-passwordless"]
 # Where "Get help" goes from the sign-in failure page.
 SSO_SUPPORT_URL = os.environ.get("SSO_SUPPORT_URL", "/sso/help/#stuck")
 
+# Logging
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {"console": {"class": "logging.StreamHandler"}},
+    "root": {"handlers": ["console"], "level": os.environ.get("LOG_LEVEL", "WARNING")},
+    "loggers": {
+        "django": {
+            "handlers": ["console"],
+            "level": os.environ.get("DJANGO_LOG_LEVEL", "INFO"),
+            "propagate": False,
+        },
+    },
+}
+
 # Local settings overrides
 # Must be the last!
 DJANGO_LOCAL_SETTINGS = os.environ.get("DJANGO_LOCAL_SETTINGS", "settings_local.py")
