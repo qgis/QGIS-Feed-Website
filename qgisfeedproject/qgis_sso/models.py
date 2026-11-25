@@ -59,6 +59,12 @@ class KeycloakIdentity(models.Model):
             "that sign-in. Permissions come from the Django groups."
         ),
     )
+    setup_email_sent_at = models.DateTimeField(
+        null=True, blank=True, verbose_name=_("setup email last sent at")
+    )
+    setup_email_send_count = models.PositiveIntegerField(
+        default=0, verbose_name=_("setup emails sent")
+    )
     first_sso_login_at = models.DateTimeField(
         null=True, blank=True, verbose_name=_("first SSO login at")
     )
@@ -92,6 +98,8 @@ class SsoAuditEvent(models.Model):
         LOCAL_LOGIN = "local-login", _("Signed in with a local password")
         REFUSED = "refused", _("Refused: no account for this subject")
         ROLES_MIRRORED = "roles-mirrored", _("Roles mirrored from Keycloak")
+        PROVISIONED = "provisioned", _("Provisioned in Keycloak")
+        SETUP_EMAIL_SENT = "setup-email-sent", _("Setup email sent")
         LOCAL_PASSWORD_DISABLED = "local-password-disabled", _(
             "Local password made unusable"
         )

@@ -9,6 +9,15 @@
     margin-left: 1.25rem;
   }
 
+  .sso-help-steps {
+    list-style: decimal outside;
+    margin-left: 1.25rem;
+
+    li {
+      margin-bottom: 0.5rem;
+    }
+  }
+
   .sso-help-reasons {
     dt {
       font-weight: 600;
