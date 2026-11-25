@@ -39,6 +39,7 @@ class HelpView(TemplateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["account_url"] = getattr(settings, "SSO_ACCOUNT_URL", "")
+        context["profile_url"] = reverse("qgis_sso:profile")
         context["roles"] = [
             {"name": tiers.label(role), "summary": tiers.summary(role)}
             for role in getattr(settings, "SSO_ROLE_LABELS", {})

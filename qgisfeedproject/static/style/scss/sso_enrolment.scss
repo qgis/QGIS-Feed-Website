@@ -1,3 +1,9 @@
+// The SSO pages under /sso/.
+.sso-profile {
+  max-width: 800px;
+  margin: auto;
+}
+
 // The contributor's guide at /sso/help/.
 .sso-help {
   max-width: 860px;
@@ -32,5 +38,43 @@
   // Keeps anchor targets clear of the fixed navbar.
   section {
     scroll-margin-top: 5rem;
+  }
+}
+
+// Shown on the profile page while the passkey list loads.
+.sso-busy-spinner {
+  display: block;
+  width: 2.5rem;
+  height: 2.5rem;
+  margin: 0 auto 1rem;
+  border: 3px solid $light2;
+  border-top-color: $primary1;
+  border-radius: 50%;
+  animation: sso-busy-spin 0.9s linear infinite;
+}
+
+@keyframes sso-busy-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+// The message stays, and only the spinning stops.
+@media (prefers-reduced-motion: reduce) {
+  .sso-busy-spinner {
+    animation: none;
+  }
+}
+
+// Centred cells, with the account column left aligned for reading.
+.sso-table {
+  th,
+  td {
+    text-align: center;
+    vertical-align: middle;
+  }
+
+  .sso-account {
+    text-align: left;
   }
 }

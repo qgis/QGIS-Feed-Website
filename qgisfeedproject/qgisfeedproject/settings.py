@@ -361,6 +361,12 @@ SSO_ROLE_SUMMARIES = {
     "author": _("Writes news items for a reviewer to publish."),
 }
 
+# What each managed Django group means on screen.
+SSO_GROUP_LABELS = {
+    "qgisfeedentry_authors": _("Write news items"),
+    "qgisfeedentry_approver": _("Publish news items"),
+}
+
 # Account provisioning from the admin. The request path reads none of this.
 # The admin API address, when it differs from the public QGIS_AUTH_URL.
 SSO_KEYCLOAK_SERVER_URL = os.environ.get("SSO_KEYCLOAK_SERVER_URL", QGIS_AUTH_URL)

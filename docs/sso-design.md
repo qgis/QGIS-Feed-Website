@@ -48,6 +48,23 @@ local accounts on one subject would break every lookup in the app.
 `proposed_roles` works out the client role from what the account can already do
 here, so linking grants no new privilege.
 
+## Passkeys
+
+### This site never changes a credential
+
+WebAuthn ties a credential to the site that created it, so no other site can
+register or delete a passkey for the realm. A browser will refuse. The profile
+page reads the list through the provisioner service account and does nothing
+else. The user authorises every change at Keycloak through `kc_action`, an
+application-initiated action, and a view that has already checked the request
+puts that action in the session. A crafted link cannot ask Keycloak to run an
+action of its own choosing.
+
+### We protect the last passkey
+
+These accounts have no password. Removing the only passkey would lock that
+person out until an administrator sends a new setup email.
+
 ## Migration
 
 ### The four admin actions stay separate

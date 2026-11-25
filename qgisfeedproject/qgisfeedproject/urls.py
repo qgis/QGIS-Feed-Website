@@ -20,6 +20,7 @@ from django.contrib import admin
 from django.contrib.auth.views import LogoutView
 from django.urls import include, path, re_path
 from qgis_sso.views import RateLimitedCallbackView, admin_login, site_login
+from qgis_sso.views_profile import ActionAuthenticationRequestView
 
 urlpatterns = [
     # Before admin.site.urls, so the admin's own login form is replaced.
@@ -35,6 +36,13 @@ urlpatterns = [
         "oidc/callback/",
         RateLimitedCallbackView.as_view(),
         name="oidc_authentication_callback",
+    ),
+    # Likewise: same URL, declared first so the subclass that can carry a
+    # kc_action wins.
+    path(
+        "oidc/authenticate/",
+        ActionAuthenticationRequestView.as_view(),
+        name="oidc_authentication_init",
     ),
     path("oidc/", include("mozilla_django_oidc.urls")),
 ]
