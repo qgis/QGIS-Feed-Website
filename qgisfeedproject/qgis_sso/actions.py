@@ -149,7 +149,7 @@ def plan_provisioning(users, include_flagged=False):
     return session, inspect_concurrently(decide, users)
 
 
-def run_provisioning(session, decisions):
+def run_provisioning(session, decisions, sponsor=None):
     """Create or link each account a decision allows. Sends no email.
 
     Each message says whether we created or linked, and names every account
@@ -168,9 +168,9 @@ def run_provisioning(session, decisions):
         linking = decision.is_link
         try:
             if linking:
-                session.link(decision)
+                session.link(decision, sponsor=sponsor)
             else:
-                session.provision(decision)
+                session.provision(decision, sponsor=sponsor)
         except KeycloakError as error:
             run.add(
                 decision.username,

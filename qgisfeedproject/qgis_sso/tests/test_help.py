@@ -1,8 +1,14 @@
 # coding=utf-8
-"""The contributor's guide at /sso/help/, built from the role settings."""
+"""The contributor's guide at /sso/help/, built from the role and tier settings."""
 
 from django.test import TestCase, override_settings
 from django.urls import reverse
+
+LADDER = {
+    "admin": 0,
+    "reviewer": 2,
+    "author": 4,
+}
 
 LABELS = {
     "admin": "Administrator",
@@ -16,9 +22,13 @@ SUMMARIES = {
     "author": "Writes news items for a reviewer to publish.",
 }
 
+QUOTAS = {0: None, 2: 10, 4: 3}
+
 HELP_SETTINGS = {
+    "SSO_ROLE_TIERS": LADDER,
     "SSO_ROLE_LABELS": LABELS,
     "SSO_ROLE_SUMMARIES": SUMMARIES,
+    "SSO_TIER_QUOTAS": QUOTAS,
 }
 
 
@@ -47,10 +57,20 @@ class HelpPageTest(TestCase):
         """The Keycloak names mean nothing to a contributor."""
         self.assertNotContains(self.visit(), "usergroup-author")
 
+    def test_it_states_the_invitation_allowance(self):
+        self.assertContains(self.visit(), "3 at a time")
+
+    def test_an_unlimited_allowance_is_not_shown_as_a_number(self):
+        self.assertContains(self.visit(), "No limit")
+
+    def test_it_says_who_each_role_may_invite(self):
+        """A reviewer sits above authors, so both appear on its line."""
+        self.assertContains(self.visit(), "Reviewer can invite: Reviewer, Author")
+
     def test_it_answers_the_questions_it_promises(self):
         response = self.visit()
 
-        for anchor in ("account", "link", "passkeys", "permissions", "stuck"):
+        for anchor in ("passkeys", "trust", "stuck", "link"):
             self.assertContains(response, f'id="{anchor}"')
 
 

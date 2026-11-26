@@ -1,11 +1,12 @@
 # Single sign-on with auth.qgis.org
 
 This page is for the people who run the feed site. It explains how people sign
-in through the QGIS account service, and which settings control it.
+in through the QGIS account service, who may invite whom, and which settings
+control it.
 
 Contributors have their own guide at `/sso/help/`. It explains how to get an
-account, set up a passkey, what each role allows, and what to do when you
-cannot sign in. Anybody can read it while signed out. It lives in
+account, set up a passkey, invite somebody, what each role allows, and what to
+do when you cannot sign in. Anybody can read it while signed out. It lives in
 `qgisfeedproject/templates/qgis_sso/help.html`, so update it with the code.
 
 The [design notes](sso-design.md) explain why the rules below exist.
@@ -52,16 +53,19 @@ groups in `SSO_MANAGED_GROUPS`, so any other group survives a sign-in.
 
 ## The people page
 
-Only administrators can open `/sso/manage/`. It lists every account that has a
-Keycloak identity. The page shows ten rows at a time, and you can filter by
-state or search by name.
+Anybody with a realm account can open `/sso/manage/`, and each person sees only
+what they are entitled to see. A superuser sees every account that has a
+Keycloak identity. Everybody else sees the accounts they vouched for. The page
+shows ten rows at a time, and you can filter by state or search by name.
 
-The newest invitation is at the top. Click **Account**, **State** or **Date of
-invitation** to sort by that column, and click it again to turn the order
-around. **State** sorts in the order people move through it, from created to
-active, rather than by the alphabet. Sorting covers the whole list, not just
-the page you are looking at, and it keeps whatever you searched for or filtered
-by.
+The newest invitation is at the top. Click **Account**, **State**, **Date of
+invitation** or **Invited by** to sort by that column, and click it again to
+turn the order around. **State** sorts in the order people move through it,
+from created to active, rather than by the alphabet. Sorting covers the whole
+list, not just the page you are looking at, and it keeps whatever you searched
+for or filtered by. **Invited by** only appears for a superuser, because
+everybody else sees their own invitations and would read their own name on
+every row.
 
 The filtering, the search, the sorting and the paging all happen in the
 database, so the page costs the same whether the site has a hundred accounts or
@@ -82,7 +86,9 @@ stateDiagram-v2
     LinkSent --> Active : first sign-in, passkey enrolled
 ```
 
-Every button on a row acts on that row alone.
+Every button on a row acts on that row alone. If the account sits outside your
+own branch of the tree, the action is refused, whether or not the listing
+happened to show it.
 
 An action that asks before it acts opens a page at its own address. You can read
 it, reload it, and leave again without anything having happened.
@@ -91,6 +97,7 @@ it, reload it, and leave again without anything having happened.
 |---|---|
 | Send email | Opens `/sso/manage/send-email/<id>/`, which asks first. The email reaches a real contributor and you cannot unsend it. |
 | Get the setup link | Shows the setup link on a page of its own. See [Handing over a link](#handing-over-a-link). |
+| Cancel invitation | Opens `/sso/manage/cancel-invitation/<id>/`, which asks first. See [Cancelling an invitation](#cancelling-an-invitation). |
 
 Some accounts cannot be invited at all, because they have no email address or
 somebody deactivated them. The invite page leaves those out and counts them in
@@ -102,10 +109,65 @@ page is about accounts that already exist, so it does not repeat them.
 
 ## Invitations
 
-A superuser can take an account that already exists here and give it a place in
-the realm. Open **Invite existing users** on the people page. You pick the
-people, and the next page names each one and what will happen to them before
-anything is created.
+Somebody with quota brings in somebody they know, and the new account records
+for good who vouched for it. The people page offers two routes:
+
+- **Invite a new user.** Anyone whose roles carry quota can use this. You fill in a
+  short form, and we create the account straight away both here and in the
+  realm. Nothing reaches the person until you send it. The role starts empty, so
+  you always choose it yourself.
+- **Invite existing users.** Superusers only, because it reaches the whole user list.
+  It takes an account that already exists here and gives it a place in the
+  realm. You pick the people, and the next page names each one and what will
+  happen to them before anything is created.
+
+Who may offer what is the ladder in `SSO_ROLE_TIERS`, with quotas in
+`SSO_TIER_QUOTAS`.
+
+| Tier | Role | May offer | Open places |
+|---|---|---|---|
+| 0 | `admin` | anything | unlimited |
+| 1 | `web-maintainer` | tier 1 and below | 25 |
+| 2 | `reviewer` | tier 2 and below | 10 |
+| 3 | `usergroup-author` | tier 3 and below | 10 |
+| 4 | `author` | `author` only | 3 |
+
+Somebody who holds two roles gets the more privileged tier and the *larger* of
+the two allowances, never the sum of them. Every account you invited that has
+not signed in yet holds one of your places, and that place comes back to you
+when they do sign in. The username and the address must both be free here and
+in the realm.
+
+### What a username may contain
+
+The form applies the rules the realm applies, so a name it would refuse is
+refused here, with a message that says which rule it broke.
+
+| Rule | Why |
+|---|---|
+| Three characters or more | Keycloak's own floor. |
+| 255 characters or fewer | Keycloak's ceiling, and the same for the address and the two names. |
+| No spaces | Keycloak refuses whitespace in a username. A dot or an underscore reads as well. |
+| None of `< > & " '` | Keycloak refuses these in a username, a first name and a last name alike. |
+
+We save the username in lower case, so `NewBie` becomes `newbie`. Keycloak
+treats usernames case insensitively and stores them that way, and matching it
+means the account here and the QGIS account carry one name rather than two that
+differ by case.
+
+One Keycloak rule we do not repeat is the one about names that mix scripts so
+they read as somebody else's name. It depends on tables that change with each
+Unicode version, so the realm stays the only place it lives. A name it catches
+fails when we create the account, and the page says the account could not be
+created.
+
+### Cancelling an invitation
+
+Before the person signs in, the whole invitation can be undone. The row offers
+it, and `/sso/manage/cancel-invitation/<id>/` asks first, because it removes the
+account here and in the realm and cannot be undone. Nothing is kept, so the
+place comes back to you and the same person can be invited again with the same
+name and address. Once they have signed in there is nothing to cancel.
 
 ### Linking to an account that already exists in the realm
 
@@ -123,10 +185,10 @@ somebody here. One run links up to `SSO_ADMIN_ACTION_MAX_USERS` accounts (25).
 ## Handing over a link
 
 Sometimes you have somebody on a call and their email is not arriving. *Get
-the setup link* on their row takes you to `/sso/manage/link/`, a page that shows that
-one link and nothing else. We never store the link and never log it, and the
-page takes it out of the session as it renders, so a reload asks you to issue a
-fresh one.
+the setup link* on their row takes you to `/sso/manage/link/`, a page that shows
+that one link and nothing else. Inviting a new user brings you to the same page.
+We never store the link and never log it, and the page takes it out of the
+session as it renders, so a reload asks you to issue a fresh one.
 
 Under the link is a QR code of the same thing. The person can scan it straight
 onto the device their passkey will live on, instead of reading a long token out

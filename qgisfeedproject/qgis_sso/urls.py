@@ -1,7 +1,8 @@
 # coding=utf-8
 """Routes under ``/sso/``. The help page is open to anybody.
 
-Everything under ``manage/`` is for administrators.
+Each view under ``manage/`` says who may use it. A row action takes the row's
+id and checks the same rule the list applied to that row.
 """
 
 from django.urls import path
@@ -29,6 +30,16 @@ urlpatterns = [
         "manage/send-email/<int:pk>/",
         views_manage.SendEmailView.as_view(),
         name="send_email",
+    ),
+    path(
+        "manage/cancel-invitation/<int:pk>/",
+        views_manage.CancelInvitationView.as_view(),
+        name="cancel_invitation",
+    ),
+    path(
+        "manage/invite/new/",
+        views_manage.InviteNewView.as_view(),
+        name="invite_new",
     ),
     path(
         "manage/invite/existing/",

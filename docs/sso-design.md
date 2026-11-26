@@ -44,10 +44,11 @@ only when you press something.
 
 ### The people list is answered by the database
 
-Every question the list asks is a queryset: the search, the state filter, the
-order and the page. The state is a `CASE` expression that mirrors `state_of`
-exactly, and a test compares the two state for state, because a filter that
-disagreed with the tag beside it would be worse than no filter.
+Every question the list asks is a queryset: who you may see, the search, the
+state filter, the order and the page. The state is a `CASE` expression that
+mirrors `state_of` exactly, and a test compares the two state for state,
+because a filter that disagreed with the tag beside it would be worse than no
+filter.
 
 ### The invite page is capped, and has no paging
 
@@ -67,6 +68,51 @@ local accounts on one subject would break every lookup in the app.
 
 `proposed_roles` works out the client role from what the account can already do
 here, so linking grants no new privilege.
+
+### We create the account when you invite
+
+A link that created the account when somebody used it would give a stranger
+with a leaked link a public way to make realm accounts. We create the account
+at the moment of invitation instead, so the inviter types the address.
+
+We also refuse an address the realm already knows. That address belongs to
+somebody, and a second account on it would send them a setup link they never
+asked for.
+
+### We check tiers twice
+
+We check the role on offer against the inviter's tier when we render the form,
+and again when they submit it, because a form is only a suggestion. Tier
+governs invitations and nothing else. What somebody may do to a feed entry
+comes from the mirrored Django permissions.
+
+Quota counts the invitations still open, not every account somebody ever
+invited, so a sponsor is not punished for people who arrived and got to work.
+Two things end an open invitation: the person signs in, or the sponsor cancels
+it.
+
+### Cancelling an invitation undoes it
+
+An invitation is an account, created in the shared realm at the moment of
+invitation. Anything short of removing it would leave the name and the address
+taken. So cancelling removes the realm account, the identity and the local
+user. The place comes back, and the same person can be invited again with the
+same name and address. `SsoAuditEvent` keeps the username and lets its user go
+null, so the record of who ended the account survives it.
+
+The local deletes and the realm delete run in one transaction, with the realm
+last. If the realm refuses, the transaction rolls back and nothing changes. If
+something on this site still refers to the account, the local delete fails
+first and the realm account stays too.
+
+Cancelling is only for an account the invite form made, and only before anybody
+has used it. The invite form is the one place that writes `link_method` as
+`invitation`. Somebody who has signed in has a history, so their invitation can
+no longer be cancelled.
+
+The quota bounds how many unused accounts one sponsor holds at a time. It does
+not bound how many accounts somebody creates over the years, because every
+account names who vouched for it, and that is what holds people to account.
 
 ## Setup links
 

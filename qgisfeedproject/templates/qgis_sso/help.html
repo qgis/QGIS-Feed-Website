@@ -4,11 +4,12 @@
 {% block content %}
 <div class="sso-help">
 
-  <h1 class="title is-3">{% trans "How signing in works" %}</h1>
+  <h1 class="title is-3">{% trans "How signing in and invitations work" %}</h1>
   <p class="subtitle is-6">
     {% blocktrans trimmed %}
-      Signing in uses your QGIS account. This page explains how it works. If
-      your question is not answered here, ask a feed maintainer.
+      Signing in uses your QGIS account, and accounts are created by
+      invitation. This page explains both. If your question is not answered
+      here, ask a feed maintainer.
     {% endblocktrans %}
   </p>
 
@@ -22,6 +23,8 @@
       <li><a href="#remove-passkey">{% trans "How do I remove a passkey?" %}</a></li>
       <li><a href="#lost-device">{% trans "I have lost the device with my passkey" %}</a></li>
       <li><a href="#permissions">{% trans "What am I allowed to do here?" %}</a></li>
+      <li><a href="#trust">{% trans "Who can I invite?" %}</a></li>
+      <li><a href="#invite">{% trans "How do I invite someone?" %}</a></li>
       <li><a href="#stuck">{% trans "I cannot sign in" %}</a></li>
     </ul>
   </nav>
@@ -30,13 +33,15 @@
     <h2 class="title is-5">{% trans "How do I get a QGIS account?" %}</h2>
     <p>
       {% blocktrans trimmed %}
-        A feed maintainer invites you. There is no sign up form. An account on
-        another QGIS site is not enough on its own.
+        Somebody invites you. There is no sign up form. An account on another
+        QGIS site is not enough on its own. Every account here is created by an
+        existing contributor.
       {% endblocktrans %}
     </p>
     <p class="mt-3">
       {% blocktrans trimmed %}
-        Ask a feed maintainer. They create your account and send you a link.
+        Ask someone who already writes for the feed, or ask a feed maintainer.
+        They create your account and send you a link.
       {% endblocktrans %}
     </p>
   </section>
@@ -140,7 +145,7 @@
     <p class="mt-3">
       {% blocktrans trimmed %}
         If that was your only passkey, you cannot sign in. Ask a feed maintainer
-        for a new enrolment link and set the account up again.
+        for a new setup email and set the account up again.
       {% endblocktrans %}
     </p>
   </section>
@@ -155,26 +160,105 @@
       {% endblocktrans %}
     </p>
     <div class="table-container mt-4">
-      <table class="table is-fullwidth">
+      <table class="table is-fullwidth sso-table">
         <caption class="is-sr-only">
-          {% trans "Every role and what it allows" %}
+          {% trans "Every role, most trusted first, and what it allows" %}
         </caption>
         <thead>
           <tr>
-            <th scope="col">{% trans "Role" %}</th>
-            <th scope="col">{% trans "What it does" %}</th>
+            <th scope="col" class="sso-account">{% trans "Role" %}</th>
+            <th scope="col" class="sso-account">{% trans "What it does" %}</th>
+            <th scope="col">{% trans "Open invitations" %}</th>
           </tr>
         </thead>
         <tbody>
-          {% for role in roles %}
+          {% for role in ladder %}
             <tr>
-              <th scope="row">{{ role.name }}</th>
-              <td>{{ role.summary }}</td>
+              <th scope="row" class="sso-account">{{ role.name }}</th>
+              <td class="sso-account">{{ role.summary }}</td>
+              <td>
+                {% if role.unlimited %}
+                  {% trans "No limit" %}
+                {% else %}
+                  {% blocktrans trimmed count counter=role.quota %}
+                    {{ counter }} at a time
+                  {% plural %}
+                    {{ counter }} at a time
+                  {% endblocktrans %}
+                {% endif %}
+              </td>
             </tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
+  </section>
+
+  <section class="box-content mb-5" id="trust">
+    <h2 class="title is-5">{% trans "Who can I invite?" %}</h2>
+    <p>
+      {% blocktrans trimmed %}
+        People at your own level or below, never above. You cannot give someone
+        a role higher than your own.
+      {% endblocktrans %}
+    </p>
+    <ul class="sso-help-ladder mt-4">
+      {% for role in ladder %}
+        <li>
+          {% blocktrans trimmed with name=role.name offered=role.invites|join:", " %}
+            {{ name }} can invite: {{ offered }}
+          {% endblocktrans %}
+        </li>
+      {% endfor %}
+    </ul>
+    <p class="mt-4">
+      {% blocktrans trimmed %}
+        There is also a limit on how many invitations you can have open at once.
+        It is not a limit on how many people you may invite. Invite as many as
+        you need, a few at a time.
+      {% endblocktrans %}
+    </p>
+    <p class="mt-3">
+      {% blocktrans trimmed %}
+        An invitation stays open until that person signs in, and then the place
+        it held comes back to you. If somebody is never going to sign in, open
+        People, find their row and cancel the invitation. That removes the
+        account it made, so the place comes back and you can invite them again
+        later with the same name and address.
+      {% endblocktrans %}
+    </p>
+  </section>
+
+  <section class="box-content mb-5" id="invite">
+    <h2 class="title is-5">{% trans "How do I invite someone?" %}</h2>
+    <ol class="sso-help-steps">
+      <li>{% trans "Open People from the menu under your name." %}</li>
+      <li>{% trans "Choose Invite a new user." %}</li>
+      <li>
+        {% blocktrans trimmed %}
+          Fill in their name, their email address and the role you are giving
+          them. The account is created now. Nothing is sent yet.
+        {% endblocktrans %}
+      </li>
+      <li>
+        {% blocktrans trimmed %}
+          Send them the setup email, or take the setup link and hand it over
+          yourself. The link is shown once and is never stored, so copy it
+          before you leave the page.
+        {% endblocktrans %}
+      </li>
+    </ol>
+    <div class="notification is-warning mt-4">
+      {% blocktrans trimmed %}
+        The link signs its holder in as that person. Send it only to the person
+        you invited. If you are in the same room, use the QR code under it.
+      {% endblocktrans %}
+    </div>
+    <p class="mt-3">
+      {% blocktrans trimmed %}
+        You are responsible for the people you invite.
+      {% endblocktrans %}
+    </p>
   </section>
 
   <section class="box-content mb-5" id="stuck">

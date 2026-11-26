@@ -207,6 +207,14 @@ class KeycloakAdminClient:
             )
         return sub
 
+    def delete_user(self, user_id):
+        """Remove a realm account, and say nothing if it has already gone.
+
+        Only for undoing an account this site created moments ago and nobody
+        ever used.
+        """
+        self.request("DELETE", f"users/{quote(user_id)}", allow_missing=True)
+
     def execute_actions_email(
         self, user_id, actions, client_id, redirect_uri, lifespan
     ):
