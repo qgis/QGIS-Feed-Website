@@ -43,11 +43,22 @@
         <div class="container content">
             {% if user.keycloak_identity.trust_state == 'suspended' %}
                 <div class="notification is-warning">
-                    {% blocktrans trimmed %}
-                        Your account is suspended because the person who invited
-                        you had their access withdrawn. You can sign in, but you
-                        cannot make changes until that is reversed.
-                    {% endblocktrans %}
+                    {% if user.keycloak_identity.is_offered_a_sponsor %}
+                        {% blocktrans trimmed %}
+                            Your account is suspended, and somebody has offered
+                            to sponsor you. Accept the offer and you can make
+                            changes again.
+                        {% endblocktrans %}
+                        <a href="{% url 'qgis_sso:profile' %}">
+                            {% trans "Read the offer" %}
+                        </a>
+                    {% else %}
+                        {% blocktrans trimmed %}
+                            Your account is suspended because the person who invited
+                            you had their access withdrawn. You can sign in, but you
+                            cannot make changes until you have a new sponsor.
+                        {% endblocktrans %}
+                    {% endif %}
                     <i class="fa-solid fa-circle-info has-text-success mr-1" aria-hidden="true"></i>
                     <a href="{% url 'qgis_sso:help' %}#suspended">
                         {% trans "What suspended means" %}

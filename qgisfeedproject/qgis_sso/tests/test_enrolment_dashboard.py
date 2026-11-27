@@ -391,6 +391,72 @@ class SponsorColumnTest(TestCase):
         self.assertEqual(response.context["sort_by"], "invited")
 
 
+class FindingSomebodySuspendedTest(TestCase):
+    """A full username reaches one suspended account outside your own branch.
+
+    Somebody may offer to sponsor a colleague a cascade suspended, and they
+    cannot do that without finding them. Nothing else about the list opens up:
+    the name has to be typed in full, and the row hides the address.
+    """
+
+    def setUp(self):
+        self.staff = User.objects.create_user(
+            "bob", "bob@example.org", "x", is_staff=True, last_login=timezone.now()
+        )
+        link(self.staff)
+        self.client.force_login(self.staff, backend=LOCAL_BACKEND)
+
+        self.stranger = User.objects.create_user(
+            "dorothea", "dorothea@example.org", "x", last_login=timezone.now()
+        )
+        link(self.stranger, trust_state="suspended")
+
+    def found(self, response):
+        return [row.user.username for row in response.context["rows"]]
+
+    def test_the_full_username_finds_them(self):
+        response = self.client.get(PAGE, {"q": "dorothea"})
+
+        self.assertEqual(self.found(response), ["dorothea"])
+
+    def test_the_case_of_the_name_does_not_matter(self):
+        response = self.client.get(PAGE, {"q": "Dorothea"})
+
+        self.assertEqual(self.found(response), ["dorothea"])
+
+    def test_part_of_the_name_finds_nobody(self):
+        response = self.client.get(PAGE, {"q": "doro"})
+
+        self.assertEqual(self.found(response), [])
+
+    def test_their_address_finds_nobody(self):
+        """The search box echoes what was typed, so the rows are what to read."""
+        response = self.client.get(PAGE, {"q": "dorothea@example.org"})
+
+        self.assertEqual(self.found(response), [])
+
+    def test_the_row_never_shows_the_address(self):
+        response = self.client.get(PAGE, {"q": "dorothea"})
+
+        self.assertNotContains(response, "dorothea@example.org")
+
+    def test_an_active_stranger_stays_hidden(self):
+        link(
+            User.objects.create_user(
+                "ingrid", "ingrid@example.org", "x", last_login=timezone.now()
+            )
+        )
+
+        response = self.client.get(PAGE, {"q": "ingrid"})
+
+        self.assertEqual(self.found(response), [])
+
+    def test_an_empty_search_shows_only_their_own_branch(self):
+        response = self.client.get(PAGE)
+
+        self.assertEqual(self.found(response), [])
+
+
 class StateExpressionTest(TestCase):
     """The database and Python have to agree about where an account has got to.
 

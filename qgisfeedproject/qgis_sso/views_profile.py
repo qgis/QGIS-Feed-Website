@@ -26,14 +26,18 @@ from django.views import View
 from django.views.decorators.cache import never_cache
 from mozilla_django_oidc.views import OIDCAuthenticationRequestView
 
+from . import revocation, sponsorship
 from .keycloak import KeycloakError
-from .models import KeycloakIdentity
+from .models import KeycloakIdentity, TrustState
 from .passkeys import ACTION_SESSION_KEY, REGISTER, delete_action, passkeys_for
 
 logger = logging.getLogger(__name__)
 
 ADD_PASSKEY = "add-passkey"
 REMOVE_PASSKEY = "remove-passkey"
+ACCEPT_SPONSORSHIP = "accept-sponsorship"
+DECLINE_SPONSORSHIP = "decline-sponsorship"
+WITHDRAW_SPONSORSHIP = "withdraw-sponsorship"
 
 
 def signed_in(request: HttpRequest) -> bool:
@@ -88,12 +92,56 @@ class ProfileView(View):
             return HttpResponseRedirect(reverse("qgis_sso:profile"))
 
         action = request.POST.get("action", "")
+        if action in (ACCEPT_SPONSORSHIP, DECLINE_SPONSORSHIP, WITHDRAW_SPONSORSHIP):
+            return self.answer_offer(request, identity, action)
         if action == ADD_PASSKEY:
             return self.start(request, REGISTER)
         if action == REMOVE_PASSKEY:
             return self.remove(request, identity)
 
         messages.error(request, _("That action is not available here."))
+        return HttpResponseRedirect(reverse("qgis_sso:profile"))
+
+    def answer_offer(
+        self, request: HttpRequest, identity: KeycloakIdentity, action: str
+    ) -> HttpResponse:
+        """Accept, decline or withdraw one offer to sponsor somebody.
+
+        The offer is looked up in the reader's own lists, so a typed id cannot
+        answer somebody else's.
+        """
+        if action == WITHDRAW_SPONSORSHIP:
+            waiting = sponsorship.pending_by(request.user)
+        else:
+            waiting = sponsorship.pending_for(identity)
+        wanted = request.POST.get("offer", "")
+        made = waiting.filter(pk=wanted).first() if wanted.isdigit() else None
+        if made is None:
+            messages.error(request, _("That offer is no longer waiting."))
+            return HttpResponseRedirect(reverse("qgis_sso:profile"))
+
+        try:
+            if action == ACCEPT_SPONSORSHIP:
+                rescued = sponsorship.accept(request.user, made)
+                messages.success(
+                    request,
+                    _(
+                        "%(sponsor)s is your sponsor now. %(count)d other "
+                        "account(s) came back with yours."
+                    )
+                    % {
+                        "sponsor": made.sponsor.username,
+                        "count": len(rescued) - 1,
+                    },
+                )
+            elif action == DECLINE_SPONSORSHIP:
+                sponsorship.decline(request.user, made)
+                messages.success(request, _("You declined the offer."))
+            else:
+                sponsorship.withdraw(request.user, made)
+                messages.success(request, _("You withdrew your offer."))
+        except revocation.RevocationError as error:
+            messages.error(request, str(error))
         return HttpResponseRedirect(reverse("qgis_sso:profile"))
 
     def remove(self, request: HttpRequest, identity: KeycloakIdentity) -> HttpResponse:
@@ -155,6 +203,12 @@ class ProfileView(View):
         return {
             "identity": identity,
             "permissions": self.permissions(request.user),
+            "offers": (
+                sponsorship.pending_for(identity)
+                if identity and identity.trust_state == TrustState.SUSPENDED
+                else []
+            ),
+            "offers_made": sponsorship.pending_by(request.user),
         }
 
 

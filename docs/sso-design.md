@@ -153,12 +153,61 @@ Opening the page changes nothing. Seeing the page runs the same permission
 check as acting on it, and an account you may not touch looks exactly like one
 that does not exist, so nobody can use the page to map the tree.
 
-### The grace window closes
+### The grace window closes, and it does not cover a new sponsor
 
 Within `SSO_REVOCATION_GRACE_DAYS`, one action puts the roles back, re-enables
 the realm account and clears the suspension across the subtree. After that the
 record stays but the button goes, because reversing a revocation months later
 is a new invitation rather than an undo.
+
+We deliberately do not gate a new sponsor the same way. Once the window closes
+that route is the only way back. `restore` refuses anybody who was not revoked
+directly, the admin is read only, and you cannot invite an account that
+already exists. Gating a new sponsor too would leave suspended people with
+nowhere to go.
+
+A new sponsor has to sit outside the account's own subtree, because a sponsor
+from inside it would close the chain into a loop. The picker lists only the
+people who qualify, and the view checks what was posted against that same list.
+
+### A peer offers, a maintainer decides
+
+Moving somebody else between sponsors and offering to stand behind them are two
+different powers, so they have two different rules and two different pages.
+
+A maintainer moving somebody is an administrative act. They pick the new sponsor
+from a list, it happens at once, and neither party is asked. That is the job.
+
+A colleague offering to sponsor somebody is not administrative, so their rank
+is not what qualifies them. What qualifies them is their own standing: they
+have to hold every role the account holds. An author cannot take on a reviewer,
+because that would let the graph be climbed from below, which is the one thing
+the tier ladder exists to prevent.
+
+The offer waits for an answer, because both halves of a sponsorship are a claim
+about somebody. Taking a person on says you vouch for them. Being taken on says
+who vouches for you, and appears on your profile and in the tree for as long as
+your account exists. Neither party should be able to write the other's half
+without asking. A maintainer is exempt for the same reason a maintainer can
+revoke: somebody has to be able to act when nobody is answering.
+
+We re-read the would-be sponsor's standing when the offer is accepted rather
+than trusting it from when it was made. An offer can sit for days, and in that
+time the person who made it may have been demoted or revoked themselves. The
+offer is the request, not the decision, so the decision runs the checks.
+
+### Finding somebody suspended without opening the list
+
+An offer needs a person to make it to, and outside a maintainer's view the
+people page only shows you the accounts you invited. Widening it so anybody can
+browse every suspended account would hand every contributor a directory of who
+is in trouble.
+
+So the search takes the full username and nothing less. A partial name searches
+only your own branch, an email address never reaches outside it, and the row a
+full name returns shows the username alone. You need the name to make the
+offer, and you already have it if you know the person, which is the only case
+where offering makes sense.
 
 ### We keep the content, and we do not leave unpublished work live
 

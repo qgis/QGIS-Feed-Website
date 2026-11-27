@@ -63,6 +63,14 @@
         <button class="button is-primary1" type="submit">{% trans "Filter" %}</button>
       </div>
     </div>
+    {% if not everyone %}
+      <p class="help">
+        {% blocktrans trimmed %}
+          To find somebody who was suspended, type their full username. Part of
+          a name only searches the people you invited.
+        {% endblocktrans %}
+      </p>
+    {% endif %}
   </form>
 
   <div class="table-container">
@@ -88,8 +96,10 @@
           <tr>
             <td class="sso-account">
               {{ row.user.username }}
-              <br>
-              <small>{{ row.user.email }}</small>
+              {% if not row.hide_contact %}
+                <br>
+                <small>{{ row.user.email }}</small>
+              {% endif %}
             </td>
             <td>
               <span class="tag {{ row.css_class }}">{{ row.label }}</span>
@@ -155,6 +165,24 @@
                           title="{{ restore_label }}" aria-label="{{ restore_label }}">
                     <span class="icon is-small"><i class="fas fa-rotate-left"></i></span>
                   </button>
+                {% elif row.may_reparent %}
+                  {% blocktrans trimmed asvar move_label with username=row.user.username %}
+                    Move {{ username }} to a new sponsor
+                  {% endblocktrans %}
+                  <a class="button is-small is-primary1 is-outlined"
+                     href="{% url 'qgis_sso:reparent' row.identity.pk %}{% if filters %}?{{ filters }}{% endif %}"
+                     title="{{ move_label }}" aria-label="{{ move_label }}">
+                    <span class="icon is-small"><i class="fas fa-people-arrows"></i></span>
+                  </a>
+                {% elif row.may_sponsor %}
+                  {% blocktrans trimmed asvar sponsor_label with username=row.user.username %}
+                    Offer to sponsor {{ username }}
+                  {% endblocktrans %}
+                  <a class="button is-small is-primary1 is-outlined"
+                     href="{% url 'qgis_sso:sponsor_offer' row.identity.pk %}{% if filters %}?{{ filters }}{% endif %}"
+                     title="{{ sponsor_label }}" aria-label="{{ sponsor_label }}">
+                    <span class="icon is-small"><i class="fas fa-hand-holding-heart"></i></span>
+                  </a>
                 {% endif %}
               </form>
             </td>

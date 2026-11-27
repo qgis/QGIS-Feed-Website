@@ -6,9 +6,9 @@ redeemed later, so there is no public endpoint here and no unbound link: the
 inviter types the address. What is left to pin down is the ladder, the quota,
 and that nobody can reach past what their own tier allows.
 
-Every invariant from the web-of-trust document that this slice implements gets
-a named test, per US-8.3. Revocation cascades and re-parenting are not built and
-are not tested.
+Each invariant of the trust tree that invitations rely on gets a named test.
+Revocation and moving an account to a new sponsor are tested in their own
+modules.
 """
 
 from unittest import mock
