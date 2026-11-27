@@ -41,6 +41,7 @@ class HelpView(TemplateView):
         context["account_url"] = getattr(settings, "SSO_ACCOUNT_URL", "")
         context["profile_url"] = reverse("qgis_sso:profile")
         context["ladder"] = self.ladder()
+        context["grace_days"] = getattr(settings, "SSO_REVOCATION_GRACE_DAYS", 7)
         return context
 
     @staticmethod

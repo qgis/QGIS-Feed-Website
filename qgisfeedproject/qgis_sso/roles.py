@@ -56,7 +56,13 @@ def mirror_roles(user, roles) -> dict[str, list]:
     The flags are saved before the groups, because saving a user fires
     ``qgisfeed.signals.setup_group``, which must not re-add a removed group.
     """
-    groups, is_staff, is_superuser = target_state(roles)
+    # An untrusted account is mirrored to nothing, which is what keeps a
+    # suspension in place across sign-ins.
+    identity = getattr(user, "keycloak_identity", None)
+    if identity is not None and not identity.trusted:
+        groups, is_staff, is_superuser = set(), False, False
+    else:
+        groups, is_staff, is_superuser = target_state(roles)
 
     changed = {"roles": sorted(roles or [])}
 

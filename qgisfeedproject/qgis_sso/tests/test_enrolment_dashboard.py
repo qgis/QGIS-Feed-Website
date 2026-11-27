@@ -413,6 +413,13 @@ class StateExpressionTest(TestCase):
             (enrolment.LINK_SENT, {"setup_email_sent_at": now}),
             (enrolment.LINK_SENT, {"setup_link_issued_at": now}),
             (enrolment.ACTIVE, {"first_sso_login_at": now}),
+            (enrolment.SUSPENDED, {"trust_state": "suspended"}),
+            (enrolment.REVOKED, {"trust_state": "revoked"}),
+            # Trust overrides progress, in both places.
+            (
+                enrolment.REVOKED,
+                {"first_sso_login_at": now, "trust_state": "revoked"},
+            ),
         ]
 
         for index, (expected, fields) in enumerate(cases):
@@ -432,7 +439,7 @@ class PageCostTest(SuperuserPage):
 
     Asserted as "the same as before" rather than as a number, because the exact
     count is not the promise. The promise is that it does not move when the
-    site grows.
+    site grows or the trust graph deepens.
     """
 
     def accounts(self, count, start=0, sponsor=None):
@@ -457,6 +464,28 @@ class PageCostTest(SuperuserPage):
         self.accounts(200, start=12)
 
         self.assertEqual(self.cost(), small)
+
+    def test_a_page_costs_the_same_however_deep_the_trust_graph(self):
+        """The actor needs an identity of their own, or every row is refused
+        before the tree is ever walked and this would prove nothing."""
+        link(self.superuser, first_sso_login_at=timezone.now())
+        sponsor = self.superuser
+        for index in range(20):
+            user = User.objects.create_user(
+                f"deep{index}",
+                f"deep{index}@example.org",
+                "x",
+                last_login=timezone.now(),
+            )
+            link(user, sponsor=sponsor, first_sso_login_at=timezone.now())
+            sponsor = user
+
+        deep = self.cost()
+
+        # The same accounts and the same rows, with no chain left above them.
+        KeycloakIdentity.objects.exclude(user=self.superuser).update(sponsor=None)
+
+        self.assertEqual(self.cost(), deep)
 
 
 @override_settings(**PAGE_SETTINGS)

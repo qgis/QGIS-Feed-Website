@@ -20,7 +20,7 @@ from django.db import transaction
 from django.utils import timezone
 from mozilla_django_oidc.auth import OIDCAuthenticationBackend
 
-from .models import KeycloakIdentity, LinkMethod, SsoAuditEvent
+from .models import KeycloakIdentity, LinkMethod, SsoAuditEvent, TrustState
 from .provisioning import disable_local_password
 from .roles import mirror_roles
 
@@ -135,12 +135,32 @@ class QGISOIDCAuthenticationBackend(OIDCAuthenticationBackend):
             raise SuspiciousOperation("Userinfo subject does not match the ID token")
 
         user = self.filter_users_by_claims(claims).first()
-        if user is None:
+        if user is not None:
+            self.refuse_if_revoked(user, claims)
+        else:
             user = self.link_migrated_user(claims)
         if user is None:
             self.refuse(claims)
             return None
         return self.update_user(user, claims)
+
+    def refuse_if_revoked(self, user, claims) -> None:
+        """Refuse a revoked account here as well as in the realm.
+
+        Revocation disables the realm account, but somebody could re-enable it
+        in the Keycloak console. A suspended account may still sign in to see
+        why, and role mirroring withholds its permissions.
+        """
+        identity = getattr(user, "keycloak_identity", None)
+        if identity is None or identity.trust_state != TrustState.REVOKED:
+            return
+        SsoAuditEvent.record(
+            SsoAuditEvent.Action.REFUSED,
+            user=user,
+            sub=claims.get("sub", ""),
+            reason="trust withdrawn",
+        )
+        raise SuspiciousOperation("Trust has been withdrawn from this account")
 
     def link_migrated_user(self, claims):
         """Bind an existing local account to this subject, or return None.

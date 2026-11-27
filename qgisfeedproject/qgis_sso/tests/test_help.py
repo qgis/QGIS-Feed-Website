@@ -29,6 +29,7 @@ HELP_SETTINGS = {
     "SSO_ROLE_LABELS": LABELS,
     "SSO_ROLE_SUMMARIES": SUMMARIES,
     "SSO_TIER_QUOTAS": QUOTAS,
+    "SSO_REVOCATION_GRACE_DAYS": 7,
 }
 
 
@@ -67,10 +68,14 @@ class HelpPageTest(TestCase):
         """A reviewer sits above authors, so both appear on its line."""
         self.assertContains(self.visit(), "Reviewer can invite: Reviewer, Author")
 
+    def test_the_grace_period_comes_from_settings(self):
+        with self.settings(SSO_REVOCATION_GRACE_DAYS=3):
+            self.assertContains(self.visit(), "3 days")
+
     def test_it_answers_the_questions_it_promises(self):
         response = self.visit()
 
-        for anchor in ("passkeys", "trust", "stuck", "link"):
+        for anchor in ("passkeys", "trust", "suspended", "stuck", "link"):
             self.assertContains(response, f'id="{anchor}"')
 
 

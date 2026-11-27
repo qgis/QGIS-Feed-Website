@@ -14,7 +14,8 @@ from django.utils.translation import gettext_lazy as _
 
 from . import tiers
 from .migration import flag_users, proposed_roles, proposed_username
-from .models import KeycloakIdentity, LinkMethod
+from .models import KeycloakIdentity, LinkMethod, TrustState
+from .revocation import within_grace
 
 #: The permission that makes somebody a reviewer in Keycloak. Matched on the
 #: app label too, so a same-named permission in another app cannot grant it.
@@ -26,6 +27,8 @@ NOT_PROVISIONED = "not-provisioned"
 PROVISIONED = "provisioned"
 LINK_SENT = "link-sent"
 ACTIVE = "active"
+SUSPENDED = "suspended"
+REVOKED = "revoked"
 
 #: Label and Bulma modifier per state. The colour only repeats the label, and the
 #: sponsor column says how an account arrived.
@@ -35,10 +38,12 @@ STATES = {
     PROVISIONED: (_("Created"), "is-info"),
     LINK_SENT: (_("Link sent"), "is-warning"),
     ACTIVE: (_("Active"), "is-success"),
+    SUSPENDED: (_("Suspended"), "is-warning"),
+    REVOKED: (_("Revoked"), "is-danger"),
 }
 
 #: The states of an account with a realm identity, in the order it passes them.
-LINKED_STATES = [PROVISIONED, LINK_SENT, ACTIVE]
+LINKED_STATES = [PROVISIONED, LINK_SENT, ACTIVE, SUSPENDED, REVOKED]
 
 #: Flags no invitation can get past. These accounts belong in the admin user list.
 HIDDEN_FLAGS = frozenset({"no-email", "inactive"})
@@ -54,6 +59,8 @@ class Row:
     flags: list = field(default_factory=list)
     proposed_username: str = ""
     proposed_roles: list = field(default_factory=list)
+    #: Set by the view, which knows who is looking.
+    may_revoke: bool = False
 
     @property
     def label(self):
@@ -79,7 +86,7 @@ class Row:
 
     @property
     def pending(self):
-        """True for a realm account nobody has signed in to yet.
+        """True for a trusted realm account nobody has signed in to yet.
 
         Only these are offered the setup email and the setup link. They hold a
         place against a sponsor's quota, and so does an account with no sponsor.
@@ -87,7 +94,21 @@ class Row:
         identity = self.identity
         if identity is None:
             return False
-        return identity.first_sso_login_at is None
+        return (
+            identity.first_sso_login_at is None
+            and identity.trust_state == TrustState.ACTIVE
+        )
+
+    @property
+    def restorable(self) -> bool:
+        """A revoked account whose revocation can still be undone in one action."""
+        identity = self.identity
+        return bool(
+            identity is not None
+            and identity.revoked_directly
+            and identity.trust_state == TrustState.REVOKED
+            and within_grace(identity)
+        )
 
     @property
     def cancellable(self):
@@ -116,6 +137,11 @@ def state_of(identity, flags):
     """Which state one account is in. A flag only blocks an unprovisioned one."""
     if identity is None:
         return BLOCKED if flags else NOT_PROVISIONED
+    # Trust comes before progress.
+    if identity.trust_state == TrustState.REVOKED:
+        return REVOKED
+    if identity.trust_state == TrustState.SUSPENDED:
+        return SUSPENDED
     if identity.first_sso_login_at is not None:
         return ACTIVE
     if identity.setup_email_sent_at or identity.setup_link_issued_at:
@@ -125,6 +151,8 @@ def state_of(identity, flags):
 
 #: :func:`state_of` for the database, on identities only. A test keeps the two equal.
 STATE_EXPRESSION = Case(
+    When(trust_state=TrustState.REVOKED, then=Value(REVOKED)),
+    When(trust_state=TrustState.SUSPENDED, then=Value(SUSPENDED)),
     When(first_sso_login_at__isnull=False, then=Value(ACTIVE)),
     When(
         Q(setup_email_sent_at__isnull=False) | Q(setup_link_issued_at__isnull=False),

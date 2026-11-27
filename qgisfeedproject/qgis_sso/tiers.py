@@ -10,7 +10,7 @@ from django.conf import settings
 from django.contrib.auth.models import User
 from django.db.models import QuerySet
 
-from .models import KeycloakIdentity
+from .models import KeycloakIdentity, TrustState
 
 #: The tier of an account with no known role. It sits below every real tier.
 NO_TIER = 99
@@ -47,6 +47,9 @@ def roles_of(user: User) -> list[str]:
     identity = getattr(user, "keycloak_identity", None)
     if identity is None:
         return []
+    # A revoked or suspended account holds no tier. Its saved roles are stale.
+    if not identity.trusted:
+        return []
     known = ladder()
     return [role for role in identity.last_seen_roles if role in known]
 
@@ -55,6 +58,20 @@ def effective_tier(user: User) -> int:
     """The most privileged tier among the roles held. Lower is more trusted."""
     tiers = [ladder()[role] for role in roles_of(user)]
     return min(tiers, default=NO_TIER)
+
+
+def tier_of(identity: KeycloakIdentity) -> int:
+    """The tier an identity holds, whether or not it is trusted right now.
+
+    ``effective_tier`` gives a suspended account no tier, which is right for
+    quotas. A suspended administrator still outranks a reviewer, though. The
+    roles are cleared on revocation, so this falls back to the ones kept then.
+    """
+    roles = list(identity.last_seen_roles or []) or list(
+        identity.roles_at_revocation or []
+    )
+    known = ladder()
+    return min((known[role] for role in roles if role in known), default=NO_TIER)
 
 
 def quota(user: User) -> int | None:
@@ -88,11 +105,13 @@ def invitable_roles(user: User) -> list[str]:
 def open_invitations(user: User) -> QuerySet[KeycloakIdentity]:
     """The accounts this person vouched for that nobody has signed in to yet.
 
-    A place frees up when that person signs in, or when the sponsor cancels.
+    A place frees up when that person signs in, when the sponsor cancels, or
+    when trust in the account is withdrawn.
     """
     return KeycloakIdentity.objects.filter(
         sponsor=user,
         first_sso_login_at=None,
+        trust_state=TrustState.ACTIVE,
     )
 
 

@@ -46,4 +46,9 @@ urlpatterns = [
         views_manage.InviteExistingView.as_view(),
         name="invite_existing",
     ),
+    path(
+        "manage/revoke/<int:pk>/",
+        views_manage.RevokeView.as_view(),
+        name="revoke",
+    ),
 ]
